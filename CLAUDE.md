@@ -17,12 +17,22 @@ https://github.com/KGthePM/SmartiBoard — installed by cloning it, so `.nvmrc`,
 ## Commands
 
 ```bash
+./start.sh       # clone-and-run: provisions Node into .node/ if needed, installs, runs dev
 npm install       # better-sqlite3 and esbuild need install scripts approved
 npm run dev       # http://localhost:3000
 npm test          # vitest: lib/**/*.test.ts
 npm run typecheck # tsc --noEmit
 npm run build     # next build
 ```
+
+**Node 22-26 only.** `.npmrc` sets `engine-strict=true`, so `npm install` on anything else
+aborts before touching `node_modules` — deliberate: better-sqlite3 publishes prebuilds for
+those versions only, and older Node silently falls back to a node-gyp compile that fails on
+stock Debian/Ubuntu. `scripts/check-node.js` (`preinstall`) repeats the check with a
+friendlier message, but it is a second net, not the gate: npm runs root lifecycle scripts
+*after* reifying dependencies, so by then the native build has already been attempted.
+`./start.sh` is the user-facing entry point and sidesteps all of it by fetching its own Node
+into `.node/` when the system one is unsuitable.
 
 ### Verification: no browsers
 

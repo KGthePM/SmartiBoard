@@ -24,15 +24,22 @@ There is no code path that merges a suggestion into your content implicitly.
 
 ## Running it
 
-**Requires Node 22 or 24.** `nvm use` picks it up from `.nvmrc`. The floor is real, not
-cautious: `npm install` builds one native module (better-sqlite3), and it ships prebuilt
-binaries only for Node 22, 24, 25 and 26 — on those, install downloads a binary and needs
-no compiler. On Node 18 or 20 there is no prebuild, so it falls back to compiling from
-source. `engine-strict` is on, so an unsupported Node stops the install with a clear
-message rather than failing halfway through a build.
+```bash
+git clone https://github.com/KGthePM/SmartiBoard.git
+cd SmartiBoard
+./start.sh                # http://localhost:3000
+```
+
+That is the whole install. `start.sh` checks whether your Node is one this app can use
+(22-26) and, if not, downloads its own into `./.node` and uses that. No `sudo`, no version
+manager to install first, no change to the Node already on your system — everything it
+creates lives inside the cloned folder. Debian and Ubuntu still ship Node 18, so on a stock
+Linux box this is the difference between working and not.
+
+**Already on Node 22 or 24?** Then the ordinary commands are all you need, and nothing gets
+downloaded:
 
 ```bash
-nvm use                   # or: nvm install 24
 npm install
 npm run dev               # http://localhost:3000
 ```
@@ -44,31 +51,45 @@ npm run build
 npm start                 # http://localhost:3000
 ```
 
-The `data/` directory and the SQLite file inside it are created on first run — there is no
-setup step, no migration to apply, and nothing to seed. A fresh clone starts with an empty
-library.
+The `data/` directory and the SQLite file inside it are created on first run — no setup
+step, no migration to apply, nothing to seed. A fresh clone starts with an empty library.
 
 <details>
-<summary><strong>Install fails with <code>gyp ERR!</code> or "No prebuilt binaries found"</strong></summary>
+<summary><strong>Why Node 22+, and what if <code>npm install</code> refuses to run?</strong></summary>
 
-Your Node is unsupported and npm fell through to compiling better-sqlite3 from source:
+Running `npm install` on an unsupported Node stops immediately with:
 
 ```
-prebuild-install warn install No prebuilt binaries found (target=18.19.1 ... platform=linux)
-gyp ERR! configure error
+npm ERR! code EBADENGINE
+npm ERR! notsup Required: {"node":">=22 <27"}
 ```
 
-Switch Node rather than installing a toolchain:
+That is deliberate, and stopping is the *good* outcome — nothing has been installed or
+half-built. The app depends on better-sqlite3, a native module, and it publishes prebuilt
+binaries only for Node 22, 24, 25 and 26. On anything older there is no prebuilt binary, so
+npm falls back to compiling it from source with `node-gyp`, which needs `python3` and a C++
+toolchain and fails on plenty of otherwise healthy machines. (Node 20 is excluded for the
+same reason: it is supported by the library but has no published prebuild.)
+
+Easiest fix, nothing to install:
+
+```bash
+./start.sh
+```
+
+Or install Node yourself:
 
 ```bash
 nvm install 24 && nvm use 24
-rm -rf node_modules
-npm install
+# or, on Debian/Ubuntu without nvm:
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt-get install -y nodejs
 ```
 
-Building from source *can* work — it needs `python3` and a C++ compiler (`build-essential`
-on Debian/Ubuntu, Xcode Command Line Tools on macOS) — but on a supported Node there is
-nothing to build.
+Then `rm -rf node_modules && npm install`.
+
+Windows is not covered by `start.sh` — use WSL, or install Node 22+ and run the npm commands
+directly.
 </details>
 
 **Bring your own model.** Open the ⚙ in the top-right (or `⌘,`) and pick one:
