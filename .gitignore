@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# build info
+*.tsbuildinfo
+
+# local board data (SQLite, incl. WAL sidecars)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.sqlite3
+
+# secrets — .env.example is committed on purpose
+.env
+.env.local
+.env.*.local
+
+# test / tooling output
+coverage/
+*.log
+npm-debug.log*
+
+# editor & OS
+.DS_Store
+.idea/
+.vscode/

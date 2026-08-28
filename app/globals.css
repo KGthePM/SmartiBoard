@@ -1,0 +1,829 @@
+:root {
+  --bg: #f7f7f5;
+  --grid: #e4e4e0;
+  --ink: #1c1c1a;
+  --muted: #6b6b66;
+
+  /* Layer 1: what the user placed. */
+  --user-bg: #ffffff;
+  --user-border: #c9c9c2;
+
+  /* Layer 3: jointly accepted. Same solidity as user content, marked as shared. */
+  --accepted-bg: #ffffff;
+  --accepted-border: #9aa8c4;
+  --accepted-mark: #4f6ba8;
+
+  /* Layer 2: AI proposal. Distinct hue, clearly provisional. */
+  --ghost-bg: #f2f4fb;
+  --ghost-border: #7f93c4;
+
+  --ghost-ink: #3c4a68;
+
+  /* Text formatting: a fixed emphasis palette, readable on white cards. */
+  --mark-red: #b3261e;
+  --mark-amber: #9a6700;
+  --mark-green: #1a7f37;
+  --mark-blue: #0969da;
+  --mark-violet: #8250df;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.viewport.panning { cursor: grabbing; }
+
+.world {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.card {
+  position: absolute;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--user-bg);
+  border: 1px solid var(--user-border);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  cursor: grab;
+  user-select: none;
+}
+.card.selected { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(28,28,26,0.12); }
+.card.editing { cursor: text; }
+
+.card.accepted { border-color: var(--accepted-border); }
+.card.accepted::after {
+  content: "";
+  position: absolute;
+  top: 7px; left: 7px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accepted-mark);
+}
+
+.card textarea {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  pointer-events: none;
+}
+.card.editing textarea { pointer-events: auto; }
+
+/* Rich text: the read view mirrors the textarea's metrics so the card does
+   not shift between editing and reading. */
+.rt {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.rt:empty::before {
+  content: 'an idea…';
+  color: var(--muted);
+}
+.rt-b { font-weight: 700; }
+.rt-i { font-style: italic; }
+.rt-u { text-decoration: underline; }
+.rt-s { text-decoration: line-through; }
+.rt-c-red { color: var(--mark-red); }
+.rt-c-amber { color: var(--mark-amber); }
+.rt-c-green { color: var(--mark-green); }
+.rt-c-blue { color: var(--mark-blue); }
+.rt-c-violet { color: var(--mark-violet); }
+
+/* Formatting toolbar, pinned above the card while editing. */
+.rt-bar {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -1px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid var(--user-border);
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  z-index: 4;
+}
+.rt-bar button {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rt-bar button:hover { background: rgba(28,28,26,0.08); }
+.rt-bar .f-b { font-weight: 700; }
+.rt-bar .f-i { font-style: italic; font-family: Georgia, serif; }
+.rt-bar .f-u { text-decoration: underline; }
+.rt-bar .f-s { text-decoration: line-through; }
+.rt-swatches {
+  display: flex;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--grid);
+}
+.rt-sw {
+  width: 13px !important;
+  height: 13px !important;
+  min-width: 0;
+  padding: 0 !important;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+.rt-sw:hover { transform: scale(1.15); background: transparent; }
+.rt-sw-red { background: var(--mark-red); }
+.rt-sw-amber { background: var(--mark-amber); }
+.rt-sw-green { background: var(--mark-green); }
+.rt-sw-blue { background: var(--mark-blue); }
+.rt-sw-violet { background: var(--mark-violet); }
+
+.port {
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--user-border);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .port, .card.selected .port { opacity: 1; }
+
+.del {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .del { opacity: 1; }
+
+/* ---------- edges: lines are content, not decoration ---------- */
+
+.edge-line { stroke: var(--user-border); stroke-width: 1.5; }
+.edge.accepted .edge-line { stroke: var(--accepted-border); stroke-width: 2; }
+.edge.selected .edge-line { stroke: var(--ink); stroke-width: 2.5; }
+
+/* The visible line stays thin; the hit stroke is what you actually grab.
+   Re-enabled per edge because the root svg ignores pointers so the empty
+   canvas keeps panning. */
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* The × rides the midpoint, shown on hover or selection. visibility (not
+   just opacity) keeps the hidden button out of hit testing. */
+.edge-x {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: auto;
+  transition: opacity 120ms;
+}
+.edge:hover .edge-x,
+.edge.selected .edge-x {
+  opacity: 1;
+  visibility: visible;
+}
+.edge-x circle {
+  fill: #fff;
+  stroke: var(--user-border);
+}
+.edge.selected .edge-x circle { stroke: var(--ink); }
+.edge-x path {
+  stroke: var(--ink);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.ghost {
+  position: absolute;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--ghost-bg);
+  border: 1px dashed var(--ghost-border);
+  color: var(--ghost-ink);
+  opacity: 0.85;
+  user-select: none;
+}
+.ghost .label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ghost-border);
+  margin-bottom: 4px;
+}
+.ghost .actions {
+  position: absolute;
+  bottom: -14px;
+  left: 10px;
+  display: flex;
+  gap: 6px;
+}
+.ghost button {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 4px;
+  border: 1px solid var(--ghost-border);
+  background: #fff;
+  color: var(--ghost-ink);
+  cursor: pointer;
+}
+.ghost button.accept { background: var(--ghost-border); border-color: var(--ghost-border); color: #fff; }
+.ghost .rationale {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 240px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  background: var(--ink);
+  color: #f4f4f2;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.ghost:hover .rationale { opacity: 1; }
+
+.status {
+  position: fixed;
+  bottom: 14px;
+  right: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.hint {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legend {
+  position: fixed;
+  bottom: 14px;
+  left: 16px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.legend i {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.legend .l-user { background: var(--user-bg); border: 1px solid var(--user-border); }
+.legend .l-ghost { background: var(--ghost-bg); border: 1px dashed var(--ghost-border); }
+.legend .l-accepted { background: var(--accepted-bg); border: 1px solid var(--accepted-border); }
+
+/* ---------- board chrome: identity, top-right ---------- */
+
+.chrome {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  z-index: 5;
+}
+.chrome-title,
+.chrome-switch,
+.chrome-settings,
+.chrome-summarize,
+.chrome-input {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+}
+.chrome-title {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.chrome-title:hover { border-color: var(--user-border); background: #fff; }
+.chrome-input {
+  width: 240px;
+  border-color: var(--ink);
+  background: #fff;
+  outline: 0;
+}
+.chrome-switch {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-switch:hover { color: var(--ink); }
+.chrome-settings {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-settings:hover { color: var(--ink); }
+.chrome-summarize {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-summarize:hover:not(:disabled) { color: var(--ink); }
+.chrome-summarize:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- summary panel: read-only AI output, off-canvas ---------- */
+
+/* The ghost layer's hue, so AI speech reads as AI speech even off the canvas —
+   but solid and pinned: this is a reading surface, not a proposal to accept. */
+.summary {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(340px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--ghost-bg);
+  border-left: 1px solid var(--ghost-border);
+  color: var(--ghost-ink);
+  z-index: 15;
+}
+.summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ghost-border);
+}
+.summary-title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ghost-border);
+}
+.summary-x {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--ghost-border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ghost-ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.summary-x:hover { background: var(--ghost-border); color: #fff; }
+
+.summary-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+/* The gist line leads, bullets follow: the model's own line breaks are the
+   layout. The caret marks a live stream — it disappears when text is done. */
+.summary-text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.summary-body.streaming .summary-text::after {
+  content: "▍";
+  color: var(--ghost-border);
+}
+.summary-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* The no-model state is a note plus a way out of it. */
+.summary-note p { margin: 0 0 8px; }
+.summary-go {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ghost-ink);
+  cursor: pointer;
+}
+.summary-go:hover { background: var(--ghost-border); color: #fff; }
+
+.summary-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--ghost-border);
+}
+.summary-again {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 9px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ghost-ink);
+  cursor: pointer;
+}
+.summary-again:hover { background: var(--ghost-border); color: #fff; }
+
+/* ---------- board switcher ---------- */
+
+.switcher-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(28,28,26,0.18);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.switcher {
+  width: min(460px, 92vw);
+  background: #fff;
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.switcher-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--grid);
+  outline: 0;
+  padding: 11px 13px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.switcher-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+.switcher-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.switcher-row.active { background: rgba(28,28,26,0.07); }
+.switcher-row.new { color: var(--muted); }
+.switcher-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.switcher-sub, .switcher-empty {
+  font-size: 11px;
+  color: var(--muted);
+}
+.switcher-empty { padding: 10px; }
+
+/* ---------- model settings ---------- */
+
+/* Deliberately the switcher's geometry and shadow: both are the same kind of
+   object — a small modal you summon, act in, and dismiss. */
+.settings-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(28,28,26,0.18);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10vh;
+}
+.settings {
+  width: min(420px, 92vw);
+  background: #fff;
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 9px 9px 13px;
+  border-bottom: 1px solid var(--grid);
+}
+.settings-title { font-size: 12px; color: var(--muted); }
+.settings-x {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.settings-x:hover { color: var(--ink); }
+.settings-body {
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-label { font-size: 11px; color: var(--muted); }
+.settings-input,
+.settings-select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: #fff;
+  border: 1px solid var(--user-border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  outline: 0;
+}
+.settings-input:focus,
+.settings-select:focus { border-color: var(--ink); }
+.settings-hint, .settings-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.settings-note { margin: 0; }
+.settings-link {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.settings-link:hover { color: var(--ink); }
+.settings-result {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-result.ok { color: var(--ink); }
+.settings-result.bad { color: var(--mark-red); }
+/* The upstream's own words, kept quiet — useful when it names the mistake,
+   noise when it doesn't. */
+.settings-detail {
+  color: var(--muted);
+  word-break: break-word;
+}
+.settings-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 13px;
+  border-top: 1px solid var(--grid);
+}
+.settings-test,
+.settings-save {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  height: 27px;
+  padding: 0 11px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+.settings-test:hover:not(:disabled) { color: var(--ink); }
+.settings-save {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+.settings-save:hover:not(:disabled) { opacity: 0.88; }
+.settings-test:disabled,
+.settings-save:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- board index ---------- */
+
+/* Its own scroll container: the board page relies on body overflow staying hidden. */
+.index {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  padding: 44px 32px 64px;
+}
+.index-head { max-width: 1040px; margin: 0 auto 22px; }
+.index-head h1 { margin: 0; font-size: 19px; font-weight: 600; }
+.index-head p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+
+.index-grid {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.bcard {
+  position: relative;
+  border: 1px solid var(--user-border);
+  border-radius: 6px;
+  background: var(--user-bg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+.bcard-hit {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.bcard-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px 11px;
+  border-top: 1px solid var(--grid);
+}
+.bcard-title {
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.bcard-sub { font-size: 11px; color: var(--muted); }
+
+.bcard-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.bcard:hover .bcard-x { opacity: 1; }
+
+.bcard-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  min-height: 172px;
+  border-style: dashed;
+  box-shadow: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.bcard-new:hover { color: var(--ink); border-color: var(--ink); }
+.bcard-new .plus { font-size: 20px; line-height: 1; }
+
+.archive { margin-top: 34px; }
+.archive h2 {
+  max-width: 1040px;
+  margin: 0 auto 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.bcard.archived { opacity: 0.62; box-shadow: none; }
+.bcard.archived:hover { opacity: 1; }
+.bcard-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 11px 11px;
+}
+.bcard-actions button {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+.bcard-actions .danger { color: var(--mark-red); border-color: var(--mark-red); }
+
+/* ---------- graph minimap ---------- */
+
+.thumb {
+  display: block;
+  width: 100%;
+  height: 130px;
+  background: var(--bg);
+}
+.thumb-empty { background: var(--bg); }
+.t-node { fill: var(--user-bg); stroke: var(--user-border); stroke-width: 0.8; }
+.t-node.t-accepted { stroke: var(--accepted-border); }
+.t-edge { stroke: var(--user-border); stroke-width: 0.8; }
+.t-edge.t-accepted { stroke: var(--accepted-border); }
