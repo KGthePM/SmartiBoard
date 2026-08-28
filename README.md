@@ -24,10 +24,52 @@ There is no code path that merges a suggestion into your content implicitly.
 
 ## Running it
 
+**Requires Node 22 or 24.** `nvm use` picks it up from `.nvmrc`. The floor is real, not
+cautious: `npm install` builds one native module (better-sqlite3), and it ships prebuilt
+binaries only for Node 22, 24, 25 and 26 — on those, install downloads a binary and needs
+no compiler. On Node 18 or 20 there is no prebuild, so it falls back to compiling from
+source. `engine-strict` is on, so an unsupported Node stops the install with a clear
+message rather than failing halfway through a build.
+
 ```bash
+nvm use                   # or: nvm install 24
 npm install
 npm run dev               # http://localhost:3000
 ```
+
+For a production run instead of the dev server:
+
+```bash
+npm run build
+npm start                 # http://localhost:3000
+```
+
+The `data/` directory and the SQLite file inside it are created on first run — there is no
+setup step, no migration to apply, and nothing to seed. A fresh clone starts with an empty
+library.
+
+<details>
+<summary><strong>Install fails with <code>gyp ERR!</code> or "No prebuilt binaries found"</strong></summary>
+
+Your Node is unsupported and npm fell through to compiling better-sqlite3 from source:
+
+```
+prebuild-install warn install No prebuilt binaries found (target=18.19.1 ... platform=linux)
+gyp ERR! configure error
+```
+
+Switch Node rather than installing a toolchain:
+
+```bash
+nvm install 24 && nvm use 24
+rm -rf node_modules
+npm install
+```
+
+Building from source *can* work — it needs `python3` and a C++ compiler (`build-essential`
+on Debian/Ubuntu, Xcode Command Line Tools on macOS) — but on a supported Node there is
+nothing to build.
+</details>
 
 **Bring your own model.** Open the ⚙ in the top-right (or `⌘,`) and pick one:
 
@@ -51,7 +93,10 @@ Configuring nothing is a supported configuration: the board is fully usable, it 
 doesn't co-author.
 
 Board state is one SQLite file (`SMARTI_DB_PATH`, default `./data/smarti.db`), one row per
-board. No external services — self-hosting is one process.
+board. No external services — self-hosting is one process. That default is relative to the
+working directory, so start the app from the repo root or set `SMARTI_DB_PATH` to an
+absolute path; otherwise you get a second, empty database instead of an error. The server
+prints the path it opened on first use.
 
 ```bash
 npm test          # placement, trigger policy, rich text, board naming, board switching, summary prompt

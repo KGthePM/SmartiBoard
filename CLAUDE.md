@@ -10,7 +10,9 @@ The v1 vertical slice is built. Docs:
 - `AGENTS.md` — condensed agent-facing version of the same constraints.
 - `README.md` — how to run it and how the trigger policy works.
 
-Multiple boards ship as of v1.2 — `/` is the project library. Not a git repository yet.
+Multiple boards ship as of v1.2 — `/` is the project library. Published at
+https://github.com/KGthePM/SmartiBoard — installed by cloning it, so `.nvmrc`,
+`.npmrc` (`engine-strict`), and `engines` are load-bearing: Node 22 or 24.
 
 ## Commands
 

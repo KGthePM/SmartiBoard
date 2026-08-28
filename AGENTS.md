@@ -2,7 +2,8 @@
 
 ## Repository state
 
-Single Next.js App Router app — no monorepo, no CI, not a git repo yet. The v1 vertical
+Single Next.js App Router app — no monorepo, no CI. Git repo, published at
+https://github.com/KGthePM/SmartiBoard. The v1 vertical
 slice is built (hand-rolled canvas, SQLite, zustand). `smarti-board-project-brief.md` is
 the authoritative product spec; `CLAUDE.md` has the stack table and file map; `README.md`
 explains the trigger policy and layer model.

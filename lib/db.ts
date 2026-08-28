@@ -23,6 +23,10 @@ let db: Database.Database | null = null;
 function conn(): Database.Database {
   if (db) return db;
   mkdirSync(dirname(DB_PATH), { recursive: true });
+  // The default path is relative, so launching from the wrong directory creates a
+  // second empty database instead of failing — which reads as "my boards vanished".
+  // Saying the absolute path out loud once is the whole fix.
+  console.log(`[smarti] database: ${DB_PATH}`);
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.exec(`
