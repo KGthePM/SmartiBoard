@@ -75,17 +75,31 @@ export function BoardSwitcher({ onClose, currentId }: { onClose: () => void; cur
   return (
     <div className="switcher-back" onPointerDown={onClose}>
       <div className="switcher" onPointerDown={(e) => e.stopPropagation()}>
-        <input
-          className="switcher-input"
-          autoFocus
-          placeholder="Go to a board…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setCursor(0);
-          }}
-          onKeyDown={onKeyDown}
-        />
+        <div className="switcher-head">
+          <input
+            className="switcher-input"
+            autoFocus
+            placeholder="Go to a board…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCursor(0);
+            }}
+            onKeyDown={onKeyDown}
+          />
+          {/* Escape was the only way out. A tap on the backdrop works too, but
+              on a phone the panel is 92vw and the backdrop is the sliver left
+              over — which is not a target, it is a dare. */}
+          <button
+            type="button"
+            className="switcher-x"
+            title="Close (Esc)"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
 
         <div className="switcher-list">
           {boards === null ? <div className="switcher-empty">loading…</div> : null}

@@ -68,7 +68,9 @@ the host so that the safe case is the one you get by doing nothing. `SMARTI_LAN=
 `SMARTI_HOST=0.0.0.0 npm run dev` if you skip the script. It is what you
 want when the boards live on your laptop and you would like to read or edit them from a phone
 or tablet in the same house. The canvas answers touch: drag to pan, pinch to zoom, drag a card
-to move it, long press for the things Shift does on a keyboard.
+to move it, drag the dot to connect, and **hold** where you would press Shift — on empty canvas
+to sweep a selection, on a card to add it to one. Double-tap the canvas for a new idea, tap a
+card to select it, double-tap it to edit.
 
 **It is opt-in every run, and it should be.** Smarti Board has no login, no session, and no
 per-user anything — one SQLite file, one settings row, and every `/api` route answers whoever

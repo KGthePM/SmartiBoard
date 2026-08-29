@@ -39,6 +39,11 @@ export function BoardChrome() {
 
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
+  /**
+   * The directions, pinned open by a press. Hover alone used to be the only
+   * way in, which made the one piece of in-app help unreachable from the one
+   * kind of device whose gestures are least obvious. */
+  const [helpOpen, setHelpOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   /** The title as it was before this rename, so Escape can put it back. */
   const beforeRef = useRef('');
@@ -74,6 +79,9 @@ export function BoardChrome() {
         // replaces the chrome), so from here it is always the way in.
         e.preventDefault();
         useBoard.getState().setPresenting(true);
+      } else if (e.key === 'Escape') {
+        // The directions close like every other panel does.
+        setHelpOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -243,10 +251,16 @@ export function BoardChrome() {
           ⚙
         </button>
 
-        {/* Hover or keyboard focus reveals the directions; click just focuses
-            the button, which holds the tip open until focus moves on. */}
-        <div className="chrome-help-wrap">
-          <button className="chrome-help" aria-label="Canvas controls">
+        {/* Hover or keyboard focus reveals the directions in passing; a press
+            pins them, which is the only way in without a pointer that hovers.
+            Escape closes it, as it closes every panel. */}
+        <div className={`chrome-help-wrap ${helpOpen ? 'open' : ''}`}>
+          <button
+            className="chrome-help"
+            aria-label="Canvas controls"
+            aria-expanded={helpOpen}
+            onClick={() => setHelpOpen((v) => !v)}
+          >
             ?
           </button>
           <div className="chrome-help-tip">
@@ -256,6 +270,8 @@ export function BoardChrome() {
             <span>A− / A+ for text size</span>
             <span>D marks it done</span>
             <span>Shift+click or Shift+drag selects several</span>
+            <span>On touch, hold instead of Shift</span>
+            <span>Pinch to zoom</span>
             <span>Click a line to select it</span>
             <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
             <span>⌘F to find &amp; replace</span>

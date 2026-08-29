@@ -245,6 +245,10 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* dvh over vh: iOS Safari's toolbar collapses as you scroll-that-isn't, and
+     vh is measured against the tallest state, so the board would sit taller
+     than the window it is in. */
+  height: 100dvh;
   overflow: hidden;
   background: var(--bg);
   color: var(--ink);
@@ -256,6 +260,10 @@ html, body {
   inset: 0;
   overflow: hidden;
   cursor: grab;
+  /* The single most important line for touch. Without it the browser's own
+     pan, pinch and double-tap-zoom answer first and the canvas gets whatever
+     is left — which is nothing. The board has its own version of all three. */
+  touch-action: none;
   background-color: var(--bg);
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
@@ -288,6 +296,11 @@ html, body {
   box-shadow: var(--shadow-1);
   cursor: grab;
   user-select: none;
+  /* Safari still wants the prefix, and the callout — the magnifier and the
+     copy/define bubble — would otherwise fire in the middle of the long press
+     that stands in for Shift. */
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .card.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ring); }
 .card.editing { cursor: text; }
@@ -314,7 +327,18 @@ html, body {
   padding: 0;
   pointer-events: none;
 }
-.card.editing textarea { pointer-events: auto; }
+.card.editing textarea {
+  pointer-events: auto;
+  /* The card says user-select: none so a drag never smears a text selection
+     across it; the field you are typing in is the exception. */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  /* And the one place inside the canvas where a finger may still scroll: the
+     surface's touch-action: none reaches every descendant otherwise, and a
+     card holding more text than it shows would have no way to reach the rest. */
+  touch-action: pan-y;
+}
 
 /* Rich text: the read view mirrors the textarea's metrics so the card does
    not shift between editing and reading. */
@@ -444,7 +468,10 @@ html, body {
   opacity: 0;
   transition: opacity 120ms;
 }
-.card:hover .del { opacity: 1; }
+/* Selected as well as hovered — the odd one out until now, which made the ×
+   the one card control a finger could not reach, since a tap selects and
+   nothing on a touchscreen hovers. */
+.card:hover .del, .card.selected .del { opacity: 1; }
 
 /* The done toggle: the ×'s mirror at the opposite corner. Unlike the × it
    stays visible on a done card, so finished work reads at a glance without
@@ -633,7 +660,7 @@ html, body {
   position: absolute;
   left: 0;
   bottom: calc(100% + 8px);
-  width: 240px;
+  width: min(240px, 60vw);
   padding: 7px 9px;
   border-radius: 5px;
   background: var(--rationale-bg);
@@ -644,11 +671,17 @@ html, body {
   transition: opacity 120ms;
 }
 .ghost:hover .rationale { opacity: 1; }
+/* Why the AI proposed this is the whole basis for accepting it, so on a device
+   with no hover it is simply shown. Nothing else about the ghost changes: it
+   is still the muted layer, still one at a time. */
+@media (hover: none) {
+  .ghost .rationale { opacity: 1; }
+}
 
 .status {
   position: fixed;
-  bottom: 14px;
-  right: 16px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  right: calc(16px + env(safe-area-inset-right));
   font-size: 12px;
   color: var(--muted);
   display: flex;
@@ -659,8 +692,8 @@ html, body {
 .status .save-error { color: var(--mark-amber); }
 .legend {
   position: fixed;
-  bottom: 14px;
-  left: 16px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  left: calc(16px + env(safe-area-inset-left));
   font-size: 11px;
   color: var(--muted);
   display: flex;
@@ -682,8 +715,8 @@ html, body {
 
 .board-name {
   position: fixed;
-  top: 10px;
-  left: 16px;
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(16px + env(safe-area-inset-left));
   z-index: 5;
 }
 .board-name-button,
@@ -718,10 +751,13 @@ html, body {
 
 /* ---------- board chrome: controls, top-right ---------- */
 
+/* Insets, here and on the four other fixed elements: viewportFit is 'cover',
+   so the page runs under the notch and the home indicator and the chrome has
+   to be told where the glass actually is. They resolve to 0 everywhere else. */
 .chrome {
   position: fixed;
-  top: 10px;
-  right: 14px;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
   display: flex;
   gap: 4px;
   align-items: center;
@@ -870,9 +906,9 @@ html, body {
    dragging the title area still pans the board underneath it. */
 .present-bar {
   position: fixed;
-  top: 10px;
-  left: 0;
-  right: 0;
+  top: calc(10px + env(safe-area-inset-top));
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -946,7 +982,11 @@ html, body {
   z-index: 6;
 }
 .chrome-help-wrap:hover .chrome-help-tip,
-.chrome-help-wrap:focus-within .chrome-help-tip { opacity: 1; }
+.chrome-help-wrap:focus-within .chrome-help-tip,
+.chrome-help-wrap.open .chrome-help-tip { opacity: 1; }
+/* Pinned open by a press, it is something to read — and therefore something to
+   press links or scroll in — rather than a passing hover label. */
+.chrome-help-wrap.open .chrome-help-tip { pointer-events: auto; }
 
 /* ---------- ideas panel: staged AI output, off-canvas ---------- */
 
@@ -1104,7 +1144,7 @@ html, body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 12vh;
+  padding-top: 12dvh;
 }
 .switcher {
   width: min(460px, 92vw);
@@ -1114,18 +1154,36 @@ html, body {
   box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
-.switcher-input {
-  width: 100%;
-  border: 0;
+/* The field and its way out share the one bordered row, so the × reads as
+   part of the search box rather than as a second thing floating over it. */
+.switcher-head {
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--grid);
+}
+.switcher-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
   outline: 0;
   padding: 11px 13px;
   font: inherit;
   color: inherit;
   background: transparent;
 }
+.switcher-x {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 8px 13px;
+}
+.switcher-x:hover { color: var(--ink); }
 .switcher-list {
-  max-height: 46vh;
+  max-height: 46dvh;
   overflow-y: auto;
   padding: 4px;
 }
@@ -1168,7 +1226,7 @@ html, body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 10vh;
+  padding-top: 10dvh;
 }
 .settings {
   width: min(420px, 92vw);
@@ -1308,7 +1366,7 @@ html, body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 10vh;
+  padding-top: 10dvh;
 }
 .objective {
   width: min(460px, 92vw);
@@ -1649,6 +1707,12 @@ html, body {
   transition: opacity 120ms;
 }
 .bcard:hover .bcard-x { opacity: 1; }
+/* A board card has no selected state to fall back on the way an idea card
+   does, so with no hover it simply stays visible. Archiving a board was
+   otherwise impossible from a phone. */
+@media (hover: none) {
+  .bcard-x { opacity: 1; }
+}
 
 .bcard-new {
   display: flex;
@@ -1717,6 +1781,64 @@ html, body {
 .t-node.t-accepted { stroke: var(--accepted-border); }
 .t-edge { stroke: var(--user-border); stroke-width: 0.8; }
 .t-edge.t-accepted { stroke: var(--accepted-border); }
+
+/* ---------- touch: the same board, reached with a finger ----------
+   Two rules, and everything here is one or the other.
+
+   1. A control you cannot see is a control that does not exist. Every
+      affordance that faded in on :hover had a second way in — selection —
+      except the ones fixed at their own definitions above.
+   2. A fingertip is not a cursor. The controls stay the size they are, because
+      shrinking a card's furniture to fit a finger would make the card worse for
+      everyone; what grows is the invisible area around them. */
+
+@media (pointer: coarse) {
+  /* ~44px of reachable area around an 14-18px control, without moving a pixel
+     of what is drawn. The pseudo-element is transparent and unstyled — it
+     exists only to be hit. */
+  .port::after,
+  .del::after,
+  .tick::after,
+  .resize::after,
+  .fs button::after {
+    content: "";
+    position: absolute;
+    inset: -13px;
+  }
+  .port, .del, .tick, .resize, .fs button { position: relative; }
+
+  /* SVG has no box to pad, so the edge controls grow instead. The hit stroke
+     is in board units and therefore thins as you zoom out, which is exactly
+     when a line is hardest to land on. */
+  .edge-hit { stroke-width: 22; }
+  .edge-x { r: 11; }
+}
+
+/* The chrome row is ten buttons wide and the board name is fixed at the
+   opposite corner; on a phone they meet in the middle. The row wraps rather
+   than scrolls — every button stays reachable, which is the whole point — and
+   the name yields, since it is also readable in the switcher and the tab. */
+@media (max-width: 700px) {
+  .chrome {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100vw - 130px);
+  }
+  .board-name {
+    max-width: 110px;
+  }
+  .board-name-button,
+  .board-name-input {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chrome-help-tip { width: min(220px, 70vw); }
+  /* The status and the legend are the two labels that can be inferred from the
+     board itself; on a narrow screen the cards matter more. */
+  .legend { display: none; }
+}
 
 /* ---------- print (v2.5): paper is a different medium, not another theme ----------
    The printed board is a separate React subtree (PrintSheets), mounted only

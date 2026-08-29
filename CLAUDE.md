@@ -79,6 +79,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
 - `lib/search.ts` — find & replace: `findMatches`, `planReplaceAll`, `markMatches`. Pure.
+- `lib/gesture.ts` — touch as arithmetic: `zoomAround` (the wheel and the pinch alike),
+  `pinchViewport`, and the long-press constants. Pure, node-free.
 - `lib/placement.ts` — where a ghost lands. Pure.
 - `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
   settings UI, `lib/db.ts`, and the tests all import it.
@@ -361,6 +363,45 @@ like a collaborator or a paperclip. Both are now settled:
   between the bound run and the unbound one would be a second thing to get wrong. Public ranges
   are deliberately absent: a tunnel or a port forward is a different decision than this one.
   No AI behavior, no new state, no token: still exactly one unsolicited and one user-invoked.
+
+- **Touch** (v2.6): the same board, reached with a finger — the other half of LAN access, since
+  what a phone on the network opens is a canvas built for a mouse. **It adds no gesture that a
+  keyboard and mouse did not already have**, and that is the design: a finger gets the wheel and
+  the Shift key back, nothing more. **Pinch** is the wheel (`lib/gesture.ts` — `zoomAround` is now
+  the app's one piece of viewport algebra, and the wheel goes through it too, so both zooms anchor
+  identically); a pinch zooms *and* pans, because two fingers that spread while sliding are doing
+  both, and it scales from the start rather than accumulating per-frame ratios so a pinch that
+  returns to where it began returns the viewport with it. **A long press is the Shift key** —
+  a sweep on empty canvas, a membership toggle on a card, computed against the selection as it
+  stood at press time so holding an unselected card cannot toggle off the selection its own press
+  just made. A touch-only *mode* was the alternative and was declined: there is one selection
+  model, now reachable two ways.
+  **`touch-action: none` on `.viewport` is the load-bearing line** — without it the browser's own
+  pan, pinch and double-tap-zoom answer first and the canvas gets what is left, which is nothing.
+  Its reach is why `.card.editing textarea` opts back into `pan-y`: the property runs to every
+  descendant, and a card holding more text than it shows must still be scrollable. The layout
+  export in `app/layout.tsx` pins `maximumScale: 1` for the same reason — the board owns a zoom,
+  and the browser must not own a second one — and `viewportFit: 'cover'`, which is what makes the
+  `env(safe-area-inset-*)` on the five fixed chrome elements resolve to anything.
+  **Pointer bookkeeping, not touch events.** The canvas was already on Pointer Events, so a finger
+  drags a card with no new code; what was missing is a map of live pointers (two entries is a
+  pinch), `pointercancel` (an iOS system gesture takes the pointer without a `pointerup`, and the
+  drag stayed latched), and explicit capture. Capture is *why* the connect drop now resolves with
+  `document.elementFromPoint` instead of `e.target.closest` — touch captures implicitly to the
+  element the press began in, so every connection resolved to its own source port and silently did
+  nothing. That was a bug on touch before this, not a limitation.
+  **Hover-only affordances are a reachability bug, not a style choice.** A control you cannot see
+  is a control that does not exist, so the card's `×` joins its siblings on `.selected` (it was the
+  odd one out, and cards could not be deleted from a phone), the library's archive `×` and the
+  ghost's rationale stay visible under `@media (hover: none)`, and the `?` directions get a real
+  press-to-pin toggle. Hit areas grow under `@media (pointer: coarse)` via a transparent `::after`
+  — the drawn controls do not change size, because a card's furniture that fits a fingertip is a
+  worse card for everyone.
+  **Not the "flourish" the brief rejects**, by the same reading that admitted themes: that rules
+  out skeuomorphic decoration, and this is reaching the controls that already exist. It spends
+  nothing — no undo snapshot, no `lastMutationAt` bump, not in the fingerprint, never a token, no
+  store field and no persisted state — and adds no AI behavior: still exactly one unsolicited and
+  one user-invoked.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

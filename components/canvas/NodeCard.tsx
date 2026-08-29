@@ -51,6 +51,17 @@ export function NodeCard({
   const [editing, setEditing] = useState(false);
   // Selection to restore after a toolbar toggle re-renders the textarea.
   const pendingSelection = useRef<[number, number] | null>(null);
+  /**
+   * When a press last landed on this card's own toolbar.
+   *
+   * A mouse never needs this: the buttons cancel mousedown, so focus never
+   * leaves the textarea. A tap on iOS is not so obliging — it dismisses the
+   * keyboard and blurs before the click lands, and `relatedTarget` is null, so
+   * there is nothing in the blur event itself to tell a toolbar tap from a tap
+   * out on the canvas. This remembers, and the blur handler puts the focus back
+   * instead of ending the session under the finger that was about to press B.
+   */
+  const toolbarPressAt = useRef(0);
 
   useEffect(() => {
     // Newly created nodes are empty and should be ready to type into — but
@@ -72,6 +83,7 @@ export function NodeCard({
     const sel = pendingSelection.current;
     if (!el || !sel) return;
     pendingSelection.current = null;
+    el.focus();
     el.setSelectionRange(sel[0], sel[1]);
   }, [node.text]);
 
@@ -107,9 +119,16 @@ export function NodeCard({
     >
       {editing ? (
         <>
-          {/* Buttons keep the textarea's focus (mousedown is prevented) so a
-              toolbar click never ends the editing session. */}
-          <div className="rt-bar" onPointerDown={(e) => e.stopPropagation()}>
+          {/* Buttons keep the textarea's focus so a toolbar press never ends
+              the editing session: a mouse by cancelling mousedown, a finger by
+              way of `toolbarPressAt` and the blur handler below. */}
+          <div
+            className="rt-bar"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              toolbarPressAt.current = Date.now();
+            }}
+          >
             <button type="button" className="f-b" aria-label="Bold" title="Bold (⌘B)"
               onMouseDown={(e) => e.preventDefault()} onClick={() => wrapSelection('**', '**')}>
               B
@@ -145,7 +164,15 @@ export function NodeCard({
               // otherwise it is pointer-events:none so the whole card drags.
               if (editing) e.stopPropagation();
             }}
-            onBlur={() => setEditing(false)}
+            onBlur={() => {
+              // A toolbar press is not leaving the card, whatever the browser
+              // thinks focus just did.
+              if (Date.now() - toolbarPressAt.current < 700) {
+                ref.current?.focus();
+                return;
+              }
+              setEditing(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 ref.current?.blur();
@@ -207,7 +234,13 @@ export function NodeCard({
       {/* The text size pair, at the one free corner. Presentation, like the
           resize bracket it sits beside — the ladder ends hold, so holding a
           click can never run away. */}
-      <div className="fs" onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="fs"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          toolbarPressAt.current = Date.now();
+        }}
+      >
         <button
           type="button"
           className="fs-down"

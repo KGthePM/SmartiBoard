@@ -10,12 +10,19 @@ import {
   NODE_W,
   nodesInRect,
   parseBoard,
-  VIEW_MAX_SCALE,
-  VIEW_MIN_SCALE,
   type Board,
   type NodeId,
   type Rect,
 } from '@/lib/graph';
+import {
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP,
+  distance,
+  midpoint,
+  pinchViewport,
+  zoomAround,
+  type PinchStart,
+} from '@/lib/gesture';
 import type { Match } from '@/lib/search';
 import { rejectedFor, useBoard } from '@/lib/store';
 import { activeIndex, useSearchMatches } from '../SearchPanel';
@@ -56,8 +63,14 @@ type Drag =
     }
   | { kind: 'resize'; id: NodeId; startW: number; startH: number; startX: number; startY: number }
   | { kind: 'connect'; from: NodeId; to: { x: number; y: number } }
-  /** Shift+drag on empty canvas: the marquee sweep. */
+  /** Shift+drag on empty canvas — or a long press on it: the marquee sweep. */
   | { kind: 'marquee'; ax: number; ay: number; cx: number; cy: number }
+  /**
+   * Two fingers down. It supersedes whatever single-pointer gesture was in
+   * flight, which is why it carries no memory of it: a pan that becomes a pinch
+   * is a pinch, and the pan's own arithmetic would fight it.
+   */
+  | { kind: 'pinch'; start: PinchStart }
   | null;
 
 export function Board({ boardId }: { boardId: string }) {
@@ -117,6 +130,21 @@ export function Board({ boardId }: { boardId: string }) {
   // print sheets exist. Nothing on screen changes for it: the stylesheet
   // shows the sheets under @media print and nowhere else.
   const [printing, setPrinting] = useState(false);
+  /**
+   * Every pointer currently down on the surface, by id. One entry is a drag;
+   * two are a pinch. A mouse only ever puts one thing in here, so nothing about
+   * this changes what a mouse does.
+   */
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  /**
+   * The armed long press. Touch has no Shift key, so a press that stays still
+   * long enough stands in for one — see `armLongPress`.
+   */
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    at: { x: number; y: number };
+    fire: () => void;
+  } | null>(null);
 
   const toBoardCoords = useCallback(
     (clientX: number, clientY: number) => {
@@ -129,6 +157,54 @@ export function Board({ boardId }: { boardId: string }) {
       };
     },
     [viewport],
+  );
+
+  /**
+   * Client pixels to surface pixels: the space `.world`'s transform lives in,
+   * and the space every zoom anchor is expressed in.
+   */
+  const toSurface = useCallback((clientX: number, clientY: number) => {
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+  }, []);
+
+  const cancelLongPress = useCallback(() => {
+    if (!longPressRef.current) return;
+    clearTimeout(longPressRef.current.timer);
+    longPressRef.current = null;
+  }, []);
+
+  /**
+   * Arm the Shift key.
+   *
+   * A press that holds still for LONG_PRESS_MS does what Shift+the same gesture
+   * does with a keyboard: sweep a marquee on empty canvas, toggle membership on
+   * a card. Making it the *same* meaning rather than a touch-only mode is the
+   * whole point — there is one selection model, reachable two ways. Any real
+   * movement, the pointer lifting, a second finger, or a cancel disarms it.
+   */
+  const armLongPress = useCallback(
+    (at: { x: number; y: number }, fire: () => void) => {
+      cancelLongPress();
+      const timer = setTimeout(() => {
+        longPressRef.current = null;
+        fire();
+      }, LONG_PRESS_MS);
+      longPressRef.current = { timer, at, fire };
+    },
+    [cancelLongPress],
+  );
+
+  /** Forget a pointer and every gesture that was riding on it. */
+  const endPointer = useCallback(
+    (e: React.PointerEvent) => {
+      pointersRef.current.delete(e.pointerId);
+      cancelLongPress();
+      if (surfaceRef.current?.hasPointerCapture(e.pointerId)) {
+        surfaceRef.current.releasePointerCapture(e.pointerId);
+      }
+    },
+    [cancelLongPress],
   );
 
   /* ---------- surface size: placement needs to know what's on screen ---------- */
@@ -391,8 +467,32 @@ export function Board({ boardId }: { boardId: string }) {
   /* ---------- pointer handling ---------- */
 
   const onPointerMove = (e: React.PointerEvent) => {
+    // Track first: the pinch reads both entries, and the long press needs to
+    // know how far this pointer has wandered even when nothing is dragging.
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    const held = longPressRef.current;
+    if (held && distance(held.at, { x: e.clientX, y: e.clientY }) > LONG_PRESS_SLOP) {
+      // Carried, so it was a drag after all. A finger resting on glass drifts,
+      // which is why the slop here is wider than the click-vs-drag rule below.
+      cancelLongPress();
+    }
+
     if (!drag) return;
-    if (drag.kind === 'pan') {
+    if (drag.kind === 'pinch') {
+      const pts = [...pointersRef.current.values()];
+      if (pts.length < 2) return;
+      store.setViewport(
+        pinchViewport(drag.start, {
+          dist: distance(pts[0], pts[1]),
+          mid: (() => {
+            const m = midpoint(pts[0], pts[1]);
+            return toSurface(m.x, m.y);
+          })(),
+        }),
+      );
+    } else if (drag.kind === 'pan') {
       store.setViewport({
         ...viewport,
         x: drag.originX + (e.clientX - drag.startX),
@@ -426,8 +526,21 @@ export function Board({ boardId }: { boardId: string }) {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    endPointer(e);
+    if (drag?.kind === 'pinch') {
+      // One finger left, or none. Either way the pinch is over; the survivor
+      // does not silently inherit a pan, because the board would jump by
+      // however far the fingers had already travelled.
+      setDrag(null);
+      return;
+    }
     if (drag?.kind === 'connect') {
-      const target = (e.target as HTMLElement).closest('[data-node-id]');
+      // Where the pointer *is*, not what the gesture started on. Touch captures
+      // implicitly to the element the press began in — and the mouse path now
+      // captures explicitly — so `e.target` is always the source card's port
+      // and every connection would resolve to itself and quietly do nothing.
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const target = under?.closest('[data-node-id]');
       const id = target?.getAttribute('data-node-id');
       if (id && id !== drag.from) store.connect(drag.from, id);
     } else if (drag?.kind === 'marquee') {
@@ -443,16 +556,15 @@ export function Board({ boardId }: { boardId: string }) {
   };
 
   const onWheel = (e: React.WheelEvent) => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    const cx = e.clientX - (rect?.left ?? 0);
-    const cy = e.clientY - (rect?.top ?? 0);
-    const next = clamp(viewport.scale * (e.deltaY < 0 ? 1.08 : 1 / 1.08), VIEW_MIN_SCALE, VIEW_MAX_SCALE);
-    // Zoom toward the cursor, not the origin.
-    store.setViewport({
-      scale: next,
-      x: cx - ((cx - viewport.x) / viewport.scale) * next,
-      y: cy - ((cy - viewport.y) / viewport.scale) * next,
-    });
+    // Zoom toward the cursor, not the origin — the same anchoring a pinch uses,
+    // which is why both go through `zoomAround`.
+    store.setViewport(
+      zoomAround(
+        viewport,
+        toSurface(e.clientX, e.clientY),
+        viewport.scale * (e.deltaY < 0 ? 1.08 : 1 / 1.08),
+      ),
+    );
   };
 
   /* ---------- keyboard ---------- */
@@ -529,6 +641,34 @@ export function Board({ boardId }: { boardId: string }) {
         ref={surfaceRef}
         className={`viewport ${drag?.kind === 'pan' ? 'panning' : ''} ${presenting ? 'presenting' : ''}`}
         onPointerDown={(e) => {
+          // A second finger anywhere on the surface is a pinch, whatever it
+          // landed on and whatever was in flight — including a card drag, which
+          // it supersedes. Registered before the target gate below for exactly
+          // that reason: the second finger often lands on a card.
+          if (pointersRef.current.size === 1) {
+            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            cancelLongPress();
+            const pts = [...pointersRef.current.values()];
+            const m = midpoint(pts[0], pts[1]);
+            setDrag({
+              kind: 'pinch',
+              start: {
+                dist: distance(pts[0], pts[1]),
+                mid: toSurface(m.x, m.y),
+                viewport,
+              },
+            });
+            return;
+          }
+          // Registered and captured for *any* press that reaches the surface,
+          // a card's included — this handler sees them by bubbling, and a card
+          // drag has always been driven by the surface's own pointermove. The
+          // capture keeps a finger that slides off the edge driving the gesture
+          // and guarantees the matching pointerup arrives here.
+          pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          e.currentTarget.setPointerCapture(e.pointerId);
+          // Only an empty patch of canvas pans or sweeps. Everything below is
+          // the surface's own gesture; a card's was already set up by NodeCard.
           if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('world'))
             return;
           // Presenting keeps exactly one gesture: the pan. The marquee is an
@@ -548,10 +688,29 @@ export function Board({ boardId }: { boardId: string }) {
             originX: viewport.x,
             originY: viewport.y,
           });
+          // Held still, the pan becomes the sweep — the long press standing in
+          // for the Shift above. The pan is started either way, so a press that
+          // turns into a drag has lost nothing.
+          if (!presenting) {
+            const p = toBoardCoords(e.clientX, e.clientY);
+            armLongPress({ x: e.clientX, y: e.clientY }, () =>
+              setDrag({ kind: 'marquee', ax: p.x, ay: p.y, cx: p.x, cy: p.y }),
+            );
+          }
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => setDrag(null)}
+        // A system gesture — the notification pull, an edge swipe — takes the
+        // pointer away without a pointerup. Without this the drag stays latched
+        // and the next touch resumes a gesture nobody is making.
+        onPointerCancel={(e) => {
+          endPointer(e);
+          setDrag(null);
+        }}
+        onPointerLeave={(e) => {
+          endPointer(e);
+          setDrag(null);
+        }}
         onWheel={onWheel}
         onDoubleClick={(e) => {
           if (presenting) return;
@@ -626,6 +785,20 @@ export function Board({ boardId }: { boardId: string }) {
                     // Only a multi-selection needs the click-vs-drag rule; a
                     // lone card already collapsed above.
                     collapseTo: inSelection && carry.length > 1 ? n.id : null,
+                  });
+                  // Held still, this press means what Shift+click above means:
+                  // toggle membership. It is computed against the selection as
+                  // it stood at press time, not the one the plain-click branch
+                  // has just collapsed to — otherwise holding on an unselected
+                  // card would toggle off the selection it had itself created.
+                  const before = selectedIds;
+                  armLongPress({ x: e.clientX, y: e.clientY }, () => {
+                    store.selectMany(
+                      before.includes(n.id)
+                        ? before.filter((x) => x !== n.id)
+                        : [...before, n.id],
+                    );
+                    setDrag(null);
                   });
                 }}
                 onEdit={() => store.select(n.id)}
@@ -743,6 +916,3 @@ function marqueeRect(d: { ax: number; ay: number; cx: number; cy: number }): Rec
   };
 }
 
-function clamp(v: number, lo: number, hi: number) {
-  return Math.min(hi, Math.max(lo, v));
-}

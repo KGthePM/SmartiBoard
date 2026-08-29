@@ -12,6 +12,7 @@ explains the trigger policy and layer model.
 
 ```bash
 ./start.sh       # clone-and-run: provisions Node into .node/ if needed, installs, runs dev
+./start.sh --lan # the same, but also serving to the LAN (opt-in; see Environment)
 npm install       # better-sqlite3 + esbuild have native install scripts — they must be allowed to run
 npm run dev       # http://localhost:3000/board/demo
 npm test          # vitest run (node env, only lib/**/*.test.ts)
@@ -51,6 +52,29 @@ the user's to make — say what needs looking at and stop there.
   and ideas routes; third parties get plain Messages calls.
 - `ANTHROPIC_API_KEY` — server-side only, optional, now the headless fallback.
 - `SMARTI_DB_PATH` — SQLite file, default `./data/smarti.db`. `data/` is runtime state.
+- `SMARTI_HOST` — what the dev and start scripts bind to, default `127.0.0.1`. **The default
+  is the point:** `next dev`/`next start` bind every interface on their own, so the board was
+  silently on the LAN of every machine it ran on. There is no auth anywhere — one settings
+  row, every `/api` route open to whoever asks — so reaching the network is an explicit
+  per-run decision (`./start.sh --lan` or `SMARTI_LAN=1`, which export `SMARTI_HOST=0.0.0.0`),
+  never a default and never persisted. `next.config.ts` lists the private ranges in
+  `allowedDevOrigins`; without them Next 15 serves the page over LAN and refuses its own API.
+
+## Touch
+
+The canvas is on Pointer Events, so a finger already dragged a card. What was added (v2.6) is
+only what a finger lacks: **pinch** is the wheel and **a long press is the Shift key** — sweep
+on empty canvas, membership toggle on a card. No touch-only mode; one selection model, two ways
+in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the pinch alike).
+
+- `touch-action: none` on `.viewport` is load-bearing — without it the browser's gestures win.
+  It reaches every descendant, which is why `.card.editing textarea` opts back into `pan-y`.
+- Pointer capture is on, so the connect drop must use `document.elementFromPoint`, never
+  `e.target.closest` — touch captures implicitly to the press origin.
+- `pointercancel` must stay wired: an iOS system gesture takes the pointer with no `pointerup`.
+- **Never gate an affordance on `:hover` alone.** Give it `.selected`, or answer
+  `@media (hover: none)`. Hit areas grow under `@media (pointer: coarse)` with a transparent
+  `::after`, not by resizing the drawn control.
 
 ## Hard constraints from the brief
 
