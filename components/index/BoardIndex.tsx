@@ -58,19 +58,37 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           viewBox="0 0 22 22"
           aria-hidden="true"
         >
-          <rect x="1.5" y="7" width="11" height="9" rx="2" fill="#fff" stroke="#c9c9c2" />
+          {/* The three layers, in miniature — and on the tokens, not on copies
+              of them, so the mark follows the theme the boards below it use. */}
+          <rect
+            x="1.5"
+            y="7"
+            width="11"
+            height="9"
+            rx="2"
+            fill="var(--user-bg)"
+            stroke="var(--user-border)"
+          />
           <rect
             x="8.5"
             y="3.5"
             width="11"
             height="9"
             rx="2"
-            fill="#f2f4fb"
-            stroke="#7f93c4"
+            fill="var(--ghost-bg)"
+            stroke="var(--ghost-border)"
             strokeDasharray="2.5 2"
           />
-          <rect x="5" y="10.5" width="11" height="9" rx="2" fill="#fff" stroke="#9aa8c4" />
-          <circle cx="8.2" cy="13.7" r="1.3" fill="#4f6ba8" />
+          <rect
+            x="5"
+            y="10.5"
+            width="11"
+            height="9"
+            rx="2"
+            fill="var(--accepted-bg)"
+            stroke="var(--accepted-border)"
+          />
+          <circle cx="8.2" cy="13.7" r="1.3" fill="var(--accepted-mark)" />
         </svg>
         <h1 className="index-wordmark">Smarti Board</h1>
         <p className="index-motto" lang="la">

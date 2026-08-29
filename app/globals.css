@@ -28,6 +28,189 @@
   --mark-green: #1a7f37;
   --mark-blue: #0969da;
   --mark-violet: #8250df;
+
+  /* ---- chrome, not content ----
+     Buttons, panels, inputs, scrims, and shadows. These were hardcoded #fff
+     and black rgba() until themes arrived (v2.2); the values here are exactly
+     what they were, so Light renders identically. Anything that reverses out
+     of a filled accent uses --on-accent, which is the only reason a theme can
+     invert without every white label disappearing. */
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --on-accent: #ffffff;
+
+  --scrim: rgba(28,28,26,0.18);
+  --wash: rgba(28,28,26,0.06);
+  --wash-strong: rgba(28,28,26,0.08);
+  --ring: rgba(28,28,26,0.12);
+  --swatch-ring: rgba(0,0,0,0.15);
+
+  /* Whole shadow values, not just colors: a dark theme wants a different
+     spread as well as a different alpha. */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-2: 0 1px 3px rgba(0,0,0,0.1);
+  --shadow-modal: 0 8px 28px rgba(0,0,0,0.14);
+
+  /* The ghost's rationale tooltip: the AI's voice, deliberately the tonal
+     opposite of the board it sits on. On a light board that means dark. */
+  --rationale-bg: var(--ink);
+  --rationale-ink: #f4f4f2;
+}
+
+/* ==========================================================================
+   Themes (v2.2). A theme is presentation and nothing else: the graph is
+   byte-identical under all three, no model is told which one is on, and
+   switching costs no undo slot and no token.
+
+   The rule every palette below has to answer is the brief's, not taste: the
+   three layers — what the user placed, what the AI proposes, what was jointly
+   accepted — must stay distinct at a glance, and a proposal must still read as
+   unfinished. Light does it with a blue tint on white and a dark tooltip
+   ("dark is the AI voice in this app"). That sentence inverts on a dark board,
+   so each theme states its own answer above its block.
+
+   Everything here is a token override. The only reason that is enough is that
+   the stylesheet has no colors left outside these blocks — keep it that way:
+   a new hardcoded #fff is a hole in two themes at once.
+   ========================================================================== */
+
+/* ---------- dark ----------
+   The layer answer: cards are *raised* out of the canvas and the ghost is
+   *recessed* into it — a proposal sits below the plane the user's work sits
+   on, which is the same "not yet real" the light theme gets from a tint. The
+   rationale tooltip flips to the lightest surface in the theme, because the
+   doctrine was never "dark", it was "the tonal opposite of the board". */
+:root[data-theme='dark'] {
+  /* Native scrollbars, focus rings, and <select> popups follow. */
+  color-scheme: dark;
+
+  --bg: #14161a;
+  --grid: #1e2127;
+  --ink: #e8e8e3;
+  --muted: #9a9a93;
+
+  --user-bg: #21242a;
+  --user-border: #3a3e46;
+
+  --accepted-bg: #21242a;
+  --accepted-border: #6d81ab;
+  --accepted-mark: #93a9da;
+
+  /* Below the canvas, not above it. */
+  --ghost-bg: #191c22;
+  --ghost-border: #8fa4d6;
+  --ghost-ink: #bcc7e4;
+
+  --done-faded: #6d6d67;
+
+  /* Re-picked, not dimmed: the light values are tuned for white cards and go
+     muddy at this luminance. Node text stores the color *name*, so this is the
+     only place the change lives. */
+  --mark-red: #f2867c;
+  --mark-amber: #dcb04a;
+  --mark-green: #6ed49a;
+  --mark-blue: #7ab8ff;
+  --mark-violet: #c3a3f2;
+
+  --surface: #21242a;
+  --surface-raised: #272b32;
+  --on-accent: #14161a;
+
+  --scrim: rgba(0,0,0,0.55);
+  --wash: rgba(255,255,255,0.06);
+  --wash-strong: rgba(255,255,255,0.1);
+  --ring: rgba(232,232,227,0.24);
+  --swatch-ring: rgba(255,255,255,0.22);
+
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-2: 0 2px 6px rgba(0,0,0,0.55);
+  --shadow-modal: 0 10px 34px rgba(0,0,0,0.6);
+
+  --rationale-bg: #eeeee8;
+  --rationale-ink: #1c1c1a;
+}
+
+/* The index keeps its own scoped palette, so it needs its own override —
+   parchment after dark, not a hole in the theme. */
+:root[data-theme='dark'] .index {
+  --paper: #191b1f;
+  --paper-deep: #202329;
+  --index-border: #34383f;
+  --index-line: #2a2e34;
+  --index-rule: #3b4048;
+  --index-accent: #d4836b;
+  --index-border-hover: #4d535c;
+  --index-shadow-hover: 0 6px 18px rgba(0,0,0,0.5);
+}
+
+/* ---------- neon ----------
+   Black table, acid green, cyan proposals.
+
+   The layer answer is a rule rather than a shade, because on a board where
+   everything glows, "provisional" is the first property to die: solid content
+   blooms, and the ghost is the only thing on the board that does not. It costs
+   no new rules — .card carries --shadow-1 and .ghost has never had a shadow —
+   which is also why it cannot rot. The proposal is additionally the only cyan
+   object among green ones, so it never reads as a dimmer version of the user's
+   own work. */
+:root[data-theme='neon'] {
+  color-scheme: dark;
+
+  --bg: #050706;
+  --grid: #0f2419;
+  --ink: #d6ffe4;
+  --muted: #74a389;
+
+  --user-bg: #0b120e;
+  --user-border: #2f7d54;
+
+  --accepted-bg: #0b120e;
+  --accepted-border: #39ff88;
+  --accepted-mark: #39ff88;
+
+  /* Cyan: the AI's hue here, never a shade of the user's green. */
+  --ghost-bg: #06100f;
+  --ghost-border: #00d5ff;
+  --ghost-ink: #9fe4f2;
+
+  --done-faded: #4d7061;
+
+  /* mark-green is lime, not the structural green — an emphasis color must not
+     read as a card border that wandered inside the text. */
+  --mark-red: #ff5c7a;
+  --mark-amber: #ffcc33;
+  --mark-green: #b6ff3d;
+  --mark-blue: #4fd8ff;
+  --mark-violet: #c77dff;
+
+  --surface: #0b120e;
+  --surface-raised: #0e1712;
+  --on-accent: #04120a;
+
+  --scrim: rgba(0,0,0,0.7);
+  --wash: rgba(57,255,136,0.08);
+  --wash-strong: rgba(57,255,136,0.14);
+  --ring: rgba(57,255,136,0.45);
+  --swatch-ring: rgba(255,255,255,0.25);
+
+  /* The bloom. This is the whole "solid content glows" half of the rule. */
+  --shadow-1: 0 0 10px rgba(57,255,136,0.13);
+  --shadow-2: 0 0 14px rgba(57,255,136,0.18);
+  --shadow-modal: 0 0 40px rgba(57,255,136,0.16);
+
+  --rationale-bg: #00d5ff;
+  --rationale-ink: #04121a;
+}
+
+:root[data-theme='neon'] .index {
+  --paper: #050706;
+  --paper-deep: #0a100c;
+  --index-border: #235c3e;
+  --index-line: #12291d;
+  --index-rule: #1c4630;
+  --index-accent: #39ff88;
+  --index-border-hover: #39ff88;
+  --index-shadow-hover: 0 0 18px rgba(57, 255, 136, 0.22);
 }
 
 * { box-sizing: border-box; }
@@ -66,7 +249,7 @@ html, body {
 .marquee {
   position: absolute;
   border: 1px solid var(--ink);
-  background: rgba(28, 28, 26, 0.06);
+  background: var(--wash);
   pointer-events: none;
 }
 
@@ -76,11 +259,11 @@ html, body {
   padding: 10px 12px;
   background: var(--user-bg);
   border: 1px solid var(--user-border);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-1);
   cursor: grab;
   user-select: none;
 }
-.card.selected { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(28,28,26,0.12); }
+.card.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ring); }
 .card.editing { cursor: text; }
 
 .card.accepted { border-color: var(--accepted-border); }
@@ -139,10 +322,10 @@ html, body {
   gap: 2px;
   align-items: center;
   padding: 3px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--user-border);
   border-radius: 5px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow-2);
   z-index: 4;
 }
 /* Direct children only — the color swatches live inside .rt-swatches and
@@ -161,7 +344,7 @@ html, body {
   color: var(--ink);
   cursor: pointer;
 }
-.rt-bar > button:hover { background: rgba(28,28,26,0.08); }
+.rt-bar > button:hover { background: var(--wash-strong); }
 .rt-bar .f-b { font-weight: 700; }
 .rt-bar .f-i { font-style: italic; font-family: Georgia, serif; }
 .rt-bar .f-u { text-decoration: underline; }
@@ -179,7 +362,7 @@ html, body {
   min-width: 0;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.15);
+  border: 1px solid var(--swatch-ring);
 }
 .rt-sw:hover { transform: scale(1.15); }
 .rt-sw-red { background: var(--mark-red); }
@@ -195,7 +378,7 @@ html, body {
   transform: translateY(-50%);
   width: 14px; height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--user-border);
   cursor: crosshair;
   opacity: 0;
@@ -215,7 +398,7 @@ html, body {
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   font-size: 12px;
   line-height: 1;
@@ -240,7 +423,7 @@ html, body {
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   font-size: 11px;
   line-height: 1;
@@ -253,7 +436,7 @@ html, body {
   opacity: 1;
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Crossing an idea off, as plainly as a whiteboard allows — but loud enough
@@ -322,7 +505,7 @@ html, body {
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   font-family: inherit;
   line-height: 1;
@@ -362,7 +545,7 @@ html, body {
   visibility: visible;
 }
 .edge-x circle {
-  fill: #fff;
+  fill: var(--surface);
   stroke: var(--user-border);
 }
 .edge.selected .edge-x circle { stroke: var(--ink); }
@@ -403,11 +586,11 @@ html, body {
   padding: 5px 9px;
   border-radius: 4px;
   border: 1px solid var(--ghost-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ghost-ink);
   cursor: pointer;
 }
-.ghost button.accept { background: var(--ghost-border); border-color: var(--ghost-border); color: #fff; }
+.ghost button.accept { background: var(--ghost-border); border-color: var(--ghost-border); color: var(--on-accent); }
 .ghost .rationale {
   position: absolute;
   left: 0;
@@ -415,8 +598,8 @@ html, body {
   width: 240px;
   padding: 7px 9px;
   border-radius: 5px;
-  background: var(--ink);
-  color: #f4f4f2;
+  background: var(--rationale-bg);
+  color: var(--rationale-ink);
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
@@ -487,11 +670,11 @@ html, body {
 }
 /* A derived or "Untitled" name is provisional — muted until someone types one. */
 .board-name-button.derived { color: var(--muted); }
-.board-name-button:hover { border-color: var(--user-border); background: #fff; }
+.board-name-button:hover { border-color: var(--user-border); background: var(--surface); }
 .board-name-input {
   width: min(46vw, 480px);
   border-color: var(--ink);
-  background: #fff;
+  background: var(--surface);
   outline: 0;
 }
 
@@ -528,14 +711,14 @@ html, body {
 .chrome-switch {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-switch:hover { color: var(--ink); }
 .chrome-home {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   text-decoration: none;
 }
@@ -543,7 +726,7 @@ html, body {
 .chrome-settings {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-settings:hover { color: var(--ink); }
@@ -552,7 +735,7 @@ html, body {
 .chrome-objective {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-objective:hover { color: var(--ink); }
@@ -563,20 +746,20 @@ html, body {
 .chrome-privacy {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-privacy:hover { color: var(--ink); }
 .chrome-privacy.on,
 .chrome-privacy.on:hover {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--ink);
   border-color: var(--ink);
 }
 .chrome-ideas {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-ideas:hover:not(:disabled) { color: var(--ink); }
@@ -584,7 +767,7 @@ html, body {
 .chrome-undo {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-undo:hover:not(:disabled) { color: var(--ink); }
@@ -592,7 +775,7 @@ html, body {
 .chrome-redo {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-redo:hover:not(:disabled) { color: var(--ink); }
@@ -600,7 +783,7 @@ html, body {
 .chrome-present {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-present:hover:not(:disabled) { color: var(--ink); }
@@ -657,7 +840,7 @@ html, body {
   padding: 0 8px;
   border-radius: 5px;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--muted);
   cursor: pointer;
   pointer-events: auto;
@@ -676,7 +859,7 @@ html, body {
 .chrome-help {
   color: var(--muted);
   border-color: var(--user-border);
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .chrome-help:hover,
@@ -689,7 +872,7 @@ html, body {
   padding: 9px 11px;
   border-radius: 5px;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   font-size: 12px;
   color: var(--ink);
   display: flex;
@@ -743,13 +926,13 @@ html, body {
   padding: 0;
   border: 1px solid var(--ghost-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ghost-ink);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
-.ideas-x:hover { background: var(--ghost-border); color: #fff; }
+.ideas-x:hover { background: var(--ghost-border); color: var(--on-accent); }
 
 /* Which card the run branched from, when it branched from one. */
 .ideas-seed {
@@ -777,11 +960,11 @@ html, body {
   padding: 6px 10px;
   border: 1px solid var(--ghost-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ghost-ink);
   cursor: pointer;
 }
-.ideas-go:hover { background: var(--ghost-border); color: #fff; }
+.ideas-go:hover { background: var(--ghost-border); color: var(--on-accent); }
 /* The launch button, then the line explaining what it will read. */
 .ideas-go + .ideas-note { margin-top: 10px; }
 
@@ -797,7 +980,7 @@ html, body {
 .ideas-item {
   border: 1px solid var(--ghost-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   padding: 9px 10px;
 }
 .ideas-item-text {
@@ -818,11 +1001,11 @@ html, body {
   padding: 5px 9px;
   border: 1px solid var(--ghost-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ghost-ink);
   cursor: pointer;
 }
-.ideas-add:hover:not(:disabled) { background: var(--ghost-border); color: #fff; }
+.ideas-add:hover:not(:disabled) { background: var(--ghost-border); color: var(--on-accent); }
 .ideas-add:disabled { cursor: default; opacity: 0.5; }
 /* Added stays in the list, spent rather than gone — the list must not
    reshuffle under the cursor between one click and the next. */
@@ -843,11 +1026,11 @@ html, body {
   padding: 5px 9px;
   border: 1px solid var(--ghost-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ghost-ink);
   cursor: pointer;
 }
-.ideas-again:hover { background: var(--ghost-border); color: #fff; }
+.ideas-again:hover { background: var(--ghost-border); color: var(--on-accent); }
 
 /* ---------- board switcher ---------- */
 
@@ -855,7 +1038,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(28,28,26,0.18);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -863,10 +1046,10 @@ html, body {
 }
 .switcher {
   width: min(460px, 92vw);
-  background: #fff;
+  background: var(--surface-raised);
   border: 1px solid var(--user-border);
   border-radius: 7px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 .switcher-input {
@@ -898,7 +1081,7 @@ html, body {
   color: inherit;
   cursor: pointer;
 }
-.switcher-row.active { background: rgba(28,28,26,0.07); }
+.switcher-row.active { background: var(--wash); }
 .switcher-row.new { color: var(--muted); }
 .switcher-name {
   overflow: hidden;
@@ -919,7 +1102,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(28,28,26,0.18);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -927,10 +1110,10 @@ html, body {
 }
 .settings {
   width: min(420px, 92vw);
-  background: #fff;
+  background: var(--surface-raised);
   border: 1px solid var(--user-border);
   border-radius: 7px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 .settings-head {
@@ -978,7 +1161,7 @@ html, body {
   font: inherit;
   font-size: 13px;
   color: inherit;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--user-border);
   border-radius: 5px;
   padding: 6px 8px;
@@ -1036,7 +1219,7 @@ html, body {
   padding: 0 11px;
   border-radius: 5px;
   border: 1px solid var(--user-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--muted);
   cursor: pointer;
 }
@@ -1044,7 +1227,7 @@ html, body {
 .settings-save {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-accent);
 }
 .settings-save:hover:not(:disabled) { opacity: 0.88; }
 .settings-test:disabled,
@@ -1059,7 +1242,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(28,28,26,0.18);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -1067,10 +1250,10 @@ html, body {
 }
 .objective {
   width: min(460px, 92vw);
-  background: #fff;
+  background: var(--surface-raised);
   border: 1px solid var(--user-border);
   border-radius: 7px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 .objective-head {
@@ -1101,7 +1284,7 @@ html, body {
   font-size: 13px;
   line-height: 1.55;
   color: inherit;
-  background: #fff;
+  background: var(--surface);
   border: 0;
   outline: 0;
   padding: 12px 13px;
@@ -1143,6 +1326,8 @@ html, body {
   --index-line: #e8e1cd;
   --index-rule: #d8d1bd;
   --index-accent: #9a3b26;
+  --index-border-hover: #bab19a;
+  --index-shadow-hover: 0 6px 18px rgba(84, 70, 45, 0.12);
   position: fixed;
   inset: 0;
   overflow-y: auto;
@@ -1211,7 +1396,7 @@ html, body {
   border: 1px solid var(--index-border);
   border-radius: 6px;
   background: var(--user-bg);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-1);
   overflow: hidden;
   transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
 }
@@ -1220,8 +1405,8 @@ html, body {
    gone. */
 .bcard:not(.archived):hover {
   transform: translateY(-2px);
-  border-color: #bab19a;
-  box-shadow: 0 6px 18px rgba(84, 70, 45, 0.12);
+  border-color: var(--index-border-hover);
+  box-shadow: var(--index-shadow-hover);
 }
 .bcard-hit {
   display: block;
@@ -1255,7 +1440,7 @@ html, body {
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--index-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   font-size: 13px;
   line-height: 1;
@@ -1309,7 +1494,7 @@ html, body {
   padding: 5px 8px;
   border-radius: 4px;
   border: 1px solid var(--index-border);
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   cursor: pointer;
 }

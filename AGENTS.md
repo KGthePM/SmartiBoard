@@ -289,5 +289,22 @@ the user's to make — say what needs looking at and stop there.
   an edit's debounce from just before entry cannot spend a token on a ghost that renders
   nowhere; on exit the loop resumes with nothing about the board having changed.
 
+- **Themes** (v2.2): `theme` in the settings row — `light` (default) | `dark` | `neon`,
+  `lib/theme.ts`. Install-level, not per-board: privacy is a property of the content, the
+  desk lamp is a property of the room. Presentation only — no undo snapshot, no
+  `lastMutationAt`, not in the fingerprint, never in a prompt, and **no store field**, since
+  nothing in JS reads it. `normalizeTheme` guards both the PUT route and `loadSettings`
+  (an unknown value is a `data-theme` no stylesheet answers to). The default does not follow
+  `prefers-color-scheme` — nobody's existing boards repaint themselves. `app/layout.tsx`
+  (`force-dynamic`) stamps `data-theme` on `<html>` server-side so a dark install never
+  flashes light; `SettingsPanel` writes the attribute after a save for the live change.
+  Every color in `app/globals.css` is in a token block — `:root`, `[data-theme='dark']`,
+  `[data-theme='neon']`, plus the `.index` scope — and must stay that way; a hardcoded
+  `#fff` is a hole in two themes at once. **Each theme owes the three-layer invariant its
+  own answer**: Dark recesses the ghost and inverts the rationale tooltip to the lightest
+  surface ("the tonal opposite of the board", which is what "dark is the AI voice" always
+  meant); Neon states it as a rule — solid content blooms via `--shadow-1`, the ghost has no
+  shadow and is the only thing that does not glow — and colors the AI cyan among greens.
+
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

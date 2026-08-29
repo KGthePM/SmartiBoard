@@ -12,6 +12,8 @@
  * logic. The db-backed entry point lives in lib/ai/config.ts.
  */
 
+import type { ThemeId } from '../theme';
+
 export type ProviderId = 'anthropic' | 'zai' | 'zai-coding' | 'ollama' | 'custom';
 
 /** How the provider is talked to on the wire. */
@@ -91,6 +93,12 @@ export type StoredSettings = {
    * resolution; the client-side suggest loop is the only reader.
    */
   ghostDelayMs: number;
+  /**
+   * The board's appearance (v2.2). Install-level like the rest of the row and
+   * purely presentational: it reaches CSS and nothing else — not the graph,
+   * not the fingerprint, not any prompt, and no part of model resolution.
+   */
+  theme: ThemeId;
 };
 
 /** A resolved, ready-to-call configuration — blanks filled from the preset. */

@@ -79,6 +79,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
 - `lib/placement.ts` — where a ghost lands. Pure.
+- `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
+  settings UI, `lib/db.ts`, and the tests all import it.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
 - `app/api/boards/route.ts` — the collection: list and create.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
@@ -234,6 +236,36 @@ like a collaborator or a paperclip. Both are now settled:
   `=== true`, so junk off the wire never reads as private) so older rows load fine, and it
   rides the board JSON like `title`. Still exactly one unsolicited behavior and one
   user-invoked one.
+
+- **Themes** (v2.2): three appearances — Light (default), Dark, and Neon — chosen in
+  Settings and stored as `theme` in the settings row. **Install-level, like the provider
+  config and unlike Privacy Mode**, and for the mirror-image reason: privacy is a property
+  of the *content*, so it lives on the board; appearance is a property of the *room*, so it
+  lives on the install. It is the cheapest thing in the app: no undo snapshot, no
+  `lastMutationAt` bump, not in the fingerprint, never in a prompt, no model call, and no
+  entry in `lib/store.ts` at all — nothing in JS reads it, CSS does. The default is Light and
+  deliberately does *not* follow `prefers-color-scheme`: repainting every existing board the
+  first time the app opens on a dark-set machine is an appearance change nobody asked for.
+  `normalizeTheme` (`lib/theme.ts`) is shared by the PUT route and `loadSettings` exactly as
+  `normalizeGhostDelay` is, because an unknown value means a `data-theme` no stylesheet
+  answers to — an unstyled board, which is worse than a wrong one.
+  **The root layout stamps `data-theme` on `<html>` server-side** from `loadSettings()`
+  (`app/layout.tsx`, `force-dynamic`), so a dark install never flashes light while a client
+  fetch resolves; `SettingsPanel` writes the attribute directly after a save so the change
+  lands without a reload. That attribute is the entire client-side surface of the feature.
+  **This is not the "flourish" the brief rejects** — that rules out skeuomorphic decoration
+  (marker animations, chalk texture, wobble), and a theme is legibility under different
+  lighting. Still exactly one unsolicited AI behavior and one user-invoked one.
+  **Every color in `app/globals.css` now lives in a token block**, which is the only reason
+  a palette override is enough — a new hardcoded `#fff` is a hole in two themes at once, so
+  add a token instead. **And each theme owes an explicit answer to the three-layer
+  invariant**, since a palette can quietly break the brief's one hard visual constraint:
+  Light tints the proposal blue on white and speaks through a dark tooltip; Dark raises user
+  cards out of the canvas and *recesses* the ghost into it, flipping the tooltip to the
+  lightest surface in the theme (the doctrine was never "dark", it was "the tonal opposite
+  of the board"); Neon makes it a rule instead of a shade — solid content blooms and **the
+  ghost is the only thing on the board that does not glow** — and gives the AI cyan among
+  greens so a proposal never reads as a dimmer copy of the user's own work.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

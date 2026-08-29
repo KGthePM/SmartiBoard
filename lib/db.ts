@@ -5,6 +5,7 @@ import { summarize, type BoardSummary } from './boards';
 import { emptyBoard, newId, parseBoard, type Board } from './graph';
 import type { ProviderId, StoredSettings } from './ai/providers';
 import { normalizeGhostDelay } from './ai/trigger';
+import { DEFAULT_THEME, normalizeTheme, type ThemeId } from './theme';
 
 /**
  * One SQLite file, one table. Self-hosting should be `docker run`, not a
@@ -42,7 +43,8 @@ function conn(): Database.Database {
       api_key  TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
       model    TEXT NOT NULL DEFAULT '',
-      ghost_delay_ms INTEGER NOT NULL DEFAULT 4000
+      ghost_delay_ms INTEGER NOT NULL DEFAULT 4000,
+      theme    TEXT NOT NULL DEFAULT 'light'
     );
   `);
   migrate(db);
@@ -71,6 +73,10 @@ function migrate(d: Database.Database): void {
   );
   if (!settingsCols.has('ghost_delay_ms')) {
     d.exec(`ALTER TABLE settings ADD COLUMN ghost_delay_ms INTEGER NOT NULL DEFAULT 4000`);
+  }
+  if (!settingsCols.has('theme')) {
+    // An install that predates themes was looking at Light, and stays there.
+    d.exec(`ALTER TABLE settings ADD COLUMN theme TEXT NOT NULL DEFAULT '${DEFAULT_THEME}'`);
   }
 }
 
@@ -182,9 +188,18 @@ export function boardExists(id: string): boolean {
 export function loadSettings(): StoredSettings | null {
   const row = conn()
     .prepare(
-      'SELECT provider, api_key, base_url, model, ghost_delay_ms FROM settings WHERE id = 1',
+      'SELECT provider, api_key, base_url, model, ghost_delay_ms, theme FROM settings WHERE id = 1',
     )
-    .get() as { provider: string; api_key: string; base_url: string; model: string; ghost_delay_ms: number } | undefined;
+    .get() as
+    | {
+        provider: string;
+        api_key: string;
+        base_url: string;
+        model: string;
+        ghost_delay_ms: number;
+        theme: string;
+      }
+    | undefined;
   if (!row) return null;
   return {
     provider: row.provider as ProviderId,
@@ -194,6 +209,9 @@ export function loadSettings(): StoredSettings | null {
     // Normalized on read: a hand-edited or migrated value off the ladder must
     // not wedge the ghost at a strange interval — it lands on the default.
     ghostDelayMs: normalizeGhostDelay(row.ghost_delay_ms),
+    // Same reason, sharper consequence: an unknown theme is a data-theme no
+    // stylesheet answers to, which paints an unstyled board.
+    theme: normalizeTheme(row.theme),
   };
 }
 
@@ -207,17 +225,19 @@ export function saveSettings(next: {
   baseUrl: string;
   model: string;
   ghostDelayMs: number;
+  theme: ThemeId;
 }): void {
   conn()
     .prepare(
-      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms)
-       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs)
+      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms, theme)
+       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs, @theme)
        ON CONFLICT(id) DO UPDATE SET
          provider = @provider,
          api_key = CASE WHEN @keepKey THEN settings.api_key ELSE @apiKey END,
          base_url = @baseUrl,
          model = @model,
-         ghost_delay_ms = @ghostDelayMs`,
+         ghost_delay_ms = @ghostDelayMs,
+         theme = @theme`,
     )
     .run({
       provider: next.provider,
@@ -227,6 +247,7 @@ export function saveSettings(next: {
       baseUrl: next.baseUrl,
       model: next.model,
       ghostDelayMs: next.ghostDelayMs,
+      theme: next.theme,
     });
 }
 

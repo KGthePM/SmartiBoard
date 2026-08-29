@@ -5,6 +5,7 @@ import { PRESETS, resolveConfigFrom, type ProviderId } from '@/lib/ai/providers'
 import { DEBOUNCE_MS } from '@/lib/ai/trigger';
 import { classify, short, type UpstreamReason } from '@/lib/ai/upstream';
 import { loadSettings } from '@/lib/db';
+import { DEFAULT_THEME } from '@/lib/theme';
 
 export const runtime = 'nodejs';
 
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       model: str(body.model),
       // Resolution never reads it; the type carries the whole row.
       ghostDelayMs: DEBOUNCE_MS,
+      theme: DEFAULT_THEME,
     },
     undefined,
   );

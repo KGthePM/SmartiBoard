@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { clearSettingsApiKey, loadSettings, saveSettings } from '@/lib/db';
 import { keyHint, PRESETS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, normalizeGhostDelay } from '@/lib/ai/trigger';
+import { DEFAULT_THEME, normalizeTheme } from '@/lib/theme';
 
 export const runtime = 'nodejs';
 
@@ -22,6 +23,7 @@ function masked() {
     baseUrl: s.baseUrl,
     model: s.model,
     ghostDelayMs: s.ghostDelayMs,
+    theme: s.theme,
     hasKey: Boolean(s.apiKey.trim()),
     keyHint: keyHint(s.apiKey),
   };
@@ -38,6 +40,7 @@ export async function PUT(req: Request) {
     baseUrl?: unknown;
     model?: unknown;
     ghostDelayMs?: unknown;
+    theme?: unknown;
   };
   try {
     body = await req.json();
@@ -65,9 +68,15 @@ export async function PUT(req: Request) {
   // window is a preference, and a stale client's odd number must not wedge the
   // ghost or block the provider fields it rode in with. An absent value keeps
   // the stored one — same doctrine as the key: the form sends what it holds.
-  const storedDelay = loadSettings()?.ghostDelayMs;
+  const stored = loadSettings();
   const ghostDelayMs =
-    body.ghostDelayMs === undefined ? (storedDelay ?? DEBOUNCE_MS) : normalizeGhostDelay(body.ghostDelayMs);
+    body.ghostDelayMs === undefined ? (stored?.ghostDelayMs ?? DEBOUNCE_MS) : normalizeGhostDelay(body.ghostDelayMs);
+
+  // Same rule for the theme, and the same reason: it is a preference riding
+  // along with the provider fields, and an unknown value must not fail the
+  // save it arrived with — nor leave the app on a data-theme no stylesheet
+  // answers to.
+  const theme = body.theme === undefined ? (stored?.theme ?? DEFAULT_THEME) : normalizeTheme(body.theme);
 
   saveSettings({
     provider: body.provider as ProviderId,
@@ -75,6 +84,7 @@ export async function PUT(req: Request) {
     baseUrl: str(body.baseUrl, 2048),
     model: str(body.model, 200),
     ghostDelayMs,
+    theme,
   });
 
   return NextResponse.json({ settings: masked() });

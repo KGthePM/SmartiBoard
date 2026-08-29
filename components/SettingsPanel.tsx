@@ -5,6 +5,7 @@ import type { ModelInfo } from '@/lib/ai/openai';
 import { PRESETS, PROVIDERS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, GHOST_DELAY_OFF, GHOST_DELAY_STEPS_MS } from '@/lib/ai/trigger';
 import { useBoard } from '@/lib/store';
+import { DEFAULT_THEME, THEME_LABELS, THEMES, type ThemeId } from '@/lib/theme';
 
 /**
  * Where the user says which model co-authors their boards.
@@ -24,6 +25,7 @@ type Masked = {
   baseUrl: string;
   model: string;
   ghostDelayMs: number;
+  theme: ThemeId;
   hasKey: boolean;
   keyHint: string | null;
 };
@@ -71,6 +73,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [model, setModel] = useState(PRESETS.anthropic.defaultModel);
   const [stored, setStored] = useState<Masked | null>(null);
   const [ghostDelay, setGhostDelay] = useState<number>(DEBOUNCE_MS);
+  const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
@@ -98,6 +101,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           setModel(d.settings.model || p.defaultModel);
           // Already normalized on read by the server, so it is a legal rung.
           setGhostDelay(d.settings.ghostDelayMs);
+          setTheme(d.settings.theme);
         }
         setReady(true);
       })
@@ -139,6 +143,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     baseUrl: baseUrl.trim(),
     model: model.trim(),
     ghostDelayMs: ghostDelay,
+    theme,
   });
 
   /**
@@ -224,6 +229,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       if (typeof d.settings?.ghostDelayMs === 'number') {
         useBoard.getState().setGhostDelay(d.settings.ghostDelayMs);
       }
+      // The theme's only channel is the attribute the server stamped on <html>
+      // at load — there is nothing in the store to update, because nothing in
+      // JS reads it. Writing it here is what makes the change land without a
+      // reload; the next request will render with it already set.
+      if (d.settings?.theme) document.documentElement.dataset.theme = d.settings.theme;
       onClose();
     } catch {
       setSaving(false);
@@ -407,6 +417,25 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             <span className="settings-hint">
               How long the board sits still after an edit before the ghost may offer one suggestion. Off
               turns the unsolicited ghost off everywhere — the Ideas button (⌘.) still works.
+            </span>
+          </label>
+
+          <label className="settings-field">
+            <span className="settings-label">Theme</span>
+            <select
+              className="settings-select"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value as ThemeId)}
+            >
+              {THEMES.map((t) => (
+                <option key={t} value={t}>
+                  {THEME_LABELS[t]}
+                </option>
+              ))}
+            </select>
+            <span className="settings-hint">
+              How the board looks, on this machine — every board, not just this one. It changes nothing the
+              AI sees.
             </span>
           </label>
 

@@ -13,6 +13,7 @@ const row = (over: Partial<StoredSettings> = {}): StoredSettings => ({
   baseUrl: '',
   model: '',
   ghostDelayMs: 4000,
+  theme: 'light',
   ...over,
 });
 
