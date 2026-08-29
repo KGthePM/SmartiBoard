@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, emptyBoard, newId, type Board } from '../graph';
 import {
+  canGenerateIdeas,
   DEBOUNCE_MS,
   FAILURE_COOLDOWN_MS,
   fingerprint,
@@ -93,6 +94,13 @@ describe('fingerprint', () => {
     expect(fingerprint(a)).toBe(fingerprint(b));
   });
 
+  it('ignores text size — a bigger card is not a bigger idea', () => {
+    const a = board(['pricing', 'onboarding', 'churn']);
+    const b = board(['pricing', 'onboarding', 'churn']);
+    b.nodes = b.nodes.map((n) => ({ ...n, fontSize: 26 }));
+    expect(fingerprint(a)).toBe(fingerprint(b));
+  });
+
   it('changes when an idea changes', () => {
     const a = board(['pricing', 'onboarding', 'churn']);
     const b = board(['pricing', 'onboarding', 'retention']);
@@ -171,5 +179,33 @@ describe('privacy mode', () => {
     // buy the ghost a free question about a board nobody had touched.
     const a = board(['pricing', 'onboarding', 'churn']);
     expect(fingerprint({ ...a, privacy: true })).toBe(fingerprint(a));
+  });
+});
+
+describe('canGenerateIdeas', () => {
+  it('refuses a board with nothing on it and nothing to aim at', () => {
+    expect(canGenerateIdeas(emptyBoard('x'))).toBe(false);
+  });
+
+  it('runs on an objective alone — the cold start the ghost cannot serve', () => {
+    // This is the whole reason it has its own floor: a fresh board with a
+    // stated goal used to leave the entire AI layer silent.
+    const b = { ...emptyBoard('x'), objective: 'Decide whether to launch in the EU first' };
+    expect(canGenerateIdeas(b)).toBe(true);
+  });
+
+  it('runs on one idea, well below the ghost’s floor', () => {
+    expect(canGenerateIdeas(board(['pricing']))).toBe(true);
+  });
+
+  it('does not count an empty card', () => {
+    // Same substantiveNodes rule the ghost uses: a placeholder is not an idea.
+    expect(canGenerateIdeas(board(['', '   ']))).toBe(false);
+  });
+
+  it('refuses a private board however much is on it', () => {
+    const b = { ...board(['pricing', 'onboarding', 'churn']), privacy: true };
+    expect(canGenerateIdeas(b)).toBe(false);
+    expect(canGenerateIdeas({ ...b, objective: 'ship by Q3' })).toBe(false);
   });
 });

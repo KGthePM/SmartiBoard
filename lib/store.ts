@@ -10,11 +10,14 @@ import {
   newId,
   OBJECTIVE_MAX,
   removeNode,
+  stepFontSize,
   TITLE_MAX,
   type Board,
   type Layer,
   type NodeId,
 } from './graph';
+import { fingerprint } from './ai/trigger';
+import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import type { Rect } from './graph';
 import type { Proposal, ProposalDraft } from './proposal';
@@ -25,11 +28,32 @@ type Viewport = { x: number; y: number; scale: number };
 type Surface = { w: number; h: number };
 
 /**
- * The board summary (v1.3): read-only AI output. Everything it is NOT follows
- * from that — never a node, never in the undo stack, never persisted, never
- * fed to rejectedByBoard. It is display state and nothing more.
+ * The idea generator (v2.0), replacing the summary. `too_thin` is its own
+ * refusal because it is the one the person can act on — write an objective or
+ * a card and the button lights up.
  */
-export type SummaryStatus = 'idle' | 'streaming' | 'done' | 'no_key' | 'private' | 'error';
+export type IdeasStatus =
+  | 'idle'
+  | 'streaming'
+  | 'done'
+  | 'no_key'
+  | 'private'
+  | 'too_thin'
+  | 'error';
+
+/**
+ * A generated idea as the panel holds it: the draft plus a local id and whether
+ * it has been added. Like a Proposal it is deliberately NOT an IdeaNode — it
+ * lives in this slice, never in board.nodes, and `addIdea` constructs a fresh
+ * node rather than promoting it. That is the only bridge, and the user is
+ * always the one who crosses it.
+ */
+export type PanelIdea = IdeaDraft & {
+  id: string;
+  /** Kept in the list once added, greyed rather than removed: a list that
+   *  reshuffles under the cursor makes the next click a gamble. */
+  added: boolean;
+};
 
 export type State = {
   /**
@@ -59,15 +83,17 @@ export type State = {
   deletedEdgesByBoard: Record<string, [NodeId, NodeId][]>;
   suggesting: boolean;
   /**
-   * The summary panel. `summaryFingerprint` is the board the cached text was
-   * generated from — the panel compares it to the live fingerprint to know a
-   * cached read is still fresh, so reopening with no material change never
-   * re-spends tokens.
+   * The ideas panel. `ideasFingerprint` is the board the list was generated
+   * from — the panel compares it to the live fingerprint to know the list is
+   * still about the board you are looking at, so reopening with no material
+   * change never re-spends tokens. `ideasSeedId` is the card the run branched
+   * from, when there was one; it is remembered so Regenerate keeps the thread.
    */
-  summaryOpen: boolean;
-  summaryText: string;
-  summaryStatus: SummaryStatus;
-  summaryFingerprint: string | null;
+  ideasOpen: boolean;
+  ideas: PanelIdea[];
+  ideasStatus: IdeasStatus;
+  ideasFingerprint: string | null;
+  ideasSeedId: NodeId | null;
   /**
    * The Settings modal. Global like the settings themselves — provider config
    * belongs to the install, not to a board — but it still closes on board
@@ -114,6 +140,7 @@ export type State = {
   setNodeText: (id: NodeId, text: string, format?: boolean) => void;
   moveNode: (id: NodeId, x: number, y: number) => void;
   resizeNode: (id: NodeId, w: number, h: number) => void;
+  adjustNodeFontSize: (id: NodeId, dir: 1 | -1) => void;
   toggleNodeDone: (id: NodeId) => void;
   deleteNode: (id: NodeId) => void;
   connect: (from: NodeId, to: NodeId, layer?: Layer) => void;
@@ -130,14 +157,15 @@ export type State = {
   acceptProposal: () => void;
   dismissProposal: () => void;
 
-  setSummaryOpen: (open: boolean) => void;
+  setIdeasOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setObjectiveOpen: (open: boolean) => void;
-  beginSummary: () => void;
-  appendSummary: (chunk: string) => void;
-  finishSummary: (fingerprint: string) => void;
-  failSummary: (reason: string) => void;
-  cancelSummary: () => void;
+  beginIdeas: (seedId: NodeId | null) => void;
+  receiveIdea: (draft: IdeaDraft) => void;
+  finishIdeas: (fingerprint: string) => void;
+  failIdeas: (reason: string) => void;
+  cancelIdeas: () => void;
+  addIdea: (localId: string) => void;
 
   undo: () => void;
   redo: () => void;
@@ -163,10 +191,11 @@ export const useBoard = create<State>((set, get) => ({
   rejectedByBoard: {},
   deletedEdgesByBoard: {},
   suggesting: false,
-  summaryOpen: false,
-  summaryText: '',
-  summaryStatus: 'idle',
-  summaryFingerprint: null,
+  ideasOpen: false,
+  ideas: [],
+  ideasStatus: 'idle',
+  ideasFingerprint: null,
+  ideasSeedId: null,
   settingsOpen: false,
   objectiveOpen: false,
   viewport: { x: 0, y: 0, scale: 1 },
@@ -187,8 +216,8 @@ export const useBoard = create<State>((set, get) => ({
    * without this the undo stack, its redo mirror, the live ghost, and the
    * trigger fingerprint all follow you across — and ⌘Z would restore one
    * board's snapshot into another, which autosave would then write to the
-   * wrong id. The summary goes
-   * too: closing the panel unmounts it, which aborts any live stream.
+   * wrong id. The generated ideas go too: closing the panel unmounts it, which
+   * aborts any live stream.
    */
   beginLoad: (id) =>
     set({
@@ -201,10 +230,11 @@ export const useBoard = create<State>((set, get) => ({
       selectedId: null,
       selectedEdgeId: null,
       suggesting: false,
-      summaryOpen: false,
-      summaryText: '',
-      summaryStatus: 'idle',
-      summaryFingerprint: null,
+      ideasOpen: false,
+      ideas: [],
+      ideasStatus: 'idle',
+      ideasFingerprint: null,
+      ideasSeedId: null,
       settingsOpen: false,
       objectiveOpen: false,
       lastRequestedFingerprint: null,
@@ -307,6 +337,24 @@ export const useBoard = create<State>((set, get) => ({
       // Same doctrine as moveNode: a box's size is presentation, not content —
       // no undo snapshot, no lastMutationAt bump, never a token. But like a
       // move it spends the redo stack, because a redo snapshot holds sizes too.
+      redoStack: [],
+    })),
+
+  /**
+   * Text size, one ladder rung at a time. The resize doctrine again, and for
+   * the same reasons: a card's font is presentation — the model never sees it,
+   * so no undo snapshot, no lastMutationAt bump, never a token. Like a resize
+   * it still spends the redo stack, because a redo snapshot holds font sizes
+   * too, and redoing after a size change would snap the text back.
+   */
+  adjustNodeFontSize: (id, dir) =>
+    set((s) => ({
+      board: {
+        ...s.board,
+        nodes: s.board.nodes.map((n) =>
+          n.id === id ? { ...n, fontSize: stepFontSize(n.fontSize, dir) } : n,
+        ),
+      },
       redoStack: [],
     })),
 
@@ -462,52 +510,96 @@ export const useBoard = create<State>((set, get) => ({
       };
     }),
 
-  setSummaryOpen: (open) => set({ summaryOpen: open }),
+  setIdeasOpen: (open) => set({ ideasOpen: open }),
 
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   setObjectiveOpen: (open) => set({ objectiveOpen: open }),
 
-  beginSummary: () => set({ summaryText: '', summaryStatus: 'streaming' }),
+  beginIdeas: (seedId) => set({ ideas: [], ideasStatus: 'streaming', ideasSeedId: seedId }),
 
-  // Streaming deltas are only meaningful mid-stream. The guard makes a stale
-  // delta — one that outlived its board switch — structurally a no-op even if
-  // the component-side boardId check ever failed.
-  appendSummary: (chunk) =>
+  // Ideas are only meaningful mid-stream. The guard makes a stale frame — one
+  // that outlived its board switch — structurally a no-op even if the
+  // component-side boardId check ever failed. No pushUndo, for the same reason
+  // ghost arrival has none: a suggestion appearing is not something the user
+  // did, and must never be undoable.
+  receiveIdea: (draft) =>
     set((s) =>
-      s.summaryStatus === 'streaming' && chunk
-        ? { summaryText: s.summaryText + chunk }
+      s.ideasStatus === 'streaming'
+        ? { ideas: [...s.ideas, { ...draft, id: newId('i'), added: false }] }
         : s,
     ),
 
-  finishSummary: (fp) =>
-    set((s) => (s.summaryStatus === 'streaming' ? { summaryStatus: 'done', summaryFingerprint: fp } : s)),
+  finishIdeas: (fp) =>
+    set((s) => (s.ideasStatus === 'streaming' ? { ideasStatus: 'done', ideasFingerprint: fp } : s)),
 
-  failSummary: (reason) =>
+  failIdeas: (reason) =>
     set((s) =>
-      s.summaryStatus === 'streaming'
+      s.ideasStatus === 'streaming'
         ? {
-            summaryStatus:
+            ideasStatus:
               reason === 'no_api_key'
                 ? 'no_key'
-                : // The route refused because the board is private. That is a
-                  // state, not a failure, and must not read as one.
+                : // The route refused because the board is private, or because
+                  // there is nothing on it yet. Both are states, not failures,
+                  // and must not read as one.
                   reason === 'privacy'
                   ? 'private'
-                  : 'error',
+                  : reason === 'too_thin'
+                    ? 'too_thin'
+                    : 'error',
           }
         : s,
     ),
 
-  // Closing the panel mid-stream is a cancellation, not a failure: back to
-  // idle with nothing half-written, so reopening offers the button again. A
-  // finished summary is untouched — it is the cache the panel reopens to.
-  cancelSummary: () =>
-    set((s) =>
-      s.summaryStatus === 'streaming'
-        ? { summaryText: '', summaryStatus: 'idle' }
-        : s,
-    ),
+  // Closing the panel mid-stream is a cancellation, not a failure: back to idle
+  // with nothing half-listed, so reopening offers the button again. A finished
+  // list is untouched — it is the cache the panel reopens to.
+  cancelIdeas: () =>
+    set((s) => (s.ideasStatus === 'streaming' ? { ideas: [], ideasStatus: 'idle' } : s)),
+
+  /**
+   * The only bridge from the panel to the board, and the mirror of
+   * acceptProposal: a fresh node is constructed here with layer 'accepted', and
+   * the draft object is discarded rather than promoted. Unlike the ideas
+   * arriving, this IS the user acting — so it snapshots for undo and bumps
+   * lastMutationAt like any other edit.
+   */
+  addIdea: (localId) =>
+    set((s) => {
+      const idea = s.ideas.find((i) => i.id === localId);
+      if (!idea || idea.added) return s;
+
+      const { x, y } = placeProposal(
+        s.board,
+        idea.anchors,
+        undefined,
+        visibleRect(s.viewport, s.surface),
+      );
+      const node = createNode({ x, y, text: idea.text, layer: 'accepted' });
+      // Anchors the model named may have been deleted since it was asked.
+      const edges = idea.anchors
+        .filter((a) => s.board.nodes.some((n) => n.id === a))
+        .map((a) => ({ id: newId('e'), from: a, to: node.id, layer: 'accepted' as Layer }));
+
+      const board = {
+        ...s.board,
+        nodes: [...s.board.nodes, node],
+        edges: [...s.board.edges, ...edges],
+      };
+
+      return {
+        ...pushUndo(s),
+        board,
+        ideas: s.ideas.map((i) => (i.id === localId ? { ...i, added: true } : i)),
+        // Re-stamped, so your own Add does not immediately flag the rest of the
+        // list as stale — the list is still about the board it was asked about,
+        // plus the one card you just took from it.
+        ideasFingerprint: s.ideasStatus === 'done' ? fingerprint(board) : s.ideasFingerprint,
+        selectedId: node.id,
+        lastMutationAt: Date.now(),
+      };
+    }),
 
   undo: () =>
     set((s) => {

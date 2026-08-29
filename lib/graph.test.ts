@@ -3,10 +3,14 @@ import {
   clampSize,
   createNode,
   emptyBoard,
+  NODE_FONT_DEFAULT,
   NODE_MIN_H,
   NODE_MIN_W,
+  NODE_FONT_STEPS,
   OBJECTIVE_MAX,
   parseBoard,
+  snapFontSize,
+  stepFontSize,
 } from './graph';
 
 describe('clampSize', () => {
@@ -53,6 +57,50 @@ describe('done', () => {
       edges: [],
     });
     expect(parsed.nodes.map((n) => n.done)).toEqual([false, false]);
+  });
+});
+
+describe('fontSize', () => {
+  it('starts at the body font on a fresh node — untouched cards render as they always did', () => {
+    expect(createNode({ x: 0, y: 0 }).fontSize).toBe(NODE_FONT_DEFAULT);
+  });
+
+  it('survives a round trip through persistence', () => {
+    const board = emptyBoard('b');
+    board.nodes = [createNode({ id: 'n0', x: 0, y: 0, text: 'headline', fontSize: 26 })];
+    const parsed = parseBoard('b', JSON.parse(JSON.stringify(board)));
+    expect(parsed.nodes[0].fontSize).toBe(26);
+  });
+
+  it('loads boards saved before text sizes existed at the default', () => {
+    const parsed = parseBoard('b', {
+      nodes: [{ id: 'n0', x: 0, y: 0, text: 'an old idea' }],
+      edges: [],
+    });
+    expect(parsed.nodes[0].fontSize).toBe(NODE_FONT_DEFAULT);
+  });
+
+  it('snaps off-ladder numbers onto the nearest rung and drops junk', () => {
+    // A hand-edited row lands on a real size; anything else is not a size.
+    expect(snapFontSize(15)).toBe(14);
+    expect(snapFontSize(23)).toBe(21);
+    expect(snapFontSize(0)).toBe(12);
+    expect(snapFontSize(999)).toBe(26);
+    expect(snapFontSize('big')).toBe(NODE_FONT_DEFAULT);
+    expect(snapFontSize(null)).toBe(NODE_FONT_DEFAULT);
+    expect(snapFontSize(NaN)).toBe(NODE_FONT_DEFAULT);
+  });
+
+  it('steps one rung at a time and holds at the ends', () => {
+    expect(stepFontSize(14, 1)).toBe(17);
+    expect(stepFontSize(17, -1)).toBe(14);
+    expect(stepFontSize(NODE_FONT_STEPS[0], -1)).toBe(NODE_FONT_STEPS[0]);
+    expect(stepFontSize(NODE_FONT_STEPS[NODE_FONT_STEPS.length - 1], 1)).toBe(
+      NODE_FONT_STEPS[NODE_FONT_STEPS.length - 1],
+    );
+    // A value that is not on the ladder (a stale board mid-migration, say)
+    // restarts from the default rather than throwing.
+    expect(stepFontSize(15, 1)).toBe(NODE_FONT_DEFAULT);
   });
 });
 

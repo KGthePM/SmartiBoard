@@ -2,8 +2,9 @@
 
 A web idea board where an AI continuously co-authors the board with you — proposing
 gap-fills and connections as you work — rather than responding to prompts on demand.
-One deliberate exception: **⌘.** opens a summary panel where one click asks for a read-only
-summary of the whole board, streamed back and never merged into your content.
+One deliberate exception: **⌘.** opens an ideas panel where one click asks for a handful of
+candidate ideas — for the whole board, or branching off the card you have selected. They
+stage in the panel until you add the ones that land; nothing reaches the board on its own.
 
 The board is a **typed graph** (nodes + edges), not a pixel canvas. That's what makes the
 AI behavior tractable, and it's what everything else is built on.
@@ -109,7 +110,7 @@ to go back to the text box.
 
 **Test** makes one one-token call and tells you whether the key, the address, and the
 model name are right. Along with Load models it is the only place the app reports an AI
-failure out loud — the ghost and the summary fail quietly on purpose.
+failure out loud — the ghost and the ideas panel fail quietly on purpose.
 
 The key is stored in the same local SQLite file as your boards and is **write-only**: it
 goes to the server once and never comes back, not even to the panel that saved it, which
@@ -126,7 +127,7 @@ absolute path; otherwise you get a second, empty database instead of an error. T
 prints the path it opened on first use.
 
 ```bash
-npm test          # placement, trigger policy, rich text, board naming, board switching, summary prompt
+npm test          # placement, trigger policy, rich text, board naming, board switching, idea parsing
 npm run typecheck
 npm run build
 ```
@@ -161,11 +162,11 @@ layer.
 - **⌘J / Ctrl+J** (or the **Objective** button) opens the board's objective — a few lines
   on what this board is for. Optional, but it is the one thing that changes *what* the AI
   suggests rather than *when*
-- **⌘. / Ctrl+.** (or the **Summary** button) reads the board back: one gist line plus a
-  few observations, streamed as they're written. It's read-only — never a node, never the
-  board's name, and gone when the session is
+- **⌘. / Ctrl+.** (or the **Ideas** button) asks for a few candidate ideas, listed with
+  their reasons as they arrive. Each has one **Add**; nothing is on the board until you
+  click it, and adding is undoable. Select a card first and it branches off that idea instead
 - **⌘⇧P / Ctrl+Shift+P** (or the **Private** button) turns Privacy Mode on for this board:
-  no suggestions, no summary, nothing sent to a model. Per-board, so the rest keep working
+  no suggestions, no ideas, nothing sent to a model. Per-board, so the rest keep working
 
 ## What the board is for
 
@@ -175,10 +176,10 @@ everywhere else.
 
 It's optional, and short on purpose. It leads the prompt for both AI behaviors, so the
 suggestions stop being generic "have you considered a success metric?" gap-fills and start
-being about your actual stakes; and the ⌘. summary reads your board *against* it, which is
-how you find out the board has drifted from what you sat down to do.
+being about your actual stakes; and ⌘. generates *toward* it, which is what makes an empty
+board with an objective on it the moment the generator is worth most.
 
-It stays yours. Nothing rewrites, condenses, or summarizes your objective back at you, and
+It stays yours. Nothing rewrites, condenses, or restates your objective back at you, and
 the AI is told not to propose it back as an idea. The character cap does the work a model
 would otherwise be asked to do.
 
@@ -186,7 +187,7 @@ would otherwise be asked to do.
 
 Some boards you want a collaborator on. Some you want a wall. **⌘⇧P** turns on **Privacy
 Mode** for the board you're looking at, and while it's on nothing in that board is sent to
-a model — no suggestions arrive, and the Summary button is unavailable, because a summary
+a model — no suggestions arrive, and the Ideas button is unavailable, because generating
 ships the whole board upstream too.
 
 It's per board, not per install. You keep your provider and your key configured, and the
@@ -194,7 +195,7 @@ other boards go on co-authoring as before; the alternative — deleting your key
 was all-or-nothing and is what this replaces. The button says which state you're in at a
 glance, filled when it's on, because a privacy switch you have to squint at is not one.
 
-The promise is kept by the server, not the browser. The `/suggest` and `/summarize` routes
+The promise is kept by the server, not the browser. The `/suggest` and `/ideas` routes
 each check the board themselves and refuse, so a tab left open in another window, a retry,
 or anything that isn't the canvas gets the same answer. And **⌘Z can never turn it off** —
 Privacy Mode is deliberately not in the undo stack, because an undo that quietly put a board
@@ -227,28 +228,35 @@ action and is. Reversed, the board would feel haunted.
 
 ## When you ask, instead
 
-The summary is the one behavior you invoke rather than wait for, and it plays by the
-opposite rules because it answers a question rather than proposing content:
+The idea generator is the one behavior you invoke rather than wait for, and it plays by
+different rules because you asked:
 
-- It streams — someone is actively waiting, so tokens appear as they're written
+- It streams — someone is actively waiting, so ideas appear one at a time as the model
+  writes them, not in a batch at the end
+- Ideas stage in the panel and never on the canvas. The one-live-ghost ceiling is untouched,
+  and **Add** is the only bridge — it builds a fresh node in the accepted layer, connects it
+  to the ideas it came from, and goes in your undo stack like any other edit
+- Added items stay in the list, greyed out. A list that reshuffles under the cursor makes
+  your next click a gamble
 - It's cached per board fingerprint for the session: reopen the panel with nothing changed
   and nothing is re-spent
-- It's read-only and session-only: no node, no edge, no title change, no undo entry,
-  nothing written to SQLite
-- Opening the panel never spends a token: you get the cached summary if it's still fresh,
+- Opening the panel never spends a token: you get the last list if it's still fresh,
   otherwise a launch button. The click is the asking
-- Switching boards under an open panel never auto-summarizes the next board — the panel
+- Switching boards under an open panel never generates for the next board — the panel
   closes. Navigating is not asking
-- Closing the panel (Esc, ×, ⌘., or a board switch) aborts the stream mid-token and discards
-  the partial text — reopening offers the button again
-- Same floor as the ghost: fewer than 3 real ideas and there's nothing to read yet
+- Closing the panel (Esc, ×, ⌘., or a board switch) aborts the stream and discards the
+  partial list — reopening offers the button again
+- **A lower floor than the ghost's:** an objective or a single idea is enough. The ghost
+  needs three cards because nobody asked it to speak; this was asked, and a blank board
+  with a goal written on it is exactly when it's worth most
 
 ## v1 scope
 
 In: draggable text nodes on an infinite canvas, one relationship type, instant autosave,
 many named boards, and exactly one *unsolicited* AI behavior — propose a gap-fill or
-connection, one-click accept/dismiss — plus one *user-invoked* behavior, the read-only
-board summary (v1.3). Either can be switched off per board with Privacy Mode (v1.9).
+connection, one-click accept/dismiss — plus one *user-invoked* behavior, the idea generator
+(v2.0, replacing the read-only summary that held the slot from v1.3). Either can be switched
+off per board with Privacy Mode (v1.9).
 
 Out: real-time multiplayer, freehand drawing, images, styling, cross-session memory,
 model choice, any further AI behaviors. The AI also never moves or edits a node you placed.

@@ -20,6 +20,7 @@ type Props = {
   onDragStart: (e: React.PointerEvent) => void;
   onPortDown: (e: React.PointerEvent) => void;
   onResizeStart: (e: React.PointerEvent) => void;
+  onAdjustFont: (dir: 1 | -1) => void;
   onToggleDone: () => void;
   onDelete: () => void;
 };
@@ -62,6 +63,7 @@ export function NodeCard({
   onDragStart,
   onPortDown,
   onResizeStart,
+  onAdjustFont,
   onToggleDone,
   onDelete,
 }: Props) {
@@ -112,7 +114,7 @@ export function NodeCard({
   return (
     <div
       className={`card ${editing ? 'editing' : ''} ${node.layer === 'accepted' ? 'accepted' : ''} ${node.done ? 'done' : ''} ${selected ? 'selected' : ''}`}
-      style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
+      style={{ left: node.x, top: node.y, width: node.w, height: node.h, fontSize: node.fontSize }}
       onPointerDown={(e) => {
         onSelect();
         onDragStart(e);
@@ -219,6 +221,39 @@ export function NodeCard({
       >
         ×
       </button>
+      {/* The text size pair, at the one free corner. Presentation, like the
+          resize bracket it sits beside — the ladder ends hold, so holding a
+          click can never run away. */}
+      <div className="fs" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="fs-down"
+          aria-label="Smaller text"
+          title="Smaller text"
+          onMouseDown={(e) => e.preventDefault()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdjustFont(-1);
+          }}
+        >
+          A
+        </button>
+        <button
+          type="button"
+          className="fs-up"
+          aria-label="Larger text"
+          title="Larger text"
+          onMouseDown={(e) => e.preventDefault()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdjustFont(1);
+          }}
+        >
+          A
+        </button>
+      </div>
       <div
         className="port"
         title="Drag to connect"

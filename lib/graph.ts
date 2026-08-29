@@ -17,6 +17,12 @@ export type IdeaNode = {
   y: number;
   w: number;
   h: number;
+  /**
+   * The card's text size, one of NODE_FONT_STEPS. Unlike `done` this is pure
+   * presentation — the model never sees it, so it never joins the fingerprint
+   * and changing it never spends a token. See the resize doctrine in the store.
+   */
+  fontSize: number;
   layer: Layer;
   /**
    * The whiteboard's crossed-off idea. Unlike size or formatting this is
@@ -77,6 +83,32 @@ export const NODE_H = 96;
 export const NODE_MIN_W = 120;
 export const NODE_MIN_H = 48;
 
+/**
+ * The card text size ladder. Discrete rungs, not a free slider: a handful of
+ * readable sizes is all a whiteboard needs, and fixed steps keep the clamp in
+ * parseBoard total — any junk off the wire lands on a real size or the default.
+ * 14 is the body font, so a card that was never touched renders exactly as it
+ * always did.
+ */
+export const NODE_FONT_STEPS = [12, 14, 17, 21, 26] as const;
+export const NODE_FONT_DEFAULT: number = NODE_FONT_STEPS[1];
+
+/** One rung up or down; the ends hold, so a bored click cannot run away. */
+export function stepFontSize(current: number, dir: 1 | -1): number {
+  let i = NODE_FONT_STEPS.indexOf(current as (typeof NODE_FONT_STEPS)[number]);
+  if (i < 0) return NODE_FONT_DEFAULT;
+  i = Math.min(NODE_FONT_STEPS.length - 1, Math.max(0, i + dir));
+  return NODE_FONT_STEPS[i];
+}
+
+/** A stored size back onto the ladder: exact rungs pass, near ones snap, junk defaults. */
+export function snapFontSize(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return NODE_FONT_DEFAULT;
+  return NODE_FONT_STEPS.reduce((best, s) =>
+    Math.abs(s - v) < Math.abs(best - v) ? s : best,
+  );
+}
+
 /** A manual resize lands on whole pixels and never below the minimums. */
 export function clampSize(w: number, h: number): { w: number; h: number } {
   return {
@@ -120,6 +152,7 @@ export function createNode(
     y: partial.y,
     w: partial.w ?? NODE_W,
     h: partial.h ?? NODE_H,
+    fontSize: partial.fontSize ?? NODE_FONT_DEFAULT,
     layer: partial.layer ?? 'user',
     done: partial.done ?? false,
     createdAt: partial.createdAt ?? Date.now(),
@@ -192,6 +225,9 @@ export function parseBoard(id: string, raw: unknown): Board {
             y: n.y,
             w: typeof n.w === 'number' ? n.w : NODE_W,
             h: typeof n.h === 'number' ? n.h : NODE_H,
+            // Boards saved before text sizes existed load at the default, and
+            // anything off the ladder snaps onto it — see snapFontSize.
+            fontSize: snapFontSize(n.fontSize),
             layer: n.layer === 'accepted' ? 'accepted' : 'user',
             // Boards saved before done existed load as not done, and anything
             // that is not strictly true is junk off the wire.

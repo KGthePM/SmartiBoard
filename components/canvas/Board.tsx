@@ -355,6 +355,7 @@ export function Board({ boardId }: { boardId: string }) {
                     startY: e.clientY,
                   });
                 }}
+                onAdjustFont={(dir) => store.adjustNodeFontSize(n.id, dir)}
                 onToggleDone={() => store.toggleNodeDone(n.id)}
                 onDelete={() => {
                   lastDeleteAt.current = Date.now();
@@ -377,8 +378,8 @@ export function Board({ boardId }: { boardId: string }) {
       <BoardChrome />
 
       <div className="hint">
-        Double-click to add an idea · drag the dot to connect · drag a corner to resize · D marks it
-        done · click a line to select it · ⌘Z / ⌘⇧Z to undo & redo
+        Double-click to add an idea · drag the dot to connect · drag a corner to resize · A− / A+ for
+        text size · D marks it done · click a line to select it · ⌘Z / ⌘⇧Z to undo & redo
       </div>
 
       <div className="legend">

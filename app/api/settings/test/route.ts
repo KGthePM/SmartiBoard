@@ -13,7 +13,8 @@ export const runtime = 'nodejs';
  * only one that reports on a real completion.
  *
  * It exists because both real AI behaviors fail quietly by design: the ghost
- * simply never appears, and the summary says only "couldn't summarize". That
+ * simply never appears, and the ideas panel says only "couldn't come up with
+ * anything for this board". That
  * is right for the board and useless for setup, where a typo'd port or a stale
  * key is indistinguishable from a model that had nothing to add.
  *

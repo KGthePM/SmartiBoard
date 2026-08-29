@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MIN_NODES, substantiveNodes } from '@/lib/ai/trigger';
+import { canGenerateIdeas } from '@/lib/ai/trigger';
 import { boardTitle } from '@/lib/boards';
 import { useBoard } from '@/lib/store';
 import { BoardSwitcher } from './BoardSwitcher';
 import { ObjectivePanel } from './ObjectivePanel';
 import { SettingsPanel } from './SettingsPanel';
-import { SummaryPanel } from './SummaryPanel';
+import { IdeasPanel } from './IdeasPanel';
 
 /**
  * Board identity, in the one corner the canvas wasn't already using.
@@ -21,8 +21,8 @@ export function BoardChrome() {
   const board = useBoard((s) => s.board);
   const loaded = useBoard((s) => s.loaded);
   const setTitle = useBoard((s) => s.setTitle);
-  const summaryOpen = useBoard((s) => s.summaryOpen);
-  const setSummaryOpen = useBoard((s) => s.setSummaryOpen);
+  const ideasOpen = useBoard((s) => s.ideasOpen);
+  const setIdeasOpen = useBoard((s) => s.setIdeasOpen);
   const settingsOpen = useBoard((s) => s.settingsOpen);
   const setSettingsOpen = useBoard((s) => s.setSettingsOpen);
   const objectiveOpen = useBoard((s) => s.objectiveOpen);
@@ -45,8 +45,10 @@ export function BoardChrome() {
         e.preventDefault();
         setOpen((v) => !v);
       } else if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+        // Still ⌘. — the user-invoked slot, whatever occupies it. ⌘B/⌘I/⌘U are
+        // spoken for by rich-text formatting inside a card.
         e.preventDefault();
-        useBoard.getState().setSummaryOpen(!useBoard.getState().summaryOpen);
+        useBoard.getState().setIdeasOpen(!useBoard.getState().ideasOpen);
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         useBoard.getState().setSettingsOpen(!useBoard.getState().settingsOpen);
@@ -74,10 +76,10 @@ export function BoardChrome() {
     setEditing(true);
   };
 
-  // Same floor as the ghost: below three real ideas there is nothing to read.
-  // Privacy Mode is the harder gate — a summary sends the whole board upstream.
-  const canSummarize =
-    loaded && !privacy && substantiveNodes(board).length >= MIN_NODES;
+  // A lower floor than the ghost's, on purpose: an objective on an empty board
+  // is exactly when generating is worth most. Privacy Mode is inside the
+  // predicate and refuses absolutely — this ships the board upstream.
+  const canGenerate = loaded && canGenerateIdeas(board);
 
   return (
     <>
@@ -155,18 +157,18 @@ export function BoardChrome() {
         </button>
 
         <button
-          className="chrome-summarize"
+          className="chrome-ideas"
           title={
-            canSummarize
-              ? 'Board summary (⌘.)'
+            canGenerate
+              ? 'Generate ideas (⌘.)'
               : privacy
                 ? 'Privacy Mode is on'
-                : 'Needs at least 3 ideas'
+                : 'Needs an objective or at least one idea'
           }
-          disabled={!canSummarize}
-          onClick={() => setSummaryOpen(!summaryOpen)}
+          disabled={!canGenerate}
+          onClick={() => setIdeasOpen(!ideasOpen)}
         >
-          Summary
+          Ideas
         </button>
 
         <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>
@@ -184,7 +186,7 @@ export function BoardChrome() {
       </div>
 
       {open ? <BoardSwitcher onClose={() => setOpen(false)} currentId={board.id} /> : null}
-      {summaryOpen ? <SummaryPanel /> : null}
+      {ideasOpen ? <IdeasPanel /> : null}
       {objectiveOpen ? <ObjectivePanel onClose={() => setObjectiveOpen(false)} /> : null}
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
     </>

@@ -76,22 +76,23 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   by the two user-invoked settings routes.
 - `lib/ai/trigger.ts` — when the AI may speak. Pure functions; tune here first.
 - `lib/ai/prompt.ts` — system prompt (wedge-tuned) and the response schema. `serializeBoardContent` is the shared model's-eye view of the board.
-- `lib/ai/summary-prompt.ts` — the summary behavior's prompt and token budget (streamed prose, no schema).
+- `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
+- `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
 - `lib/placement.ts` — where a ghost lands. Pure.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`.
 - `app/api/boards/route.ts` — the collection: list and create.
-- `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `summarize/route.ts` (the streamed summary call).
+- `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
 - `app/page.tsx` + `components/index/` — the project library and its minimaps.
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name and ⌘K switcher.
-- `components/SummaryPanel.tsx` — the summary drawer: SSE consumption, abort-on-close, fingerprint cache.
+- `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
 
 ## Product in one line
 
-A web idea board where an AI continuously co-authors the board — proposing gap-fills and connections as you work — rather than responding to prompts on demand. One deliberate exception: a read-only summary of the whole board, asked for explicitly (⌘.), streamed back, never merged.
+A web idea board where an AI continuously co-authors the board — proposing gap-fills and connections as you work — rather than responding to prompts on demand. One deliberate exception: a handful of candidate ideas, asked for explicitly (⌘.), streamed into a side panel and staged there until the user adds the ones that land.
 
 ## Hard constraints
 
@@ -105,7 +106,7 @@ These come from the brief and are not open to reinterpretation while implementin
 
 ## v1 scope
 
-Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. v1.3 adds the one *user-invoked* behavior: the read-only board summary (see below).
+Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. The one *user-invoked* behavior is the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below).
 
 Out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. Do not build toward these speculatively.
 
@@ -149,7 +150,7 @@ like a collaborator or a paperclip. Both are now settled:
   to a cloud API they had just declined. This is not the "model choice" the brief ruled
   out as speculative scope — the app is meant to be run locally by the person using it,
   and choosing who answers adds no AI behavior. Still exactly one unsolicited behavior.
-- **Configuration failures are loud exactly once** (v1.4). The ghost and the summary keep
+- **Configuration failures are loud exactly once** (v1.4). The ghost and the ideas panel keep
   failing quietly — an unsolicited collaborator that nags about setup is the paperclip.
   The settings panel's two user-invoked calls — `POST /api/settings/test` and
   `POST /api/settings/models` — are the only places that report upstream errors in words,
@@ -158,12 +159,35 @@ like a collaborator or a paperclip. Both are now settled:
   and the loaded list is discarded whenever the provider, key, or endpoint changes, because
   a catalogue belongs to the endpoint it came from. A model already typed or saved is never
   silently replaced by something from the list.
-- **Board summary** (v1.3): user-invoked — the Summary button or ⌘. opens the panel, and the
-  in-panel launch button is the only thing that fires the request. Streamed, read-only prose in
-  a side panel — never a node, never the title, never undoable, never persisted. Session-only,
-  cached by board fingerprint; `beginLoad` closes the panel, which aborts the stream, and an
-  interrupted stream is cancelled back to idle. The panel never spends a token on its own — no
-  fetch on mount (which also keeps it StrictMode-safe). Same 3-idea floor as the ghost.
+- **Idea generator** (v2.0, replacing the v1.3 board summary): user-invoked — the Ideas
+  button or ⌘. opens the panel, and the in-panel launch button is the only thing that fires the
+  request. It streams up to `IDEAS_MAX` candidate ideas with rationales, generated for the whole
+  board, or — when a card is selected at launch — branching off that card. The summary was the
+  weaker half of the pair: it described a board you had just written, behind the same 3-idea
+  floor as the ghost, so a fresh board with an objective on it left the entire AI layer silent.
+  Generating is what that moment wants.
+  **The panel is a staging area, not a canvas layer.** Ideas never render on the board, so the
+  one-live-ghost ceiling is untouched, and `addIdea` is the only bridge — the mirror of
+  `acceptProposal`: it constructs a fresh node in the `accepted` layer with edges to its
+  surviving anchors, pushes one undo snapshot, and bumps `lastMutationAt`. Ideas *arriving* is
+  never in the undo stack; adding one is, exactly as with the ghost. An added item stays in the
+  list marked `added` rather than vanishing — a list that reshuffles under the cursor makes the
+  next click a gamble — and `addIdea` re-stamps `ideasFingerprint` so your own Add does not
+  instantly read as stale.
+  **The wire format is JSONL, one object per line** (`lib/ai/ideas.ts`), which is the whole
+  reason the panel fills in progressively; it is also why no branch asks for schema-constrained
+  output, and why the contract rides in the message for every provider. A line that doesn't
+  parse is dropped in silence, never surfaced as an error.
+  **Its floor is lower than the ghost's, and it is the only place the two policies differ:**
+  `canGenerateIdeas` wants a non-empty objective *or* one substantive node, not `MIN_NODES`.
+  The ghost needs structure because nobody asked it to speak; this was asked. This is also what
+  finally makes the objective load-bearing rather than decorative. The route enforces the floor
+  too (`too_thin`), as it enforces privacy.
+  Everything else is the summary's discipline, kept: session-only and never persisted, cached
+  by board fingerprint, `beginLoad` closes the panel which aborts the stream, an interrupted
+  run is cancelled back to idle, and the panel never spends a token on its own — no fetch on
+  mount (which also keeps it StrictMode-safe). Still exactly one unsolicited behavior and one
+  user-invoked one.
 - **Node resize** (v1.5, functional not flourish): drag a card's bottom-right corner to set
   width and height (`clampSize` minimums in `lib/graph.ts`; `resizeNode` in the store).
   Size follows the `moveNode` doctrine — presentation, not content: no undo snapshot, no
@@ -176,24 +200,24 @@ like a collaborator or a paperclip. Both are now settled:
   so `setTitle` spends nothing; the objective leads both prompts, so `setObjective` snapshots
   for undo, bumps `lastMutationAt`, and joins the fingerprint — rewriting it lets the ghost
   answer the new framing on an otherwise unchanged board. It is user-written and stays that
-  way: no model call ever writes, condenses, or summarizes it, and the ghost is told never to
+  way: no model call ever writes, condenses, or restates it, and the ghost is told never to
   propose it back as an idea. The cap is the whole "keep it short for the AI's sake"
   mechanism; a condense-button would have been a third AI behavior. What the AI gains is that
-  `serializeBoardContent` leads with it (only when non-empty) and the summary reads the board
-  *against* it — still exactly one unsolicited behavior and one user-invoked one. Not a node,
+  `serializeBoardContent` leads with it (only when non-empty) and the idea generator aims
+  *at* it — still exactly one unsolicited behavior and one user-invoked one. Not a node,
   so it never counts toward the 3-idea floor and never becomes the derived title; it rides in
   the board JSON like `title`, and `parseBoard` defaults it to `''` so older rows load fine.
 
 - **Privacy Mode** (v1.9): one boolean on the board (`Board.privacy`) meaning "nothing on
   this board is sent to a model", toggled with ⌘⇧P or the Private button. It disables *both*
-  AI behaviors, the user-invoked summary included — a toggle that silenced the ghost while ⌘.
+  AI behaviors, the user-invoked generator included — a toggle that silenced the ghost while ⌘.
   still shipped the whole board upstream would be a privacy control that isn't one. It is
   per-board, not install-level, and deliberately so: privacy is a property of the content, and
   un-configuring the provider is the blunt instrument this replaces — you keep your key and
   silence one board. **The client is a convenience; the routes are the guarantee.**
-  `shouldRequest` returns `'privacy'` first, ahead of every other reason, but `/suggest` and
-  `/summarize` each refuse on their own, checking the *stored* board (the caller is not the
-  authority) as well as the posted one (autosave lags the toggle, and that window must not
+  `shouldRequest` and `canGenerateIdeas` both return privacy first, ahead of every other
+  reason, but `/suggest` and `/ideas` each refuse on their own, checking the *stored* board
+  (the caller is not the authority) as well as the posted one (autosave lags the toggle, and that window must not
   leak). It spends nothing — no undo snapshot, no `lastMutationAt` bump, and it is not in the
   fingerprint, because the model never sees it; turning it off therefore does not itself wake
   the ghost, the next real edit does. **And it is never in the undo stack, in either

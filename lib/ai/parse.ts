@@ -37,7 +37,12 @@ export function proposalFromText(text: string, validIds: NodeId[]): ProposalDraf
   return { kind: 'gap_fill', text: body, rationale, anchors };
 }
 
-function parseJsonObject(text: string): Record<string, unknown> | null {
+/**
+ * Brace-tolerant JSON object extraction. Exported because the idea generator
+ * parses the same way, one JSONL line at a time — a model that wraps its
+ * output in a fence or trails a sentence after it should not cost an idea.
+ */
+export function parseJsonObject(text: string): Record<string, unknown> | null {
   const candidates = [text.trim()];
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) candidates.push(fenced[1].trim());

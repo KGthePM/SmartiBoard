@@ -89,6 +89,24 @@ export function substantiveNodes(board: Board): IdeaNode[] {
   return board.nodes.filter((n) => stripMarks(n.text).trim().length > 0);
 }
 
+/**
+ * May the user-invoked idea generator run? (v2.0)
+ *
+ * Deliberately a lower floor than the ghost's MIN_NODES, and the only place the
+ * two behaviors' policies differ. The ghost needs structure to reason about
+ * because nobody asked it to speak; the generator was asked, and the moment it
+ * is worth most is the one where the board is emptiest — an objective written
+ * on a blank board used to leave the whole AI layer silent.
+ *
+ * Privacy Mode first, as in shouldRequest below, and for the same reason: a
+ * private board is not one the AI is quiet on, it is one the AI is never told
+ * about. This is still only the client's convenience — /ideas refuses on its own.
+ */
+export function canGenerateIdeas(board: Board): boolean {
+  if (board.privacy) return false;
+  return board.objective.trim().length > 0 || substantiveNodes(board).length > 0;
+}
+
 export function shouldRequest(
   board: Board,
   state: TriggerState,

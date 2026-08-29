@@ -9,6 +9,8 @@ import {
 } from './graph';
 import { rejectedFor, useBoard } from './store';
 import type { ProposalDraft } from './proposal';
+import type { IdeaDraft } from './ai/ideas';
+import { fingerprint } from './ai/trigger';
 
 /**
  * The store is a module singleton, so every test starts by pointing it at a
@@ -29,6 +31,12 @@ const draft: ProposalDraft = {
   text: 'What does churn cost us?',
   anchors: [],
   rationale: 'The board prices the plan but never counts the losses.',
+};
+
+const idea: IdeaDraft = {
+  text: 'Nobody owns the migration step',
+  rationale: 'Two cards depend on the migration and neither names a person.',
+  anchors: [],
 };
 
 describe('beginLoad', () => {
@@ -160,6 +168,18 @@ describe('redo', () => {
     expect(s().redoStack).toEqual([]);
   });
 
+  it('is spent by a text size change, the same as a resize', () => {
+    // A redo snapshot holds font sizes too, so redoing after an A+ would snap
+    // the text back — the same haunted-board feeling a move would cause.
+    open('redo-h');
+    const a = s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+
+    s().adjustNodeFontSize(a, 1);
+    expect(s().redoStack).toEqual([]);
+  });
+
   it('ends the typing burst, so the first post-undo keystroke is its own undo step', () => {
     open('redo-g');
     const a = s().addNode(0, 0);
@@ -221,27 +241,132 @@ describe('hydrate', () => {
   });
 });
 
-describe('cancelSummary', () => {
-  it('puts an abandoned stream back to idle with nothing half-written', () => {
+describe('beginLoad and the ideas panel', () => {
+  it('leaves one board’s generated ideas behind when opening another', () => {
+    // The panel is per-board session state: without this, board A's list —
+    // and its Add buttons — would still be on screen over board B.
+    open('ideas-a');
+    s().beginIdeas('n-seed');
+    s().receiveIdea(idea);
+    s().finishIdeas('fp-a');
+
+    open('ideas-b');
+    expect(s().ideasOpen).toBe(false);
+    expect(s().ideas).toEqual([]);
+    expect(s().ideasStatus).toBe('idle');
+    expect(s().ideasFingerprint).toBeNull();
+    expect(s().ideasSeedId).toBeNull();
+  });
+});
+
+describe('cancelIdeas', () => {
+  it('puts an abandoned run back to idle with nothing half-listed', () => {
     // Closing the panel mid-stream must not leave a corpse: reopening shows
-    // the launch button, not a frozen partial summary pretending to stream.
+    // the launch button, not half a list pretending to still be arriving.
     open('cancel-a');
-    s().beginSummary();
-    s().appendSummary('The board is about ');
-    s().cancelSummary();
-    expect(s().summaryStatus).toBe('idle');
-    expect(s().summaryText).toBe('');
+    s().beginIdeas(null);
+    s().receiveIdea(idea);
+    s().cancelIdeas();
+    expect(s().ideasStatus).toBe('idle');
+    expect(s().ideas).toEqual([]);
   });
 
-  it('leaves a finished summary alone — that is the cache the panel reopens to', () => {
+  it('leaves a finished list alone — that is the cache the panel reopens to', () => {
     open('cancel-b');
-    s().beginSummary();
-    s().appendSummary('a finished read');
-    s().finishSummary('fp-1');
-    s().cancelSummary();
-    expect(s().summaryStatus).toBe('done');
-    expect(s().summaryText).toBe('a finished read');
-    expect(s().summaryFingerprint).toBe('fp-1');
+    s().beginIdeas(null);
+    s().receiveIdea(idea);
+    s().finishIdeas('fp-1');
+    s().cancelIdeas();
+    expect(s().ideasStatus).toBe('done');
+    expect(s().ideas).toHaveLength(1);
+    expect(s().ideasFingerprint).toBe('fp-1');
+  });
+
+  it('drops ideas that arrive after the run ended', () => {
+    // A frame that outlived its stream is a no-op even if the panel's own
+    // boardId guard ever failed.
+    open('cancel-c');
+    s().beginIdeas(null);
+    s().finishIdeas('fp-2');
+    s().receiveIdea(idea);
+    expect(s().ideas).toHaveLength(0);
+  });
+});
+
+describe('addIdea', () => {
+  it('constructs a fresh accepted node and connects it to its anchors', () => {
+    open('add-a');
+    const anchor = s().addNode(0, 0);
+    s().beginIdeas(null);
+    s().receiveIdea({ ...idea, anchors: [anchor] });
+    s().finishIdeas('fp-add');
+
+    const listed = s().ideas[0];
+    s().addIdea(listed.id);
+
+    const added = s().board.nodes.find((n) => n.text === idea.text);
+    expect(added).toBeDefined();
+    // Never 'user': jointly accepted content is its own layer, and the draft
+    // object is discarded rather than promoted into the board.
+    expect(added!.layer).toBe('accepted');
+    expect(s().board.edges).toHaveLength(1);
+    expect(s().board.edges[0]).toMatchObject({ from: anchor, to: added!.id, layer: 'accepted' });
+    // Spent, not removed — the list must not reshuffle under the cursor.
+    expect(s().ideas[0].added).toBe(true);
+  });
+
+  it('is one undo step, unlike the ideas arriving', () => {
+    open('add-b');
+    s().beginIdeas(null);
+    s().receiveIdea(idea);
+    s().finishIdeas('fp-b');
+    const before = s().undoStack.length;
+
+    s().addIdea(s().ideas[0].id);
+    expect(s().undoStack.length).toBe(before + 1);
+    expect(s().board.nodes).toHaveLength(1);
+
+    s().undo();
+    expect(s().board.nodes).toHaveLength(0);
+  });
+
+  it('re-stamps the fingerprint so your own Add does not read as stale', () => {
+    open('add-c');
+    s().beginIdeas(null);
+    s().receiveIdea(idea);
+    s().finishIdeas('fp-c');
+
+    s().addIdea(s().ideas[0].id);
+    // The board genuinely changed, so the old stamp would flag the remaining
+    // ideas as stale the instant you took one of them.
+    expect(s().ideasFingerprint).not.toBe('fp-c');
+    expect(s().ideasFingerprint).toBe(fingerprint(s().board));
+  });
+
+  it('ignores an idea that is already on the board', () => {
+    open('add-d');
+    s().beginIdeas(null);
+    s().receiveIdea(idea);
+    s().finishIdeas('fp-d');
+    const id = s().ideas[0].id;
+
+    s().addIdea(id);
+    s().addIdea(id);
+    expect(s().board.nodes).toHaveLength(1);
+  });
+
+  it('drops an anchor the user deleted while the run was in flight', () => {
+    open('add-e');
+    const anchor = s().addNode(0, 0);
+    s().beginIdeas(null);
+    s().receiveIdea({ ...idea, anchors: [anchor] });
+    s().finishIdeas('fp-e');
+    s().deleteNode(anchor);
+
+    s().addIdea(s().ideas[0].id);
+    expect(s().board.nodes).toHaveLength(1);
+    // No edge to a node that no longer exists.
+    expect(s().board.edges).toEqual([]);
   });
 });
 
@@ -508,6 +633,51 @@ describe('resizeNode', () => {
     expect(s().board.nodes[0]).toMatchObject({ w: 400, h: 200 });
     expect(s().undoStack).toHaveLength(undoDepth);
     expect(s().lastMutationAt).toBe(before);
+  });
+});
+
+describe('adjustNodeFontSize', () => {
+  it('steps only the target card up and down the ladder, holding at the ends', () => {
+    open('font-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+
+    s().adjustNodeFontSize(a, 1);
+    s().adjustNodeFontSize(a, 1);
+    expect(s().board.nodes.find((n) => n.id === a)?.fontSize).toBe(21);
+    expect(s().board.nodes.find((n) => n.id === b)?.fontSize).toBe(14);
+
+    s().adjustNodeFontSize(a, -1);
+    expect(s().board.nodes.find((n) => n.id === a)?.fontSize).toBe(17);
+
+    // The ends hold: a bored click cannot run off the ladder.
+    s().adjustNodeFontSize(b, -1);
+    s().adjustNodeFontSize(b, -1);
+    s().adjustNodeFontSize(b, -1);
+    expect(s().board.nodes.find((n) => n.id === b)?.fontSize).toBe(12);
+  });
+
+  it('is presentation, not content: no undo step, no token', () => {
+    // Same doctrine as resizeNode — changing how a card reads, not what it
+    // says, must neither haunt the undo stack nor debounce the trigger.
+    open('font-b');
+    const n = s().addNode(0, 0);
+    const undoDepth = s().undoStack.length;
+    const before = s().lastMutationAt;
+    s().adjustNodeFontSize(n, 1);
+    expect(s().board.nodes[0]).toMatchObject({ fontSize: 17 });
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().lastMutationAt).toBe(before);
+  });
+
+  it('never reaches the model: the fingerprint is untouched by construction', () => {
+    open('font-c');
+    const n = s().addNode(0, 0);
+    s().setNodeText(n, 'an idea with a size');
+    const before = fingerprint(s().board);
+    s().adjustNodeFontSize(n, 1);
+    s().adjustNodeFontSize(n, 1);
+    expect(fingerprint(s().board)).toBe(before);
   });
 });
 

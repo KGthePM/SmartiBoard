@@ -48,7 +48,7 @@ the user's to make — say what needs looking at and stop there.
   wire flavor to `https://api.z.ai/api/anthropic` — a plan key has no balance on the general
   z.ai API, which is why it is a separate preset. SDK extras (adaptive thinking,
   `output_config`, prompt caching) are gated to `provider === 'anthropic'` in the suggest
-  and summarize routes; third parties get plain Messages calls.
+  and ideas routes; third parties get plain Messages calls.
 - `ANTHROPIC_API_KEY` — server-side only, optional, now the headless fallback.
 - `SMARTI_DB_PATH` — SQLite file, default `./data/smarti.db`. `data/` is runtime state.
 
@@ -58,7 +58,7 @@ the user's to make — say what needs looking at and stop there.
 - **Data model:** the board is a structured graph of typed nodes and edges, not a freeform pixel canvas. All features — especially AI behavior — build on the graph representation.
 - **Trust model:** AI output lives in a visually distinct "ghost" layer; every AI proposal must be previewable and reversible via a single accept/reject action. Never silently merge AI edits into user content, even in later versions. Concretely: a proposal lives in `store.proposal`, never in `board.nodes`; accepting constructs a *new* node and discards the proposal object.
 - **Latency:** local interactions (drag, type, snap) must never block on AI/LLM reasoning. LLM responses stream back asynchronously.
-- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v1.3 adds one *user-invoked* behavior: the read-only board summary. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
+- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 holds the one *user-invoked* slot: the idea generator (it replaced the read-only board summary that held it from v1.3). Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
   choice is now in — see Environment. It adds no AI behavior; it only says who answers.)
 
 ## Settled decisions — do not re-litigate
@@ -89,15 +89,28 @@ the user's to make — say what needs looking at and stop there.
   5-color palette, stored as inline markers inside `node.text` (see `lib/richtext.ts`). The AI
   paths always see `stripMarks()` output — formatting never changes the fingerprint, never
   reaches the prompt, and proposals are always plain text.
-- **Board summary** (v1.3): the second AI behavior — user-invoked (the Summary button or ⌘.
-  opens the panel; the in-panel launch button fires the request), streamed, read-only prose in a
-  side panel. It is not a proposal: it never becomes a node or edge, never touches the derived
-  title, never enters the undo stack, and never persists — session-only, cached by board
-  fingerprint so reopening costs nothing if the board hasn't changed. The panel never spends a
-  token on its own — opening shows the cached summary or a launch button, nothing more (which
-  also makes it StrictMode-safe: no fetch on mount). `beginLoad` closes the panel, which aborts
-  the stream; an interrupted stream is cancelled back to idle, not left half-written.
-  Same 3-idea floor as the ghost (`substantiveNodes` in `lib/ai/trigger.ts`).
+- **Idea generator** (v2.0, replacing the v1.3 board summary): the second AI behavior —
+  user-invoked (the Ideas button or ⌘. opens the panel; the in-panel launch button fires the
+  request), streamed, staged in a side panel. Up to `IDEAS_MAX` candidate ideas, each with a
+  rationale, generated for the whole board or — when a card is selected at launch — branching
+  off that card, anchored to it. **The panel is a staging area, not a canvas layer:** ideas
+  never render on the board, so `MAX_LIVE_PROPOSALS = 1` is untouched, and `store.addIdea` is
+  the only bridge — it constructs a *fresh* node (`layer: 'accepted'`) plus edges to surviving
+  anchors, pushes one undo snapshot, and bumps `lastMutationAt`, exactly like `acceptProposal`.
+  An added item stays in the list marked `added` rather than being removed, and `addIdea`
+  re-stamps `ideasFingerprint` so your own Add does not read as stale.
+  The wire format is **JSONL — one JSON object per line** (`lib/ai/ideas.ts`), which is what
+  lets the panel fill in progressively; it is why no branch asks for schema-constrained output,
+  and the contract rides in the message for every provider. Unparseable lines are dropped in
+  silence, never surfaced. The panel never spends a token on its own — opening shows the cached
+  list or a launch button, nothing more (which also makes it StrictMode-safe: no fetch on
+  mount). `beginLoad` closes the panel, which aborts the stream; an interrupted run is
+  cancelled back to idle, not left half-listed.
+  **Its floor is deliberately lower than the ghost's:** `canGenerateIdeas` in
+  `lib/ai/trigger.ts` needs a non-empty objective *or* one substantive node, not `MIN_NODES`.
+  The ghost needs structure because nobody asked it to speak; this was asked, and an objective
+  on a blank board is the moment it is worth most. The route enforces it too
+  (`reason: 'too_thin'`).
 - **Node resize** (v1.5, functional not flourish): drag a card's bottom-right corner to set
   its width and height, clamped to minimums (`clampSize` in `lib/graph.ts`). Size is
   presentation, not content — it follows the `moveNode` doctrine exactly: no undo snapshot,
@@ -112,7 +125,7 @@ the user's to make — say what needs looking at and stop there.
   told which ideas are finished (`[user, done]` in `serializeBoardContent`, with a one-line
   legend) and the fingerprint includes it, so crossing an idea off is undoable (one
   snapshot per toggle) and *token-spending* — the ghost may wake once the debounce settles,
-  and a done-toggle invalidates the cached summary. Done nodes are still substantive and
+  and a done-toggle invalidates the cached idea list. Done nodes are still substantive and
   still connectable; a done idea is completed, not deleted. The toggle is a ✓ at the card's
   top-left corner (the ×'s mirror, always visible once done) or `D` on the selected card.
   `parseBoard` defaults absent/non-boolean `done` to false, so pre-v1.6 rows load unchanged.
@@ -125,8 +138,8 @@ the user's to make — say what needs looking at and stop there.
   the fingerprint. Strictly user-written — no model call writes, condenses, or summarizes it,
   and the ghost is told not to propose it back as an idea; the cap is what keeps it short, not
   a model. `serializeBoardContent` leads with it only when non-empty (an empty header would
-  invite the model to fill it), and the summary prompt reads the board against it as its one
-  forward-pointing observation. Still exactly one unsolicited AI behavior and one user-invoked.
+  invite the model to fill it), and the idea generator aims at it — which is what makes an
+  otherwise empty board a board it can work from. Still exactly one unsolicited AI behavior and one user-invoked.
   Not a node: it never satisfies the 3-idea floor and never becomes the derived title.
   `parseBoard` defaults it to `''`, so pre-v1.8 rows load unchanged — and `savePayload` in
   `components/canvas/Board.tsx` must carry it, since a PUT is a full replace.
@@ -135,14 +148,15 @@ the user's to make — say what needs looking at and stop there.
   never sent to a model. Toggled with ⌘⇧P or the Private button (never disabled — a board can
   be declared private before there is anything on it to keep private). It gates *both*
   behaviors: `shouldRequest` returns `{fire:false, reason:'privacy'}` as its first check, and
-  `canSummarize` in `BoardChrome`/`SummaryPanel` drops the Summary button, because a summary
-  ships the entire board upstream. That client-side half is politeness, not the promise:
-  `app/api/boards/[id]/suggest/route.ts` and `.../summarize/route.ts` each refuse
+  `canGenerateIdeas` (privacy first, as in `shouldRequest`) drops the Ideas button in
+  `BoardChrome`/`IdeasPanel`, because generating ships the entire board upstream. That
+  client-side half is politeness, not the promise:
+  `app/api/boards/[id]/suggest/route.ts` and `.../ideas/route.ts` each refuse
   independently, testing `loadBoard(id).privacy` (the stored board is the authority — a stale
   tab or any non-canvas caller gets the same answer) *and* the posted `board.privacy` (which
   covers the up-to-`AUTOSAVE_MS` window where the browser is private and the row is not).
-  `summarize` answers plain JSON `{summary:null, reason:'privacy'}`, the same non-SSE shape as
-  `no_api_key`, which the panel renders as its own `'private'` status rather than an error.
+  `ideas` answers plain JSON `{ideas:null, reason:'privacy'}`, the same non-SSE shape as
+  `no_api_key` and `too_thin`, which the panel renders as its own status rather than an error.
   `setPrivacy` spends nothing — no `pushUndo`, no redo-stack spend, no `lastMutationAt` bump —
   and `privacy` is deliberately absent from `fingerprint`, since the model never sees it; the
   cost is that turning it off does not itself wake the ghost, which the next edit does.
@@ -153,6 +167,24 @@ the user's to make — say what needs looking at and stop there.
   `parseBoard` defaults it to `false` via a strict `obj.privacy === true`, so pre-v1.9 rows
   load unchanged — and `savePayload` in `components/canvas/Board.tsx` carries it, since a PUT
   is a full replace.
+
+- **Text size** (v1.10, functional not flourish): a node-level `fontSize`, one rung of the
+  fixed ladder `NODE_FONT_STEPS = [12, 14, 17, 21, 26]` in `lib/graph.ts` (14 is the body
+  font, so an untouched card renders exactly as it always did). Adjusted with the A− / A+
+  pair at the card's bottom-left corner — the one corner without an affordance — revealed on
+  hover/selection like the port and the ×; the ends of the ladder hold. It follows the
+  resize/move doctrine exactly, because a card's font is presentation the model never sees:
+  no undo snapshot, no `lastMutationAt` bump, never a token, and `fingerprint` is untouched
+  by construction — a size change cannot wake the ghost or invalidate the cached idea list.
+  It still spends the redo stack, because a redo snapshot is the whole board, font sizes
+  included. The inline rich-text markers are per-selection emphasis and a different thing;
+  per-phrase emphasis is already served by bold/underline/color, so size stays per-card.
+  The ghost and every AI-constructed node (`acceptProposal`, `addIdea`) stay default-sized,
+  because a proposal is not content. The card style sets `fontSize` inline and the textarea
+  (`font: inherit`) and `.rt` read view inherit it, so the edit/read metrics mirror stays
+  intact; text clips in a too-small card exactly as it always has. `parseBoard` snaps
+  off-ladder numbers to the nearest rung and defaults junk (`snapFontSize`), so pre-v1.10
+  rows load unchanged. No `savePayload` change: nodes ride along whole, like `done`.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.
