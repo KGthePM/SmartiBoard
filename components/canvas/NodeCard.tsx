@@ -14,10 +14,14 @@ import {
 
 type Props = {
   node: IdeaNode;
+  /** In the selection — one card or many. */
   selected: boolean;
-  onSelect: () => void;
+  /** This card is the entire selection. Gates the empty-card auto-edit. */
+  sole: boolean;
+  onCardDown: (e: React.PointerEvent) => void;
+  /** Double-click: collapse the selection to this card and edit it. */
+  onEdit: () => void;
   onChange: (text: string, format?: boolean) => void;
-  onDragStart: (e: React.PointerEvent) => void;
   onPortDown: (e: React.PointerEvent) => void;
   onResizeStart: (e: React.PointerEvent) => void;
   onAdjustFont: (dir: 1 | -1) => void;
@@ -58,9 +62,10 @@ function RichTextView({ text }: { text: string }) {
 export function NodeCard({
   node,
   selected,
-  onSelect,
+  sole,
+  onCardDown,
+  onEdit,
   onChange,
-  onDragStart,
   onPortDown,
   onResizeStart,
   onAdjustFont,
@@ -73,9 +78,11 @@ export function NodeCard({
   const pendingSelection = useRef<[number, number] | null>(null);
 
   useEffect(() => {
-    // Newly created nodes are empty and should be ready to type into.
-    if (selected && node.text === '') setEditing(true);
-  }, [selected, node.text]);
+    // Newly created nodes are empty and should be ready to type into — but
+    // only when this card is the whole selection: shift-clicking an empty
+    // card into a multi-selection must not jump it into editing.
+    if (selected && sole && node.text === '') setEditing(true);
+  }, [selected, sole, node.text]);
 
   useEffect(() => {
     if (!editing) return;
@@ -115,12 +122,11 @@ export function NodeCard({
     <div
       className={`card ${editing ? 'editing' : ''} ${node.layer === 'accepted' ? 'accepted' : ''} ${node.done ? 'done' : ''} ${selected ? 'selected' : ''}`}
       style={{ left: node.x, top: node.y, width: node.w, height: node.h, fontSize: node.fontSize }}
-      onPointerDown={(e) => {
-        onSelect();
-        onDragStart(e);
-      }}
+      onPointerDown={(e) => onCardDown(e)}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        // A double-click edits this card, and only this card.
+        onEdit();
         setEditing(true);
       }}
     >

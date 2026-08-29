@@ -7,10 +7,13 @@ import {
   NODE_MIN_H,
   NODE_MIN_W,
   NODE_FONT_STEPS,
+  nodesInRect,
   OBJECTIVE_MAX,
   parseBoard,
+  removeNodes,
   snapFontSize,
   stepFontSize,
+  type Edge,
 } from './graph';
 
 describe('clampSize', () => {
@@ -128,6 +131,63 @@ describe('objective', () => {
     expect(parseBoard('b', { objective: long, nodes: [] }).objective).toHaveLength(
       OBJECTIVE_MAX,
     );
+  });
+});
+
+describe('removeNodes', () => {
+  /** Three cards in a line, all connected: a—b—c. */
+  function line() {
+    const b = emptyBoard('b');
+    b.nodes = [
+      createNode({ id: 'a', x: 0, y: 0 }),
+      createNode({ id: 'b', x: 300, y: 0 }),
+      createNode({ id: 'c', x: 600, y: 0 }),
+    ];
+    const edge = (id: string, from: string, to: string): Edge => ({
+      id,
+      from,
+      to,
+      layer: 'user',
+    });
+    b.edges = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c'), edge('e3', 'a', 'c')];
+    return b;
+  }
+
+  it('removes the listed nodes and every edge that touched them', () => {
+    const out = removeNodes(line(), ['a', 'b']);
+    expect(out.nodes.map((n) => n.id)).toEqual(['c']);
+    expect(out.edges).toEqual([]);
+  });
+
+  it('keeps the edge between two survivors', () => {
+    const out = removeNodes(line(), ['a']);
+    expect(out.nodes.map((n) => n.id)).toEqual(['b', 'c']);
+    // b—c survives; a's two edges die with it.
+    expect(out.edges.map((e) => e.id)).toEqual(['e2']);
+  });
+
+  it('leaves the board alone for an empty or unknown batch', () => {
+    const b = line();
+    expect(removeNodes(b, [])).toEqual(b);
+    expect(removeNodes(b, ['n_nope']).nodes).toHaveLength(3);
+  });
+});
+
+describe('nodesInRect', () => {
+  it('returns exactly the cards the sweep touches — crossing counts, not containment', () => {
+    const b = emptyBoard('b');
+    b.nodes = [
+      createNode({ id: 'in1', x: 0, y: 0 }),
+      createNode({ id: 'in2', x: 100, y: 100 }),
+      createNode({ id: 'out', x: 1000, y: 1000 }),
+    ];
+    expect(nodesInRect(b, { x: -10, y: -10, w: 320, h: 320 })).toEqual(['in1', 'in2']);
+  });
+
+  it('returns nothing for a sweep over empty canvas', () => {
+    const b = emptyBoard('b');
+    b.nodes = [createNode({ id: 'a', x: 0, y: 0 })];
+    expect(nodesInRect(b, { x: 500, y: 500, w: 100, h: 100 })).toEqual([]);
   });
 });
 

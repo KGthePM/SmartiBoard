@@ -62,6 +62,14 @@ html, body {
   will-change: transform;
 }
 
+/* The Shift+drag selection sweep: an outline and a wash, nothing more. */
+.marquee {
+  position: absolute;
+  border: 1px solid var(--ink);
+  background: rgba(28, 28, 26, 0.06);
+  pointer-events: none;
+}
+
 .card {
   position: absolute;
   border-radius: 6px;
@@ -137,7 +145,10 @@ html, body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   z-index: 4;
 }
-.rt-bar button {
+/* Direct children only — the color swatches live inside .rt-swatches and
+   must not inherit this transparent background (it was beating the
+   .rt-sw-* color rules on specificity). */
+.rt-bar > button {
   min-width: 22px;
   height: 22px;
   padding: 0 4px;
@@ -150,7 +161,7 @@ html, body {
   color: var(--ink);
   cursor: pointer;
 }
-.rt-bar button:hover { background: rgba(28,28,26,0.08); }
+.rt-bar > button:hover { background: rgba(28,28,26,0.08); }
 .rt-bar .f-b { font-weight: 700; }
 .rt-bar .f-i { font-style: italic; font-family: Georgia, serif; }
 .rt-bar .f-u { text-decoration: underline; }
@@ -163,14 +174,14 @@ html, body {
   border-left: 1px solid var(--grid);
 }
 .rt-sw {
-  width: 13px !important;
-  height: 13px !important;
+  width: 13px;
+  height: 13px;
   min-width: 0;
-  padding: 0 !important;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(0,0,0,0.15);
 }
-.rt-sw:hover { transform: scale(1.15); background: transparent; }
+.rt-sw:hover { transform: scale(1.15); }
 .rt-sw-red { background: var(--mark-red); }
 .rt-sw-amber { background: var(--mark-amber); }
 .rt-sw-green { background: var(--mark-green); }
@@ -423,6 +434,8 @@ html, body {
   gap: 10px;
   align-items: center;
 }
+/* The only save state that gets its own color: informed, not alarmed. */
+.status .save-error { color: var(--mark-amber); }
 .legend {
   position: fixed;
   bottom: 14px;

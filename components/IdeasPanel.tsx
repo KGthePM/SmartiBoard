@@ -35,7 +35,9 @@ export function IdeasPanel() {
   const status = useBoard((s) => s.ideasStatus);
   const cachedFp = useBoard((s) => s.ideasFingerprint);
   const seedId = useBoard((s) => s.ideasSeedId);
-  const selectedId = useBoard((s) => s.selectedId);
+  // Branching needs exactly one card — a multi-selection has no single branch
+  // point, so it reads as the whole board.
+  const selectedId = useBoard((s) => (s.selectedIds.length === 1 ? s.selectedIds[0] : null));
   const setIdeasOpen = useBoard((s) => s.setIdeasOpen);
 
   const abortRef = useRef<AbortController | null>(null);

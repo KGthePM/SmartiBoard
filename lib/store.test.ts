@@ -154,7 +154,7 @@ describe('redo', () => {
     s().undo();
     expect(s().redoStack).toHaveLength(1);
 
-    s().moveNode(a, 999, 999);
+    s().moveNodes([{ id: a, x: 999, y: 999 }]);
     expect(s().redoStack).toEqual([]);
   });
 
@@ -222,7 +222,7 @@ describe('redo', () => {
     s().select(a);
 
     s().redo();
-    expect(s().selectedId).toBeNull();
+    expect(s().selectedIds).toEqual([]);
   });
 });
 
@@ -531,15 +531,81 @@ describe('deleteEdge', () => {
   });
 });
 
+describe('deleteNodes', () => {
+  /** A board of three cards in a line: a—b—c, all connected. */
+  function trio(id: string) {
+    open(id);
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    const c = s().addNode(600, 0);
+    s().connect(a, b);
+    s().connect(b, c);
+    return { a, b, c };
+  }
+
+  it('removes the batch and every edge that touched it', () => {
+    const { a, b, c } = trio('del-a');
+    s().deleteNodes([a, b]);
+    expect(s().board.nodes.map((n) => n.id)).toEqual([c]);
+    expect(s().board.edges).toEqual([]);
+  });
+
+  it('is one undo step for the whole batch, and undo restores cards and edges', () => {
+    const { a, b } = trio('del-b');
+    const before = s().board;
+    const depth = s().undoStack.length;
+
+    s().deleteNodes([a, b]);
+    expect(s().undoStack).toHaveLength(depth + 1);
+
+    s().undo();
+    expect(s().board).toEqual(before);
+  });
+
+  it('drops the deleted cards from the selection, and only those', () => {
+    const { a, b, c } = trio('del-c');
+    s().selectMany([a, b, c]);
+    s().deleteNodes([a, b]);
+    expect(s().selectedIds).toEqual([c]);
+  });
+
+  it('counts as thinking — one bump for the batch, not one per card', () => {
+    const { a, b } = trio('del-d');
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    s().deleteNodes([a, b]);
+    expect(s().lastMutationAt).toBe(12345);
+    vi.restoreAllMocks();
+  });
+
+  it('is a no-op for ids that are not on the board', () => {
+    trio('del-e');
+    const depth = s().undoStack.length;
+    const before = s().lastMutationAt;
+
+    s().deleteNodes(['n_nope']);
+    expect(s().board.nodes).toHaveLength(3);
+    expect(s().undoStack).toHaveLength(depth);
+    expect(s().lastMutationAt).toBe(before);
+  });
+
+  it('the card × still deletes one card, and prunes it from the selection', () => {
+    const { b, c } = trio('del-f');
+    s().selectMany([b, c]);
+    s().deleteNode(b);
+    expect(s().board.nodes).toHaveLength(2);
+    expect(s().selectedIds).toEqual([c]);
+  });
+});
+
 describe('edge selection', () => {
   it('is mutually exclusive with node selection', () => {
     open('sel-a');
     const n = s().addNode(0, 0);
     s().selectEdge('e_1');
-    expect(s().selectedId).toBeNull();
+    expect(s().selectedIds).toEqual([]);
     s().select(n);
     expect(s().selectedEdgeId).toBeNull();
-    expect(s().selectedId).toBe(n);
+    expect(s().selectedIds).toEqual([n]);
   });
 
   it('does not survive a board switch or an undo', () => {
@@ -564,6 +630,60 @@ describe('edge selection', () => {
     s().deleteNode(b);
     expect(s().selectedEdgeId).toBeNull();
     expect(s().board.edges).toHaveLength(0);
+  });
+});
+
+describe('multi-select', () => {
+  it('toggleSelect adds and removes, and never coexists with an edge selection', () => {
+    open('multi-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+
+    s().selectEdge('e_1');
+    s().toggleSelect(a);
+    expect(s().selectedIds).toEqual([a]);
+    expect(s().selectedEdgeId).toBeNull();
+
+    s().toggleSelect(b);
+    expect(s().selectedIds).toEqual([a, b]);
+
+    s().toggleSelect(a);
+    expect(s().selectedIds).toEqual([b]);
+  });
+
+  it('selectMany replaces the selection — the marquee lands as it swept', () => {
+    open('multi-b');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    const c = s().addNode(600, 0);
+
+    s().select(a);
+    s().selectMany([b, c]);
+    expect(s().selectedIds).toEqual([b, c]);
+
+    // An empty sweep clears, exactly like a plain click on empty canvas.
+    s().selectMany([]);
+    expect(s().selectedIds).toEqual([]);
+  });
+
+  it('does not survive a board switch or an undo, like the single selection', () => {
+    open('multi-c');
+    const a = s().addNode(0, 0);
+    s().toggleSelect(a);
+    s().undo();
+    expect(s().selectedIds).toEqual([]);
+
+    s().select(a);
+    s().toggleSelect(s().addNode(300, 0));
+    open('multi-d');
+    expect(s().selectedIds).toEqual([]);
+  });
+
+  it('addNode still lands as a lone selection, ready to type', () => {
+    open('multi-e');
+    s().toggleSelect(s().addNode(0, 0));
+    const fresh = s().addNode(300, 0);
+    expect(s().selectedIds).toEqual([fresh]);
   });
 });
 
@@ -633,6 +753,49 @@ describe('resizeNode', () => {
     expect(s().board.nodes[0]).toMatchObject({ w: 400, h: 200 });
     expect(s().undoStack).toHaveLength(undoDepth);
     expect(s().lastMutationAt).toBe(before);
+  });
+});
+
+describe('moveNodes', () => {
+  it('carries the set while leaving its shape intact', () => {
+    open('mv-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 40);
+
+    s().moveNodes([
+      { id: a, x: 110, y: 50 },
+      { id: b, x: 410, y: 90 },
+    ]);
+    expect(s().board.nodes.find((n) => n.id === a)).toMatchObject({ x: 110, y: 50 });
+    expect(s().board.nodes.find((n) => n.id === b)).toMatchObject({ x: 410, y: 90 });
+  });
+
+  it('is the move doctrine, batched: no undo step, no token, redo spent', () => {
+    // Rearranging the picture — one card or a carried set — must neither haunt
+    // the undo stack nor debounce the trigger, and it still spends the redo
+    // stack because a redo snapshot holds positions too.
+    open('mv-b');
+    const a = s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+    expect(s().redoStack).toHaveLength(1);
+    const undoDepth = s().undoStack.length;
+    const before = s().lastMutationAt;
+
+    s().moveNodes([{ id: a, x: 999, y: 999 }]);
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().lastMutationAt).toBe(before);
+    expect(s().redoStack).toEqual([]);
+  });
+
+  it('never reaches the model: the fingerprint is untouched by construction', () => {
+    open('mv-c');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'an idea that moves');
+    const before = fingerprint(s().board);
+
+    s().moveNodes([{ id: a, x: 999, y: 999 }]);
+    expect(fingerprint(s().board)).toBe(before);
   });
 });
 

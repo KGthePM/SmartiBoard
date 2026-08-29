@@ -178,13 +178,26 @@ export function edgePair(from: NodeId, to: NodeId): [NodeId, NodeId] {
   return from < to ? [from, to] : [to, from];
 }
 
-/** Removing a node takes its edges with it. */
-export function removeNode(board: Board, id: NodeId): Board {
+/**
+ * Removing several nodes at once — their edges go with them, and an edge
+ * between two survivors stays. One deliberate action (the multi-delete) must
+ * be one board rewrite, not a filter pass per card.
+ */
+export function removeNodes(board: Board, ids: Iterable<NodeId>): Board {
+  const gone = new Set(ids);
   return {
     ...board,
-    nodes: board.nodes.filter((n) => n.id !== id),
-    edges: board.edges.filter((e) => e.from !== id && e.to !== id),
+    nodes: board.nodes.filter((n) => !gone.has(n.id)),
+    edges: board.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to)),
   };
+}
+
+/**
+ * Which cards a marquee sweep touches. Intersection, not containment: a band
+ * across the middle of a board should take the cards it crosses.
+ */
+export function nodesInRect(board: Board, rect: Rect): NodeId[] {
+  return board.nodes.filter((n) => intersects(rectOf(n), rect)).map((n) => n.id);
 }
 
 export type Rect = { x: number; y: number; w: number; h: number };

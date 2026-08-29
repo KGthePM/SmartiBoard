@@ -155,8 +155,10 @@ layer.
 
 - **Double-click** empty canvas to add an idea
 - **Drag** a card to move it; **drag the dot** on its right edge to another card to connect
+- **Shift+click** cards, or **Shift+drag** on empty canvas, to select several — drag moves
+  them together and **Backspace** deletes them all as one undoable step
 - **Scroll** to zoom, drag the background to pan
-- **⌘Z / Ctrl+Z** to undo, **⌘⇧Z / Ctrl+Y** to redo; **Backspace** deletes the selected card
+- **⌘Z / Ctrl+Z** to undo, **⌘⇧Z / Ctrl+Y** to redo; **Backspace** deletes the selection
 - Suggestions appear on their own. **Accept** or **Dismiss** — both are one click, and
   accepting is undoable
 - **⌘J / Ctrl+J** (or the **Objective** button) opens the board's objective — a few lines

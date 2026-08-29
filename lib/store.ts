@@ -9,7 +9,7 @@ import {
   emptyBoard,
   newId,
   OBJECTIVE_MAX,
-  removeNode,
+  removeNodes,
   stepFontSize,
   TITLE_MAX,
   type Board,
@@ -108,8 +108,12 @@ export type State = {
   objectiveOpen: boolean;
   viewport: Viewport;
   surface: Surface;
-  selectedId: NodeId | null;
-  /** The selected edge, if any. Mutually exclusive with selectedId. */
+  /**
+   * The selection — one card or many. Pure UI state: it spends no undo step,
+   * no token, and never survives a board switch, an undo, or a redo.
+   */
+  selectedIds: NodeId[];
+  /** The selected edge, if any. Mutually exclusive with selectedIds. */
   selectedEdgeId: string | null;
   /** Board snapshots, pushed only by user actions. Ghost arrival never touches this. */
   undoStack: Board[];
@@ -138,14 +142,22 @@ export type State = {
   setPrivacy: (v: boolean) => void;
   addNode: (x: number, y: number) => NodeId;
   setNodeText: (id: NodeId, text: string, format?: boolean) => void;
-  moveNode: (id: NodeId, x: number, y: number) => void;
+  /** Absolute positions for a whole dragged set — one set() per pointer event. */
+  moveNodes: (moves: { id: NodeId; x: number; y: number }[]) => void;
   resizeNode: (id: NodeId, w: number, h: number) => void;
   adjustNodeFontSize: (id: NodeId, dir: 1 | -1) => void;
   toggleNodeDone: (id: NodeId) => void;
   deleteNode: (id: NodeId) => void;
+  /** The multi-delete: one deliberate edit, one undo step for the whole batch. */
+  deleteNodes: (ids: NodeId[]) => void;
   connect: (from: NodeId, to: NodeId, layer?: Layer) => void;
   deleteEdge: (id: string) => void;
+  /** Collapse the selection to one card, or clear it with null. */
   select: (id: NodeId | null) => void;
+  /** Shift+click: add the card to the selection, or remove it if it is in. */
+  toggleSelect: (id: NodeId) => void;
+  /** The marquee result: what it swept is the selection, an empty sweep clears. */
+  selectMany: (ids: NodeId[]) => void;
   selectEdge: (id: string | null) => void;
   setViewport: (v: Viewport) => void;
   setSurface: (s: Surface) => void;
@@ -200,7 +212,7 @@ export const useBoard = create<State>((set, get) => ({
   objectiveOpen: false,
   viewport: { x: 0, y: 0, scale: 1 },
   surface: { w: 1200, h: 800 },
-  selectedId: null,
+  selectedIds: [],
   selectedEdgeId: null,
   undoStack: [],
   redoStack: [],
@@ -227,7 +239,7 @@ export const useBoard = create<State>((set, get) => ({
       proposal: null,
       undoStack: [],
       redoStack: [],
-      selectedId: null,
+      selectedIds: [],
       selectedEdgeId: null,
       suggesting: false,
       ideasOpen: false,
@@ -293,7 +305,7 @@ export const useBoard = create<State>((set, get) => ({
     set((s) => ({
       ...pushUndo(s),
       board: { ...s.board, nodes: [...s.board.nodes, node] },
-      selectedId: node.id,
+      selectedIds: [node.id],
       lastMutationAt: Date.now(),
     }));
     return node.id;
@@ -314,17 +326,20 @@ export const useBoard = create<State>((set, get) => ({
       lastTextEditId: id,
     })),
 
-  moveNode: (id, x, y) =>
+  moveNodes: (moves) =>
     set((s) => ({
       board: {
         ...s.board,
-        nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)),
+        nodes: s.board.nodes.map((n) => {
+          const m = moves.find((x) => x.id === n.id);
+          return m ? { ...n, x: m.x, y: m.y } : n;
+        }),
       },
-      // Deliberately does NOT bump lastMutationAt: moving a node rearranges the
-      // picture without changing what the board says, so it must not spend a
-      // token. It still spends the redo stack: a redo snapshot is the whole
-      // board, positions included, so redoing after a drag would snap the card
-      // back to where the undone future remembers it.
+      // The move doctrine, batched: rearranging the picture changes nothing the
+      // board says — deliberately no undo snapshot and no lastMutationAt bump,
+      // so it never spends a token. It still spends the redo stack: a redo
+      // snapshot is the whole board, positions included, so redoing after a
+      // drag would snap the cards back.
       redoStack: [],
     })),
 
@@ -374,21 +389,29 @@ export const useBoard = create<State>((set, get) => ({
       lastMutationAt: Date.now(),
     })),
 
-  deleteNode: (id) =>
-    set((s) => ({
-      ...pushUndo(s),
-      board: removeNode(s.board, id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-      // A node's edges die with it, so the selected edge may have vanished too.
-      selectedEdgeId:
-        s.selectedEdgeId &&
-        s.board.edges.some(
-          (e) => e.id === s.selectedEdgeId && (e.from === id || e.to === id),
-        )
-          ? null
-          : s.selectedEdgeId,
-      lastMutationAt: Date.now(),
-    })),
+  // The card's × is the batch of one — one implementation, one doctrine.
+  deleteNode: (id) => get().deleteNodes([id]),
+
+  deleteNodes: (ids) =>
+    set((s) => {
+      const board = removeNodes(s.board, ids);
+      // Nothing listed was on the board: not an edit, nothing to snapshot.
+      if (board.nodes.length === s.board.nodes.length) return s;
+      return {
+        ...pushUndo(s),
+        board,
+        // The deleted cards leave the selection; survivors stay selected.
+        selectedIds: s.selectedIds.filter((id) => board.nodes.some((n) => n.id === id)),
+        // A node's edges die with it, so the selected edge may have vanished too.
+        selectedEdgeId:
+          s.selectedEdgeId && board.edges.some((e) => e.id === s.selectedEdgeId)
+            ? s.selectedEdgeId
+            : null,
+        // One bump for the whole batch, like the one snapshot: deleting five
+        // cards is one deliberate edit, not five.
+        lastMutationAt: Date.now(),
+      };
+    }),
 
   connect: (from, to, layer = 'user') =>
     set((s) => {
@@ -421,8 +444,20 @@ export const useBoard = create<State>((set, get) => ({
       };
     }),
 
-  select: (id) => set({ selectedId: id, selectedEdgeId: null }),
-  selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
+  select: (id) => set({ selectedIds: id ? [id] : [], selectedEdgeId: null }),
+
+  toggleSelect: (id) =>
+    set((s) => ({
+      selectedIds: s.selectedIds.includes(id)
+        ? s.selectedIds.filter((x) => x !== id)
+        : [...s.selectedIds, id],
+      // Selecting cards and selecting a line never coexist.
+      selectedEdgeId: null,
+    })),
+
+  selectMany: (ids) => set({ selectedIds: ids, selectedEdgeId: null }),
+
+  selectEdge: (id) => set({ selectedEdgeId: id, selectedIds: [] }),
   setViewport: (v) => set({ viewport: v }),
   setSurface: (surface) => set({ surface }),
 
@@ -596,7 +631,7 @@ export const useBoard = create<State>((set, get) => ({
         // list as stale — the list is still about the board it was asked about,
         // plus the one card you just took from it.
         ideasFingerprint: s.ideasStatus === 'done' ? fingerprint(board) : s.ideasFingerprint,
-        selectedId: node.id,
+        selectedIds: [node.id],
         lastMutationAt: Date.now(),
       };
     }),
@@ -614,7 +649,7 @@ export const useBoard = create<State>((set, get) => ({
         undoStack: s.undoStack.slice(0, -1),
         // The board being left becomes the undone future, one entry per undo.
         redoStack: [...s.redoStack, s.board],
-        selectedId: null,
+        selectedIds: [],
         // The restored board may not contain the selected edge anymore.
         selectedEdgeId: null,
         lastMutationAt: Date.now(),
@@ -638,7 +673,7 @@ export const useBoard = create<State>((set, get) => ({
         // the cap pushUndo already enforces.
         undoStack: [...s.undoStack, s.board],
         redoStack: s.redoStack.slice(0, -1),
-        selectedId: null,
+        selectedIds: [],
         selectedEdgeId: null,
         lastMutationAt: Date.now(),
         lastTextEditId: null,

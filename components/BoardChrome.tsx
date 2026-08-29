@@ -203,6 +203,7 @@ export function BoardChrome() {
             <span>Drag a corner to resize</span>
             <span>A− / A+ for text size</span>
             <span>D marks it done</span>
+            <span>Shift+click or Shift+drag selects several</span>
             <span>Click a line to select it</span>
             <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
           </div>

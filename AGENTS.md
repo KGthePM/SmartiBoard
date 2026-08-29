@@ -186,5 +186,48 @@ the user's to make — say what needs looking at and stop there.
   off-ladder numbers to the nearest rung and defaults junk (`snapFontSize`), so pre-v1.10
   rows load unchanged. No `savePayload` change: nodes ride along whole, like `done`.
 
+- **Autosave indicator** (v1.11, functional not flourish): the save loop in
+  `components/canvas/Board.tsx` now reports itself in the bottom-right status row — `Saved`
+  (persistent, muted), `Saving…` (dirty through debounce and flight alike), and `Not saved —
+  retrying…` (amber, the existing `--mark-amber`). A save is a 2xx or it is a failure: `!r.ok`
+  takes the failure path, so an HTTP error no longer counted as saved sits unretried forever.
+  Failures self-recover — while in error, a `SAVE_RETRY_MS` timer bumps a `retryNonce` that
+  re-arms the autosave effect (`savedRef` is `''` in that state, so it always finds the board
+  dirty); no keystroke is required. A monotonic `saveSeqRef` makes a late response from a
+  superseded save a no-op, so typing over an in-flight save cannot be marked saved prematurely.
+  Leaving a board no longer drops its tail edit: both exits (board switch, unmount to the
+  index) kill the debounce timer with the effect cleanup, so `flushUnsaved` fires the pending
+  PUT fire-and-forget — unsupervised, because no board is on screen to receive its outcome.
+  `arrive` resets the indicator per board. `beforeunload` warns while unsaved (native prompt
+  only, armed by `saveState !== 'saved'`). All presentation and reliability: component-local
+  state beside the loop it reports on, no store change, no undo/redo impact, never a token.
+
+- **Multi-select** (v1.12, functional not flourish): `selectedIds: NodeId[]` replaces the
+  single `selectedId` — one source of truth for one card or many, mutually exclusive with
+  `selectedEdgeId` as before, cleared by `beginLoad`, `undo`, and `redo`, and set to the new
+  card by `addNode`/`addIdea`. Shift+click toggles a card into the selection; Shift+drag on
+  empty canvas sweeps a marquee (`nodesInRect` in `lib/graph.ts`), and the plain drag still
+  pans, exactly as it always has. Grabbing a card already in a multi-selection drags the
+  whole set, with a click-vs-drag rule doing the splitting: a pointer that never carries
+  beyond 3px of jitter collapses to that card on release, one that carries moves the set —
+  without the rule a multi-selection could never be dragged. Selection is pure UI state: no
+  undo snapshot, no redo spend, no `lastMutationAt` bump, never a token, absent from the
+  fingerprint by construction. Two batch actions carry the doctrine: `moveNodes` is the
+  `moveNode` doctrine batched — one `set()` per pointer event for the whole set, positions
+  are presentation so no snapshot and no bump, but the redo stack is spent because a redo
+  snapshot holds positions too (`moveNode` itself is gone; the one-card drag is a one-item
+  call) — and `deleteNodes` is the multi-delete as **one** deliberate edit: one undo snapshot
+  for the whole batch (one action, one undo step), one `lastMutationAt` bump, edges cascade
+  via `removeNodes`, and only the deleted ids leave the selection. The card's × routes
+  through it as the batch of one. Backspace/Delete deletes the whole selection; `D` stays
+  single-card by decision — done is per-idea and fires only when exactly one card is
+  selected. The marquee *replaces* the selection (an empty sweep clears, the same thing a
+  plain click on empty canvas does); the ideas panel seeds a branch only from a lone
+  selection, since a multi-selection has no single branch point. Persistent groups were
+  considered and deliberately not built — a Group entity is schema and scope this version
+  does not need. `sole` on `NodeCard` gates the empty-card auto-edit to a lone selection, so
+  shift-clicking an empty card into a set does not jump it into editing, and double-click
+  collapses the selection to the card being edited.
+
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.
