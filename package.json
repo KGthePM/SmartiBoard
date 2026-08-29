@@ -8,9 +8,9 @@
   },
   "scripts": {
     "preinstall": "node scripts/check-node.js",
-    "dev": "next dev",
+    "dev": "next dev -H ${SMARTI_HOST:-127.0.0.1}",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H ${SMARTI_HOST:-127.0.0.1}",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

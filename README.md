@@ -55,6 +55,27 @@ npm start                 # http://localhost:3000
 The `data/` directory and the SQLite file inside it are created on first run — no setup
 step, no migration to apply. A fresh clone opens onto one board, the tutorial (below).
 
+### On your phone, on your own network
+
+```bash
+./start.sh --lan          # http://localhost:3000 *and* http://<your-lan-ip>:3000
+```
+
+The flag binds the server to every interface instead of just loopback and prints the address
+to type into the other device. Without it the server listens on `127.0.0.1` only — note that
+this is *not* the Next.js default, which is every interface; the `dev` and `start` scripts pin
+the host so that the safe case is the one you get by doing nothing. `SMARTI_LAN=1 ./start.sh` does the same thing, as does
+`SMARTI_HOST=0.0.0.0 npm run dev` if you skip the script. It is what you
+want when the boards live on your laptop and you would like to read or edit them from a phone
+or tablet in the same house. The canvas answers touch: drag to pan, pinch to zoom, drag a card
+to move it, long press for the things Shift does on a keyboard.
+
+**It is opt-in every run, and it should be.** Smarti Board has no login, no session, and no
+per-user anything — one SQLite file, one settings row, and every `/api` route answers whoever
+asks. Anyone who can reach that address can read and edit every board, and can spend whatever
+model provider key you configured. That is a fine trade on your own Wi-Fi and a bad one on a
+café or conference network, which is exactly why the app will not make the choice for you.
+
 <details>
 <summary><strong>Why Node 22+, and what if <code>npm install</code> refuses to run?</strong></summary>
 

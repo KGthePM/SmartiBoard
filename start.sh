@@ -23,6 +23,25 @@ MAX_MAJOR=26
 say() { printf '%s\n' "$*"; }
 die() { printf '\n%s\n\n' "$*" >&2; exit 1; }
 
+# Reaching this app over the network is opt-in, once per run, and never the default.
+# There is no login, no session, and no per-user anything: every /api route answers
+# whoever asks. Binding to the LAN is therefore a decision about the room you are in,
+# which is the operator's to make each time and not something the app should assume.
+# Nothing about the choice is stored — it belongs to the invocation, not the install.
+#
+# It is a real binding, not a banner: `next dev` on its own listens on every interface,
+# so the npm scripts pin -H to $SMARTI_HOST, defaulting to 127.0.0.1. This flag is the
+# only thing that widens it, and `npm run dev` by hand is loopback-only too.
+LAN="${SMARTI_LAN:-}"
+case "${1:-}" in
+  --lan) LAN=1 ;;
+  "") ;;
+  *) die "Unknown option: $1
+Usage: ./start.sh [--lan]
+
+  --lan    also serve to other devices on this network (see README)" ;;
+esac
+
 # Echoes the major version of the given node binary, or nothing if unusable.
 node_major() {
   "$1" -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || true
@@ -133,6 +152,30 @@ if [ -d node_modules ] && ! node -e 'require("better-sqlite3")' >/dev/null 2>&1;
 fi
 
 say ""
+if [ -n "$LAN" ]; then
+  # Asked of the Node we just settled on, so the private ./.node build answers it too.
+  lan_ip=$(node -e '
+    const nets = require("os").networkInterfaces();
+    for (const list of Object.values(nets))
+      for (const n of list || [])
+        if (n.family === "IPv4" && !n.internal) { console.log(n.address); process.exit(0); }
+  ' 2>/dev/null || true)
+
+  say "Starting Smarti Board on http://localhost:3000"
+  if [ -n "$lan_ip" ]; then
+    say "  ...and on http://${lan_ip}:3000 for other devices on this network"
+  else
+    say "  ...and on the LAN address of this machine, port 3000 (could not detect which)"
+  fi
+  say ""
+  say "  !  No password. Anyone who can reach that address can read and edit"
+  say "  !  every board, and spend whatever model provider key you configured."
+  say "  !  Use it on a network you trust."
+  say ""
+  SMARTI_HOST=0.0.0.0
+  export SMARTI_HOST
+  exec npm run dev
+fi
 say "Starting Smarti Board on http://localhost:3000"
 say ""
 exec npm run dev

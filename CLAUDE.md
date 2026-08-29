@@ -334,6 +334,34 @@ like a collaborator or a paperclip. Both are now settled:
   the one property that marks a proposal as provisional. No model call anywhere in it: still
   exactly one unsolicited AI behavior and one user-invoked one.
 
+- **LAN access is opt-in per run** (v2.5): `./start.sh --lan` (or `SMARTI_LAN=1`) binds the dev
+  server to every interface and prints the machine's LAN address, so a phone or tablet on the
+  same network can open the board; with no flag the server listens on `127.0.0.1` only.
+  **That default is itself the change.** `next dev` and `next start` bind every interface on
+  their own, so before this the board was already on the LAN of every machine it ran on, quietly
+  and with no way to say otherwise — the flag would have been a banner over a door that was
+  open either way. So the npm scripts pin `-H ${SMARTI_HOST:-127.0.0.1}`, which makes loopback
+  the thing you get by doing nothing (`npm run dev` by hand included) and the flag the only
+  thing that widens it. `start.sh --lan` exports `SMARTI_HOST=0.0.0.0` rather than appending a
+  second `-H`: one place decides the host. **The flag is the entire security model, which is why it is a flag.**
+  The app has no login, no session, no cookie, no middleware and no per-user scoping — one
+  SQLite file, one settings row, and every `/api` route answers whoever asks. Anyone who can
+  reach the port can read and write every board and spend the configured provider key. That is
+  a fine trade on a home network and a bad one on a café network, and the app cannot tell the
+  two apart, so the operator decides each run. Adding a passcode was the alternative and was
+  declined: it would put a first auth concept into a codebase that has deliberately had none,
+  and a shared secret in the settings row is not the same thing as the multi-user story the
+  brief rules out.
+  **Nothing about the choice is persisted** — not in the settings row, not in a board, not in
+  an env file — because a network binding belongs to the invocation, not the install; contrast
+  the theme and the provider config, which are properties of the install and therefore stored.
+  `next.config.ts` carries `allowedDevOrigins` for the three RFC 1918 blocks and `*.local`,
+  without which Next 15 serves the page over LAN and then refuses its own API calls; it is set
+  unconditionally because it affects `next dev` and nothing else, and a config that differed
+  between the bound run and the unbound one would be a second thing to get wrong. Public ranges
+  are deliberately absent: a tunnel or a port forward is a different decision than this one.
+  No AI behavior, no new state, no token: still exactly one unsolicited and one user-invoked.
+
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
 trust-breaking action available, and outside the one-unsolicited-behavior rule.
