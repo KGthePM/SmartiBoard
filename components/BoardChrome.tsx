@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { canGenerateIdeas } from '@/lib/ai/trigger';
 import { boardTitle } from '@/lib/boards';
 import { useBoard } from '@/lib/store';
@@ -191,6 +192,13 @@ export function BoardChrome() {
         >
           Present
         </button>
+
+        {/* Navigation, not a board action: leaving unmounts the canvas, whose
+            cleanup flushes any unsaved edit fire-and-forget — the same exit the
+            board switch takes. */}
+        <Link className="chrome-home" href="/" title="All boards">
+          Home
+        </Link>
 
         <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>
           ⌘K

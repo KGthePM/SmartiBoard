@@ -509,6 +509,7 @@ html, body {
 .chrome-switch,
 .chrome-settings,
 .chrome-help,
+.chrome-home,
 .chrome-ideas,
 .chrome-objective,
 .chrome-privacy,
@@ -531,6 +532,14 @@ html, body {
   cursor: pointer;
 }
 .chrome-switch:hover { color: var(--ink); }
+.chrome-home {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+  text-decoration: none;
+}
+.chrome-home:hover { color: var(--ink); }
 .chrome-settings {
   color: var(--muted);
   border-color: var(--user-border);
@@ -611,9 +620,9 @@ html, body {
   pointer-events: none;
 }
 
-/* The whole interface while presenting: the board's name, and a way out. The
-   bar itself stays pointer-transparent except for its button, so dragging the
-   title area still pans the board underneath it. */
+/* The interface while presenting: the board's name, the objective, and a way
+   out. The bar itself stays pointer-transparent except for its buttons, so
+   dragging the title area still pans the board underneath it. */
 .present-bar {
   position: fixed;
   top: 10px;
@@ -635,8 +644,12 @@ html, body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Quiet but never hidden: a presenter must find the exit without hunting. */
-.present-exit {
+/* Quiet but never hidden: a presenter must find the exit without hunting. The
+   objective rides the same style — two pills of a pair, neither shouting over
+   the board, and the dot carries the set/unset state exactly as the chrome
+   button's does. */
+.present-exit,
+.present-objective {
   font: inherit;
   font-size: 12px;
   line-height: 1;
@@ -649,7 +662,8 @@ html, body {
   cursor: pointer;
   pointer-events: auto;
 }
-.present-exit:hover { color: var(--ink); }
+.present-exit:hover,
+.present-objective:hover { color: var(--ink); }
 
 /* ---------- help: canvas directions behind the ?, not over the canvas ---------- */
 
@@ -1117,16 +1131,72 @@ html, body {
 
 /* ---------- board index ---------- */
 
-/* Its own scroll container: the board page relies on body overflow staying hidden. */
+/* Its own scroll container: the board page relies on body overflow staying
+   hidden. The index also carries the house's one indulgence — a restrained
+   classical key: parchment paper, terracotta accent, an inscription wordmark.
+   Every color rides on variables scoped here, so the shared tokens above —
+   and with them the canvas — are untouched. */
 .index {
+  --paper: #f5f1e6;
+  --paper-deep: #eee8d8;
+  --index-border: #cfc7b3;
+  --index-line: #e8e1cd;
+  --index-rule: #d8d1bd;
+  --index-accent: #9a3b26;
   position: fixed;
   inset: 0;
   overflow-y: auto;
-  padding: 44px 32px 64px;
+  padding: 64px 32px 64px;
+  background: var(--paper);
 }
-.index-head { max-width: 1040px; margin: 0 auto 22px; }
-.index-head h1 { margin: 0; font-size: 19px; font-weight: 600; }
-.index-head p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+
+.index-head {
+  max-width: 1040px;
+  margin: 0 auto 34px;
+  text-align: center;
+}
+.index-mark { display: block; margin: 0 auto 14px; }
+/* Carved, not typed: Cinzel, drawn from Roman inscription lettering, is the
+   one place the display face is allowed. text-indent re-centers letterspaced
+   caps, which otherwise trail off-center by the tracking of the last glyph. */
+.index-wordmark {
+  margin: 0;
+  font-family: var(--font-cinzel), Georgia, 'Times New Roman', serif;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-indent: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+/* One line of Latin, flanked by hairlines — the landing page's eyebrow
+   pattern, kept as the page's single flourish. */
+.index-motto {
+  margin: 12px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--index-accent);
+}
+.index-motto::before,
+.index-motto::after {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: var(--index-rule);
+}
+.index-count { margin: 16px 0 0; font-size: 12px; color: var(--muted); }
+/* The entablature: a double hairline closing the header. */
+.index-head::after {
+  content: "";
+  display: block;
+  margin-top: 30px;
+  border-top: 3px double var(--index-rule);
+}
 
 .index-grid {
   max-width: 1040px;
@@ -1138,11 +1208,20 @@ html, body {
 
 .bcard {
   position: relative;
-  border: 1px solid var(--user-border);
+  border: 1px solid var(--index-border);
   border-radius: 6px;
   background: var(--user-bg);
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   overflow: hidden;
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+/* The landing page's quiet lift: a card rises a hair when it becomes a
+   candidate for opening. Archived cards keep their stillness — spent, not
+   gone. */
+.bcard:not(.archived):hover {
+  transform: translateY(-2px);
+  border-color: #bab19a;
+  box-shadow: 0 6px 18px rgba(84, 70, 45, 0.12);
 }
 .bcard-hit {
   display: block;
@@ -1154,7 +1233,7 @@ html, body {
   flex-direction: column;
   gap: 2px;
   padding: 9px 11px 11px;
-  border-top: 1px solid var(--grid);
+  border-top: 1px solid var(--index-line);
 }
 .bcard-title {
   font-size: 13px;
@@ -1175,7 +1254,7 @@ html, body {
   justify-content: center;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid var(--user-border);
+  border: 1px solid var(--index-border);
   background: #fff;
   color: var(--ink);
   font-size: 13px;
@@ -1200,15 +1279,20 @@ html, body {
   color: var(--muted);
   cursor: pointer;
 }
-.bcard-new:hover { color: var(--ink); border-color: var(--ink); }
-.bcard-new .plus { font-size: 20px; line-height: 1; }
+/* Doubled class to out-rank the generic hover above: the empty tile's hover
+   is the accent, not a darkened border. */
+.bcard.bcard-new:hover { color: var(--ink); border-color: var(--index-accent); }
+.bcard-new .plus { font-size: 20px; line-height: 1; color: var(--index-accent); }
 
-.archive { margin-top: 34px; }
+.archive { margin-top: 38px; }
 .archive h2 {
   max-width: 1040px;
   margin: 0 auto 12px;
+  font-family: var(--font-cinzel), Georgia, serif;
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 .bcard.archived { opacity: 0.62; box-shadow: none; }
@@ -1224,7 +1308,7 @@ html, body {
   line-height: 1;
   padding: 5px 8px;
   border-radius: 4px;
-  border: 1px solid var(--user-border);
+  border: 1px solid var(--index-border);
   background: #fff;
   color: var(--ink);
   cursor: pointer;
@@ -1239,7 +1323,11 @@ html, body {
   height: 130px;
   background: var(--bg);
 }
+/* On the index the minimap sits on the same warm paper as the page, a step
+   deeper than the card so the graph reads as lying on it. */
+.index .thumb { background: var(--paper-deep); }
 .thumb-empty { background: var(--bg); }
+.index .thumb-empty { background: var(--paper-deep); }
 .t-node { fill: var(--user-bg); stroke: var(--user-border); stroke-width: 0.8; }
 .t-node.t-accepted { stroke: var(--accepted-border); }
 .t-edge { stroke: var(--user-border); stroke-width: 0.8; }

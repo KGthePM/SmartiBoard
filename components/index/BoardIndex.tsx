@@ -51,8 +51,32 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
   return (
     <div className="index">
       <header className="index-head">
-        <h1>Smarti Board</h1>
-        <p>
+        <svg
+          className="index-mark"
+          width="34"
+          height="34"
+          viewBox="0 0 22 22"
+          aria-hidden="true"
+        >
+          <rect x="1.5" y="7" width="11" height="9" rx="2" fill="#fff" stroke="#c9c9c2" />
+          <rect
+            x="8.5"
+            y="3.5"
+            width="11"
+            height="9"
+            rx="2"
+            fill="#f2f4fb"
+            stroke="#7f93c4"
+            strokeDasharray="2.5 2"
+          />
+          <rect x="5" y="10.5" width="11" height="9" rx="2" fill="#fff" stroke="#9aa8c4" />
+          <circle cx="8.2" cy="13.7" r="1.3" fill="#4f6ba8" />
+        </svg>
+        <h1 className="index-wordmark">Smarti Board</h1>
+        <p className="index-motto" lang="la">
+          Tabula quae tecum cogitat
+        </p>
+        <p className="index-count">
           {active.length === 0
             ? 'No boards yet — start one and it will name itself.'
             : `${active.length} ${active.length === 1 ? 'board' : 'boards'}`}

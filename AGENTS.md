@@ -263,9 +263,24 @@ the user's to make — say what needs looking at and stop there.
   The node wrapper key gains a `:p` suffix in presentation, remounting every card on the flip
   — the only way to guarantee a card caught mid-edit re-renders in its read view, since
   editing state lives inside `NodeCard`. `BoardChrome`, the legend, the status row, and any
-  ghost are simply not rendered (BoardChrome unmounting also retires ⌘K/⌘./⌘,/⌘J/⌘⇧P for the
-  room), and `PresentOverlay` replaces them as the only interface: the board's name
-  (`boardTitle`, derived included) and an Exit button. The overlay owns the Fullscreen API —
+  ghost are simply not rendered (BoardChrome unmounting also retires ⌘K/⌘./⌘,/⌘⇧P for the
+  room), and `PresentOverlay` replaces them as the interface: the board's name
+  (`boardTitle`, derived included), an Exit button, and an Objective button — quiet pills of
+  a pair, the objective carrying the chrome button's ●/○ state. **The objective is the one
+  editable thing in the mode** (v1.14, user request: it helps while collaborating): the
+  button, ⌘J (which the overlay answers, so the shortcut survives the chrome's unmount),
+  or Escape-to-open via the panel's own binding open the same `ObjectivePanel` the chrome
+  renders, from the same `objectiveOpen` store flag — so an exit while it is open hands it
+  to the chrome without dropping the edit session. It costs the read-only mode nothing:
+  the CSS gate touches cards and edge furniture, not a fixed-position modal's textarea,
+  and an edit made mid-presentation is a plain `setObjective` — undo snapshot,
+  `lastMutationAt` bump, autosave — exactly as outside (⌘Z stays gated while presenting;
+  the snapshot waits for the exit, and the ghost, its loop paused, may answer the new
+  framing after the mode ends, per the objective's standing doctrine). Escape stacks
+  naturally: the overlay's listener registered first and deliberately yields while
+  `objectiveOpen` is true, so the first Escape closes the panel and only the second exits
+  (in browser fullscreen Escape belongs to the browser regardless; the panel's other close
+  paths there are ×, the backdrop, and ⌘J). The overlay owns the Fullscreen API —
   requested on `documentElement` from the entry gesture, `.catch(() => {})` so refusal or an
   old browser degrades to in-page presentation — and the exit keys, including the
   `fullscreenchange` listener that ends presentation when the browser leaves fullscreen

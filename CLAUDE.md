@@ -86,7 +86,7 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
 - `app/page.tsx` + `components/index/` — the project library and its minimaps.
-- `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name and ⌘K switcher.
+- `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
 

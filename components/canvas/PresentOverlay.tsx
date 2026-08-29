@@ -3,16 +3,22 @@
 import { useEffect } from 'react';
 import { boardTitle } from '@/lib/boards';
 import { useBoard } from '@/lib/store';
+import { ObjectivePanel } from '../ObjectivePanel';
 
 /**
  * The presentation chrome. Mounted only while presenting, so it owns
  * everything mode-specific: the Fullscreen API handshake, the exit keys, and
- * the two words of interface a room needs — the board's name and a way out.
- * The canvas behind it is read-only by CSS (see `.presenting` in the
- * stylesheet); this is the only thing left to click.
+ * the interface a room needs — the board's name, a way out, and the objective.
+ * The objective is the one editable thing in the mode: the canvas behind this
+ * is read-only by CSS (see `.presenting` in the stylesheet), but the objective
+ * is board framing rather than canvas content, and a room rewriting it
+ * mid-meeting is plain `setObjective` — snapshotted, bumped, and autosaved
+ * exactly as it is outside the mode.
  */
 export function PresentOverlay() {
   const board = useBoard((s) => s.board);
+  const objectiveOpen = useBoard((s) => s.objectiveOpen);
+  const hasObjective = useBoard((s) => s.board.objective.trim().length > 0);
 
   useEffect(() => {
     // Browser fullscreen is the point of the mode on a projector: no tabs, no
@@ -33,11 +39,23 @@ export function PresentOverlay() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // Only ours to answer when the browser is not holding it for
-        // fullscreen exit — that case is covered by onFsChange above.
-        if (!document.fullscreenElement) useBoard.getState().setPresenting(false);
+        // fullscreen exit — that case is covered by onFsChange above — and
+        // when the objective panel has it. This listener registered first,
+        // so without the guard one Escape would close the panel and end the
+        // presentation with it; the panel's own handler does the closing.
+        if (!document.fullscreenElement && !useBoard.getState().objectiveOpen) {
+          useBoard.getState().setPresenting(false);
+        }
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         useBoard.getState().setPresenting(false);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        // ⌘J survives the chrome's unmount: a room mid-meeting is exactly
+        // when the framing gets rewritten. The panel renders below, from the
+        // same store flag the chrome uses — so an exit while it is open
+        // hands it to the chrome without dropping the edit session.
+        e.preventDefault();
+        useBoard.getState().setObjectiveOpen(!useBoard.getState().objectiveOpen);
       }
     };
 
@@ -54,15 +72,30 @@ export function PresentOverlay() {
   }, []);
 
   return (
-    <div className="present-bar">
-      <span className="present-title">{boardTitle(board)}</span>
-      <button
-        className="present-exit"
-        title="Exit presentation (Esc)"
-        onClick={() => useBoard.getState().setPresenting(false)}
-      >
-        Exit
-      </button>
-    </div>
+    <>
+      <div className="present-bar">
+        <span className="present-title">{boardTitle(board)}</span>
+        <button
+          className="present-objective"
+          // Always enabled, like its chrome twin: writing the objective with
+          // the room watching is half of what the button is for.
+          title={hasObjective ? 'Board objective (⌘J)' : 'Set a board objective (⌘J)'}
+          onClick={() => useBoard.getState().setObjectiveOpen(!useBoard.getState().objectiveOpen)}
+        >
+          {hasObjective ? '●' : '○'} Objective
+        </button>
+        <button
+          className="present-exit"
+          title="Exit presentation (Esc)"
+          onClick={() => useBoard.getState().setPresenting(false)}
+        >
+          Exit
+        </button>
+      </div>
+
+      {objectiveOpen ? (
+        <ObjectivePanel onClose={() => useBoard.getState().setObjectiveOpen(false)} />
+      ) : null}
+    </>
   );
 }
