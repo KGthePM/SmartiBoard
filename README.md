@@ -142,8 +142,8 @@ top-right corner of the canvas and the override sticks. Clear the field and the 
 back to the content. Renaming never changes the URL.
 
 **⌘K** switches boards from inside the canvas: type to filter, ↑/↓ and Enter to go, or make
-a new one. Switching is clean — the undo stack, the live ghost, and the AI's memory of what
-you dismissed all belong to the board you were on, not to the session.
+a new one. Switching is clean — the undo/redo stacks, the live ghost, and the AI's memory of
+what you dismissed all belong to the board you were on, not to the session.
 
 **Deleting is two steps.** Archive moves a board out of the library and is reversible from
 the Archived section; permanent deletion is only offered on a board that is already
@@ -155,12 +155,53 @@ layer.
 - **Double-click** empty canvas to add an idea
 - **Drag** a card to move it; **drag the dot** on its right edge to another card to connect
 - **Scroll** to zoom, drag the background to pan
-- **⌘Z / Ctrl+Z** to undo; **Backspace** deletes the selected card
+- **⌘Z / Ctrl+Z** to undo, **⌘⇧Z / Ctrl+Y** to redo; **Backspace** deletes the selected card
 - Suggestions appear on their own. **Accept** or **Dismiss** — both are one click, and
   accepting is undoable
+- **⌘J / Ctrl+J** (or the **Objective** button) opens the board's objective — a few lines
+  on what this board is for. Optional, but it is the one thing that changes *what* the AI
+  suggests rather than *when*
 - **⌘. / Ctrl+.** (or the **Summary** button) reads the board back: one gist line plus a
   few observations, streamed as they're written. It's read-only — never a node, never the
   board's name, and gone when the session is
+- **⌘⇧P / Ctrl+Shift+P** (or the **Private** button) turns Privacy Mode on for this board:
+  no suggestions, no summary, nothing sent to a model. Per-board, so the rest keep working
+
+## What the board is for
+
+Every board can carry an **objective**: a few lines, up to 400 characters, saying what you're
+trying to do here. Open it with **⌘J**, type, and close — there's no save button, same as
+everywhere else.
+
+It's optional, and short on purpose. It leads the prompt for both AI behaviors, so the
+suggestions stop being generic "have you considered a success metric?" gap-fills and start
+being about your actual stakes; and the ⌘. summary reads your board *against* it, which is
+how you find out the board has drifted from what you sat down to do.
+
+It stays yours. Nothing rewrites, condenses, or summarizes your objective back at you, and
+the AI is told not to propose it back as an idea. The character cap does the work a model
+would otherwise be asked to do.
+
+## Keeping a board to yourself
+
+Some boards you want a collaborator on. Some you want a wall. **⌘⇧P** turns on **Privacy
+Mode** for the board you're looking at, and while it's on nothing in that board is sent to
+a model — no suggestions arrive, and the Summary button is unavailable, because a summary
+ships the whole board upstream too.
+
+It's per board, not per install. You keep your provider and your key configured, and the
+other boards go on co-authoring as before; the alternative — deleting your key in Settings —
+was all-or-nothing and is what this replaces. The button says which state you're in at a
+glance, filled when it's on, because a privacy switch you have to squint at is not one.
+
+The promise is kept by the server, not the browser. The `/suggest` and `/summarize` routes
+each check the board themselves and refuse, so a tab left open in another window, a retry,
+or anything that isn't the canvas gets the same answer. And **⌘Z can never turn it off** —
+Privacy Mode is deliberately not in the undo stack, because an undo that quietly put a board
+back on speaking terms with a model is one you'd never notice.
+
+Turning it back off doesn't immediately produce a suggestion: the flag isn't part of what
+the AI reads, so the board looks unchanged to it. The next real edit wakes it.
 
 ## How it decides when to speak
 
@@ -168,12 +209,15 @@ layer.
 difference between a collaborator and a paperclip. `lib/ai/trigger.ts` holds the whole
 policy as pure functions, and it is the file to tune when the behavior feels wrong:
 
-1. 4s debounce after the last meaningful change
-2. A semantic fingerprint of the board — text and topology, deliberately **not** position,
-   so dragging a card never spends a token
-3. At least 3 non-empty ideas before there's anything to reason about
-4. At most one live suggestion on the canvas at a time
-5. Session memory of what you dismissed, so it doesn't re-offer a reworded version
+1. Privacy Mode, checked before anything else — a private board is not one the AI is quiet
+   on, it's one the AI is never told about
+2. 4s debounce after the last meaningful change
+3. A semantic fingerprint of the board — text, topology, and the objective, deliberately
+   **not** position, so dragging a card never spends a token but rewriting the objective
+   does (the model reads it; it changes what the board says)
+4. At least 3 non-empty ideas before there's anything to reason about
+5. At most one live suggestion on the canvas at a time
+6. Session memory of what you dismissed, so it doesn't re-offer a reworded version
 
 Placement (`lib/placement.ts`) spirals outward from the ideas a suggestion references,
 taking the first spot that doesn't occlude anything you placed.
@@ -204,7 +248,7 @@ opposite rules because it answers a question rather than proposing content:
 In: draggable text nodes on an infinite canvas, one relationship type, instant autosave,
 many named boards, and exactly one *unsolicited* AI behavior — propose a gap-fill or
 connection, one-click accept/dismiss — plus one *user-invoked* behavior, the read-only
-board summary (v1.3).
+board summary (v1.3). Either can be switched off per board with Privacy Mode (v1.9).
 
 Out: real-time multiplayer, freehand drawing, images, styling, cross-session memory,
 model choice, any further AI behaviors. The AI also never moves or edits a node you placed.

@@ -19,6 +19,9 @@
 
   --ghost-ink: #3c4a68;
 
+  /* Done: faded ink for crossed-off ideas — clearly finished, still readable. */
+  --done-faded: #a0a09a;
+
   /* Text formatting: a fixed emphasis palette, readable on white cards. */
   --mark-red: #b3261e;
   --mark-amber: #9a6700;
@@ -211,6 +214,56 @@ html, body {
 }
 .card:hover .del { opacity: 1; }
 
+/* The done toggle: the ×'s mirror at the opposite corner. Unlike the × it
+   stays visible on a done card, so finished work reads at a glance without
+   a hover. */
+.tick {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .tick, .card.selected .tick { opacity: 1; }
+.card.done .tick {
+  opacity: 1;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+/* Crossing an idea off, as plainly as a whiteboard allows — but loud enough
+    to read at a glance: a thick, continuous ink strike over faded text (the
+    default strike skips descenders, which reads as a broken faint line), no
+    marker texture and no animation. The textarea stays plain while editing —
+    a done idea is still editable. Inline-struck segments draw their own line,
+    so they need the same longhands or they'd stay thin and grey. */
+.card.done .rt {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink);
+  text-decoration-thickness: 2px;
+  text-decoration-skip-ink: none;
+  color: var(--done-faded);
+}
+.card.done .rt-s {
+  text-decoration-color: var(--ink);
+  text-decoration-thickness: 2px;
+  text-decoration-skip-ink: none;
+}
+
 /* Resize affordance: a corner bracket, shown like the port and the ×. */
 .resize {
   position: absolute;
@@ -380,6 +433,10 @@ html, body {
 .chrome-switch,
 .chrome-settings,
 .chrome-summarize,
+.chrome-objective,
+.chrome-privacy,
+.chrome-undo,
+.chrome-redo,
 .chrome-input {
   font: inherit;
   font-size: 12px;
@@ -419,6 +476,32 @@ html, body {
   cursor: pointer;
 }
 .chrome-settings:hover { color: var(--ink); }
+/* The dot is the whole state readout: hollow means this board has no objective
+   yet, filled means it has one and the AI is working against it. */
+.chrome-objective {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-objective:hover { color: var(--ink); }
+.chrome-objective.set { color: var(--ink); }
+/* The on-state has to be unmistakable at a glance: this button is the only
+   thing standing between the board and a model, and a toggle whose state you
+   have to squint at is not a privacy control. Filled, not merely tinted. */
+.chrome-privacy {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-privacy:hover { color: var(--ink); }
+.chrome-privacy.on,
+.chrome-privacy.on:hover {
+  color: #fff;
+  background: var(--ink);
+  border-color: var(--ink);
+}
 .chrome-summarize {
   color: var(--muted);
   border-color: var(--user-border);
@@ -427,6 +510,22 @@ html, body {
 }
 .chrome-summarize:hover:not(:disabled) { color: var(--ink); }
 .chrome-summarize:disabled { opacity: 0.45; cursor: default; }
+.chrome-undo {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-undo:hover:not(:disabled) { color: var(--ink); }
+.chrome-undo:disabled { opacity: 0.45; cursor: default; }
+.chrome-redo {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-redo:hover:not(:disabled) { color: var(--ink); }
+.chrome-redo:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- summary panel: read-only AI output, off-canvas ---------- */
 
@@ -730,6 +829,85 @@ html, body {
 .settings-save:hover:not(:disabled) { opacity: 0.88; }
 .settings-test:disabled,
 .settings-save:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- board objective: what this board is for ---------- */
+
+/* The settings modal's geometry again — same kind of object, summoned and
+   dismissed the same way — but wider and shorter, because what goes in it is
+   one paragraph of prose rather than a stack of fields. */
+.objective-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(28,28,26,0.18);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10vh;
+}
+.objective {
+  width: min(460px, 92vw);
+  background: #fff;
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.objective-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 9px 9px 13px;
+  border-bottom: 1px solid var(--grid);
+}
+.objective-title { font-size: 12px; color: var(--muted); }
+.objective-x {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.objective-x:hover { color: var(--ink); }
+/* Borderless and full-bleed: the card is the field. A box inside a box would
+   make one paragraph look like a form. */
+.objective-input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  color: inherit;
+  background: #fff;
+  border: 0;
+  outline: 0;
+  padding: 12px 13px;
+  resize: none;
+}
+.objective-input::placeholder { color: var(--muted); }
+.objective-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 11px;
+  padding: 9px 13px;
+  border-top: 1px solid var(--grid);
+}
+.objective-hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.objective-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Only near the cap — a counter that is always loud reads as a warning. */
+.objective-count.tight { color: var(--mark-amber); }
 
 /* ---------- board index ---------- */
 

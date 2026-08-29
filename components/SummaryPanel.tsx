@@ -151,7 +151,11 @@ export function SummaryPanel() {
   }, []);
 
   const stale = status === 'done' && cachedFp !== fingerprint(board);
-  const canSummarize = loaded && substantiveNodes(board).length >= MIN_NODES;
+  // A summary ships the whole board upstream, so Privacy Mode gates it exactly
+  // as hard as the node floor does — and says so, since a disabled button with
+  // no reason reads as a bug.
+  const canSummarize =
+    loaded && !board.privacy && substantiveNodes(board).length >= MIN_NODES;
 
   return (
     <aside className="summary" aria-label="Board summary">
@@ -168,6 +172,11 @@ export function SummaryPanel() {
             <button className="summary-go" onClick={() => void run()}>
               Summarize this board
             </button>
+          ) : board.privacy ? (
+            <p className="summary-note">
+              Privacy Mode is on for this board. Nothing here is sent to a model — turn it
+              off (⌘⇧P) to ask for a summary.
+            </p>
           ) : (
             <p className="summary-note">Needs at least 3 ideas before there is anything to summarize.</p>
           )
@@ -183,6 +192,14 @@ export function SummaryPanel() {
               Choose a model
             </button>
           </div>
+        ) : null}
+
+        {/* The route refused because the board is private — which can happen
+            even from a clean idle state if another tab turned it on. */}
+        {status === 'private' ? (
+          <p className="summary-note">
+            Privacy Mode is on for this board. Nothing here is sent to a model.
+          </p>
         ) : null}
 
         {status === 'streaming' && !text ? <p className="summary-note">reading the board…</p> : null}

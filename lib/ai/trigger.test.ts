@@ -99,6 +99,13 @@ describe('fingerprint', () => {
     expect(fingerprint(a)).not.toBe(fingerprint(b));
   });
 
+  it('changes when an idea is crossed off — done is content the model sees', () => {
+    const a = board(['a', 'b', 'c']);
+    const b = board(['a', 'b', 'c']);
+    b.nodes[0] = { ...b.nodes[0], done: true };
+    expect(fingerprint(a)).not.toBe(fingerprint(b));
+  });
+
   it('changes when a connection is drawn', () => {
     const a = board(['a', 'b', 'c']);
     const b = board(['a', 'b', 'c']);
@@ -111,5 +118,58 @@ describe('fingerprint', () => {
     const b = board(['a', 'b', 'c']);
     b.nodes = [...b.nodes].reverse();
     expect(fingerprint(a)).toBe(fingerprint(b));
+  });
+});
+
+describe('fingerprint and the objective', () => {
+  it('changes when the objective changes — the model sees a different board', () => {
+    const a = board(['pricing', 'onboarding', 'churn']);
+    const b = { ...a, objective: 'Win back churned design teams.' };
+    expect(fingerprint(b)).not.toBe(fingerprint(a));
+  });
+
+  it('ignores whitespace around it, the way it ignores a drag', () => {
+    const a = { ...board(['a', 'b', 'c']), objective: 'Win back churned teams.' };
+    const b = { ...a, objective: '  Win back churned teams.\n' };
+    expect(fingerprint(b)).toBe(fingerprint(a));
+  });
+
+  it('does not stand in for ideas: an objective alone is not a board', () => {
+    const b = { ...board(['pricing']), objective: 'Win back churned design teams.' };
+    expect(shouldRequest(b, idle, NOW)).toEqual({ fire: false, reason: 'too_few_nodes' });
+  });
+});
+
+describe('privacy mode', () => {
+  it('says nothing about a private board, however ready it otherwise is', () => {
+    const b = { ...board(['pricing', 'onboarding', 'churn']), privacy: true };
+    expect(shouldRequest(b, idle, NOW)).toEqual({ fire: false, reason: 'privacy' });
+  });
+
+  it('outranks every other reason — it is the answer, not one of them', () => {
+    // Deliberately also in flight, cooling down, and holding a live proposal:
+    // whichever check ran first would block anyway, but the *reason* is the
+    // point. Privacy is not the board being busy.
+    const b = { ...board(['pricing', 'onboarding', 'churn']), privacy: true };
+    const busy: TriggerState = {
+      ...idle,
+      inFlight: true,
+      liveProposals: 1,
+      failedAt: NOW - 1,
+      lastMutationAt: NOW,
+    };
+    expect(shouldRequest(b, busy, NOW)).toEqual({ fire: false, reason: 'privacy' });
+  });
+
+  it('speaks again the moment it is turned off', () => {
+    const b = { ...board(['pricing', 'onboarding', 'churn']), privacy: false };
+    expect(shouldRequest(b, idle, NOW).fire).toBe(true);
+  });
+
+  it('is not content: toggling it does not change the fingerprint', () => {
+    // If it did, turning privacy off would itself look like a new idea and
+    // buy the ghost a free question about a board nobody had touched.
+    const a = board(['pricing', 'onboarding', 'churn']);
+    expect(fingerprint({ ...a, privacy: true })).toBe(fingerprint(a));
   });
 });

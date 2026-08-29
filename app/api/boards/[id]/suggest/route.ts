@@ -5,6 +5,7 @@ import { openaiComplete } from '@/lib/ai/openai';
 import { causeChain } from '@/lib/ai/upstream';
 import { proposalFromText } from '@/lib/ai/parse';
 import { JSON_CONTRACT, PROPOSAL_SCHEMA, SYSTEM_PROMPT, serializeBoard } from '@/lib/ai/prompt';
+import { loadBoard } from '@/lib/db';
 import { parseBoard } from '@/lib/graph';
 
 export const runtime = 'nodejs';
@@ -25,6 +26,15 @@ const SUGGEST_TIMEOUT_MS = 60_000;
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
+  // Privacy Mode, checked before anything is read and before a provider is even
+  // resolved. The trigger declines to ask, but that is a client being polite;
+  // this is the promise. The stored board is the authority precisely because
+  // the caller isn't — a stale tab, a retry, or anything that is not our canvas
+  // gets the same answer.
+  if (loadBoard(id).privacy) {
+    return NextResponse.json({ proposal: null, reason: 'privacy' });
+  }
+
   const cfg = resolveConfig();
   if (!cfg) {
     // Bring-your-own-key: no configuration is a valid configuration, not an
@@ -40,6 +50,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const board = parseBoard(id, body.board);
+  // The second half of the same check. Autosave lags a toggle by up to
+  // AUTOSAVE_MS, so for that window the stored row still says false while the
+  // board in the browser says true — and the board in the browser is the one
+  // about to be sent. Either flag is enough to refuse.
+  if (board.privacy) {
+    return NextResponse.json({ proposal: null, reason: 'privacy' });
+  }
+
   const rejected = Array.isArray(body.rejected)
     ? body.rejected.filter((r): r is string => typeof r === 'string').slice(-12)
     : [];

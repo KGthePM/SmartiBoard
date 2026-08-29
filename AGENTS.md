@@ -74,10 +74,17 @@ the user's to make — say what needs looking at and stop there.
   position-independent fingerprint (dragging must not spend a token), a 3-idea floor, one
   live ghost at a time, session memory of dismissals.
 - **Undo**: a suggestion *appearing* is never undoable; *accepting* one is.
-- **Session state is per board** (v1.2): `store.beginLoad(id)` clears the undo stack, the live
-  ghost, the selection, the viewport, and the trigger fingerprint before a board loads;
-  dismissals are keyed by board id in `rejectedByBoard`. Global session state would let ⌘Z
-  restore one board's snapshot into another, which autosave would then write to the wrong id.
+- **Redo** (v1.7): ⌘⇧Z / ⌘Y or the chrome button walks an undone edit back in. Any change to
+  the board spends the redo stack — moves and resizes included, because a redo snapshot is
+  the whole board and redoing after a drag would snap the card back. Ghost arrival and
+  dismissal spend nothing (they are not edits); accepting spends it (it is one). Undo and
+  redo both end the typing burst (`lastTextEditId` reset), so the first keystroke after
+  either gets a snapshot of its own.
+- **Session state is per board** (v1.2): `store.beginLoad(id)` clears the undo and redo
+  stacks, the live ghost, the selection, the viewport, and the trigger fingerprint before a
+  board loads; dismissals are keyed by board id in `rejectedByBoard`. Global session state
+  would let ⌘Z restore one board's snapshot into another, which autosave would then write
+  to the wrong id.
 - **Text formatting** (v1.1, functional not flourish): bold/italic/underline/strike plus a fixed
   5-color palette, stored as inline markers inside `node.text` (see `lib/richtext.ts`). The AI
   paths always see `stripMarks()` output — formatting never changes the fingerprint, never
@@ -98,6 +105,54 @@ the user's to make — say what needs looking at and stop there.
   untouched by construction. Text clips inside a too-small card exactly as it always has;
   the ghost stays default-sized, because a proposal is not content. No schema change: `w`/`h`
   already lived on every node and in the persisted board JSON.
+- **Done marking** (v1.6, functional not flourish): a node-level `done` flag — the
+  whiteboard's crossed-off idea, rendered as a plain CSS strike plus muted text (no marker
+  texture, no animation; the inline `~~strike~~` marker is per-selection emphasis and a
+  different thing). Done is the deliberate exception to resize/move doctrine: the model is
+  told which ideas are finished (`[user, done]` in `serializeBoardContent`, with a one-line
+  legend) and the fingerprint includes it, so crossing an idea off is undoable (one
+  snapshot per toggle) and *token-spending* — the ghost may wake once the debounce settles,
+  and a done-toggle invalidates the cached summary. Done nodes are still substantive and
+  still connectable; a done idea is completed, not deleted. The toggle is a ✓ at the card's
+  top-left corner (the ×'s mirror, always visible once done) or `D` on the selected card.
+  `parseBoard` defaults absent/non-boolean `done` to false, so pre-v1.6 rows load unchanged.
+- **Smarti Objectives** (v1.8): `Board.objective`, one freeform string capped at
+  `OBJECTIVE_MAX = 400`, saying what the board is for. Opened with ⌘J or the Objective button
+  (never disabled — writing it before there are ideas is the point); one textarea bound
+  straight to the board, persisted by the same autosave a node edit uses, no Save button.
+  It is the title's inverse: a rename is presentation and spends nothing, while the objective
+  leads both prompts, so `setObjective` snapshots for undo, bumps `lastMutationAt`, and joins
+  the fingerprint. Strictly user-written — no model call writes, condenses, or summarizes it,
+  and the ghost is told not to propose it back as an idea; the cap is what keeps it short, not
+  a model. `serializeBoardContent` leads with it only when non-empty (an empty header would
+  invite the model to fill it), and the summary prompt reads the board against it as its one
+  forward-pointing observation. Still exactly one unsolicited AI behavior and one user-invoked.
+  Not a node: it never satisfies the 3-idea floor and never becomes the derived title.
+  `parseBoard` defaults it to `''`, so pre-v1.8 rows load unchanged — and `savePayload` in
+  `components/canvas/Board.tsx` must carry it, since a PUT is a full replace.
+
+- **Privacy Mode** (v1.9): `Board.privacy`, one boolean meaning the board's contents are
+  never sent to a model. Toggled with ⌘⇧P or the Private button (never disabled — a board can
+  be declared private before there is anything on it to keep private). It gates *both*
+  behaviors: `shouldRequest` returns `{fire:false, reason:'privacy'}` as its first check, and
+  `canSummarize` in `BoardChrome`/`SummaryPanel` drops the Summary button, because a summary
+  ships the entire board upstream. That client-side half is politeness, not the promise:
+  `app/api/boards/[id]/suggest/route.ts` and `.../summarize/route.ts` each refuse
+  independently, testing `loadBoard(id).privacy` (the stored board is the authority — a stale
+  tab or any non-canvas caller gets the same answer) *and* the posted `board.privacy` (which
+  covers the up-to-`AUTOSAVE_MS` window where the browser is private and the row is not).
+  `summarize` answers plain JSON `{summary:null, reason:'privacy'}`, the same non-SSE shape as
+  `no_api_key`, which the panel renders as its own `'private'` status rather than an error.
+  `setPrivacy` spends nothing — no `pushUndo`, no redo-stack spend, no `lastMutationAt` bump —
+  and `privacy` is deliberately absent from `fingerprint`, since the model never sees it; the
+  cost is that turning it off does not itself wake the ghost, which the next edit does.
+  `undo` and `redo` restore `{ ...snapshot, privacy: s.board.privacy }`: Privacy Mode is never
+  in the undo stack in either direction, because a ⌘Z that re-enabled egress is invisible and
+  unrecoverable. Turning it on nulls a live `proposal` directly rather than calling
+  `dismissProposal`, which would poison `rejectedByBoard` with an idea nobody rejected.
+  `parseBoard` defaults it to `false` via a strict `obj.privacy === true`, so pre-v1.9 rows
+  load unchanged — and `savePayload` in `components/canvas/Board.tsx` carries it, since a PUT
+  is a full replace.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

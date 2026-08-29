@@ -8,6 +8,7 @@ import {
   edgePair,
   emptyBoard,
   newId,
+  OBJECTIVE_MAX,
   removeNode,
   TITLE_MAX,
   type Board,
@@ -28,7 +29,7 @@ type Surface = { w: number; h: number };
  * from that — never a node, never in the undo stack, never persisted, never
  * fed to rejectedByBoard. It is display state and nothing more.
  */
-export type SummaryStatus = 'idle' | 'streaming' | 'done' | 'no_key' | 'error';
+export type SummaryStatus = 'idle' | 'streaming' | 'done' | 'no_key' | 'private' | 'error';
 
 export type State = {
   /**
@@ -74,6 +75,11 @@ export type State = {
    * form state mid-edit otherwise.
    */
   settingsOpen: boolean;
+  /**
+   * The Objective popover. Per-board, unlike Settings — the objective is part of
+   * the board — but it closes on a board switch for the same reason.
+   */
+  objectiveOpen: boolean;
   viewport: Viewport;
   surface: Surface;
   selectedId: NodeId | null;
@@ -81,6 +87,12 @@ export type State = {
   selectedEdgeId: string | null;
   /** Board snapshots, pushed only by user actions. Ghost arrival never touches this. */
   undoStack: Board[];
+  /**
+   * The undone future, newest last — the mirror of undoStack. Any change to
+   * the board spends it: the future it holds belongs to the board exactly as
+   * it was when it was undone. Ghost arrival never touches this either.
+   */
+  redoStack: Board[];
   lastMutationAt: number;
   lastRequestedFingerprint: string | null;
   /**
@@ -96,10 +108,13 @@ export type State = {
   beginLoad: (id: string) => void;
   hydrate: (board: Board) => void;
   setTitle: (title: string) => void;
+  setObjective: (objective: string) => void;
+  setPrivacy: (v: boolean) => void;
   addNode: (x: number, y: number) => NodeId;
   setNodeText: (id: NodeId, text: string, format?: boolean) => void;
   moveNode: (id: NodeId, x: number, y: number) => void;
   resizeNode: (id: NodeId, w: number, h: number) => void;
+  toggleNodeDone: (id: NodeId) => void;
   deleteNode: (id: NodeId) => void;
   connect: (from: NodeId, to: NodeId, layer?: Layer) => void;
   deleteEdge: (id: string) => void;
@@ -117,6 +132,7 @@ export type State = {
 
   setSummaryOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  setObjectiveOpen: (open: boolean) => void;
   beginSummary: () => void;
   appendSummary: (chunk: string) => void;
   finishSummary: (fingerprint: string) => void;
@@ -124,6 +140,7 @@ export type State = {
   cancelSummary: () => void;
 
   undo: () => void;
+  redo: () => void;
 };
 
 const UNDO_LIMIT = 50;
@@ -135,6 +152,9 @@ const DELETED_LIMIT = 24;
  * step the same way typing into a card does.
  */
 const TITLE_EDIT = '__title__';
+
+/** The same stand-in, for the objective textarea. */
+const OBJECTIVE_EDIT = '__objective__';
 
 export const useBoard = create<State>((set, get) => ({
   boardId: '',
@@ -148,11 +168,13 @@ export const useBoard = create<State>((set, get) => ({
   summaryStatus: 'idle',
   summaryFingerprint: null,
   settingsOpen: false,
+  objectiveOpen: false,
   viewport: { x: 0, y: 0, scale: 1 },
   surface: { w: 1200, h: 800 },
   selectedId: null,
   selectedEdgeId: null,
   undoStack: [],
+  redoStack: [],
   lastMutationAt: 0,
   lastRequestedFingerprint: null,
   suggestFailedAt: null,
@@ -162,9 +184,10 @@ export const useBoard = create<State>((set, get) => ({
   /**
    * Point the session at a board and drop everything derived from the last one.
    * Switching boards is a client-side navigation inside one mounted canvas, so
-   * without this the undo stack, the live ghost, and the trigger fingerprint
-   * all follow you across — and ⌘Z would restore one board's snapshot into
-   * another, which autosave would then write to the wrong id. The summary goes
+   * without this the undo stack, its redo mirror, the live ghost, and the
+   * trigger fingerprint all follow you across — and ⌘Z would restore one
+   * board's snapshot into another, which autosave would then write to the
+   * wrong id. The summary goes
    * too: closing the panel unmounts it, which aborts any live stream.
    */
   beginLoad: (id) =>
@@ -174,6 +197,7 @@ export const useBoard = create<State>((set, get) => ({
       loaded: false,
       proposal: null,
       undoStack: [],
+      redoStack: [],
       selectedId: null,
       selectedEdgeId: null,
       suggesting: false,
@@ -182,6 +206,7 @@ export const useBoard = create<State>((set, get) => ({
       summaryStatus: 'idle',
       summaryFingerprint: null,
       settingsOpen: false,
+      objectiveOpen: false,
       lastRequestedFingerprint: null,
       suggestFailedAt: null,
       lastTextEditId: null,
@@ -198,11 +223,39 @@ export const useBoard = create<State>((set, get) => ({
 
   setTitle: (title) =>
     set((s) => ({
-      ...(shouldSnapshotTextEdit(s, TITLE_EDIT) ? pushUndo(s) : {}),
+      // A continued rename still spends the redo stack — the board changed.
+      ...(shouldSnapshotTextEdit(s, TITLE_EDIT) ? pushUndo(s) : { redoStack: [] }),
       board: { ...s.board, title: title.slice(0, TITLE_MAX) },
       lastTextEditId: TITLE_EDIT,
       // Deliberately no lastMutationAt bump: naming a board renames the
       // picture without changing what it says, so it must not spend a token.
+    })),
+
+  setObjective: (objective) =>
+    set((s) => ({
+      // Coalesces per burst like the title does — but the doctrine inverts here.
+      // The objective leads both prompts, so rewriting it changes what the board
+      // says to the model, and the ghost should be allowed to answer the new
+      // framing on an otherwise unchanged board. Hence the bump.
+      ...(shouldSnapshotTextEdit(s, OBJECTIVE_EDIT) ? pushUndo(s) : { redoStack: [] }),
+      board: { ...s.board, objective: objective.slice(0, OBJECTIVE_MAX) },
+      lastTextEditId: OBJECTIVE_EDIT,
+      lastMutationAt: Date.now(),
+    })),
+
+  /**
+   * Privacy Mode. Deliberately spends nothing: no undo snapshot, no redo stack,
+   * no lastMutationAt bump. The model never sees this flag, so flipping it says
+   * nothing new about the board and must not cost a token — and see undo/redo
+   * below, which refuse to carry it at all.
+   */
+  setPrivacy: (v) =>
+    set((s) => ({
+      board: { ...s.board, privacy: v },
+      // Turning it on retires a ghost already on the canvas. Not
+      // dismissProposal(): the user didn't turn the idea down, so it must not
+      // land in rejectedByBoard and be suppressed forever after.
+      proposal: v ? null : s.proposal,
     })),
 
   addNode: (x, y) => {
@@ -221,7 +274,8 @@ export const useBoard = create<State>((set, get) => ({
       // Typing coalesces into one undo entry per node, per burst — pushing a
       // snapshot per keystroke would make undo useless. Format toggles
       // (format: true) are deliberate single actions and always snapshot.
-      ...(format || shouldSnapshotTextEdit(s, id) ? pushUndo(s) : {}),
+      // Either way the redo stack is spent: the board changed.
+      ...(format || shouldSnapshotTextEdit(s, id) ? pushUndo(s) : { redoStack: [] }),
       board: {
         ...s.board,
         nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, text } : n)),
@@ -237,7 +291,11 @@ export const useBoard = create<State>((set, get) => ({
         nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)),
       },
       // Deliberately does NOT bump lastMutationAt: moving a node rearranges the
-      // picture without changing what the board says, so it must not spend a token.
+      // picture without changing what the board says, so it must not spend a
+      // token. It still spends the redo stack: a redo snapshot is the whole
+      // board, positions included, so redoing after a drag would snap the card
+      // back to where the undone future remembers it.
+      redoStack: [],
     })),
 
   resizeNode: (id, w, h) =>
@@ -247,7 +305,25 @@ export const useBoard = create<State>((set, get) => ({
         nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, ...clampSize(w, h) } : n)),
       },
       // Same doctrine as moveNode: a box's size is presentation, not content —
-      // no undo snapshot, no lastMutationAt bump, never a token.
+      // no undo snapshot, no lastMutationAt bump, never a token. But like a
+      // move it spends the redo stack, because a redo snapshot holds sizes too.
+      redoStack: [],
+    })),
+
+  /**
+   * Crossing an idea off is the opposite doctrine from resize: done is content
+   * the model sees, so the toggle is a deliberate action — one undo snapshot
+   * per toggle, like a format toggle — and it bumps lastMutationAt, so the
+   * ghost debounces and may wake once the board settles again.
+   */
+  toggleNodeDone: (id) =>
+    set((s) => ({
+      ...pushUndo(s),
+      board: {
+        ...s.board,
+        nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, done: !n.done } : n)),
+      },
+      lastMutationAt: Date.now(),
     })),
 
   deleteNode: (id) =>
@@ -390,6 +466,8 @@ export const useBoard = create<State>((set, get) => ({
 
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
+  setObjectiveOpen: (open) => set({ objectiveOpen: open }),
+
   beginSummary: () => set({ summaryText: '', summaryStatus: 'streaming' }),
 
   // Streaming deltas are only meaningful mid-stream. The guard makes a stale
@@ -408,7 +486,16 @@ export const useBoard = create<State>((set, get) => ({
   failSummary: (reason) =>
     set((s) =>
       s.summaryStatus === 'streaming'
-        ? { summaryStatus: reason === 'no_api_key' ? 'no_key' : 'error' }
+        ? {
+            summaryStatus:
+              reason === 'no_api_key'
+                ? 'no_key'
+                : // The route refused because the board is private. That is a
+                  // state, not a failure, and must not read as one.
+                  reason === 'privacy'
+                  ? 'private'
+                  : 'error',
+          }
         : s,
     ),
 
@@ -427,12 +514,42 @@ export const useBoard = create<State>((set, get) => ({
       const prev = s.undoStack.at(-1);
       if (!prev) return s;
       return {
-        board: prev,
+        // Privacy Mode is never in the undo stack, in either direction — the
+        // live flag survives the restore. A ⌘Z that silently put the board back
+        // on speaking terms with a model is the one undo nobody can see and
+        // nobody can take back.
+        board: { ...prev, privacy: s.board.privacy },
         undoStack: s.undoStack.slice(0, -1),
+        // The board being left becomes the undone future, one entry per undo.
+        redoStack: [...s.redoStack, s.board],
         selectedId: null,
         // The restored board may not contain the selected edge anymore.
         selectedEdgeId: null,
         lastMutationAt: Date.now(),
+        // End the typing burst: the first keystroke after an undo is a new
+        // edit and must get a snapshot of its own, not coalesce onto the
+        // pre-undo burst.
+        lastTextEditId: null,
+      };
+    }),
+
+  redo: () =>
+    set((s) => {
+      const next = s.redoStack.at(-1);
+      if (!next) return s;
+      return {
+        // Pinned for the same reason as undo, above.
+        board: { ...next, privacy: s.board.privacy },
+        // Walking forward is itself undoable, so the board being left goes
+        // back on the undo stack. No UNDO_LIMIT slice needed: undo and redo
+        // only trade entries between the two stacks, so neither can outgrow
+        // the cap pushUndo already enforces.
+        undoStack: [...s.undoStack, s.board],
+        redoStack: s.redoStack.slice(0, -1),
+        selectedId: null,
+        selectedEdgeId: null,
+        lastMutationAt: Date.now(),
+        lastTextEditId: null,
       };
     }),
 }));
@@ -447,8 +564,10 @@ function visibleRect(v: Viewport, s: Surface): Rect {
   return { x: -v.x / v.scale, y: -v.y / v.scale, w: s.w / v.scale, h: s.h / v.scale };
 }
 
-function pushUndo(s: State): { undoStack: Board[] } {
-  return { undoStack: [...s.undoStack, s.board].slice(-UNDO_LIMIT) };
+function pushUndo(s: State): { undoStack: Board[]; redoStack: Board[] } {
+  // A new user edit spends the redo stack: the future it holds belongs to the
+  // board exactly as it was when it was undone, and that board no longer exists.
+  return { undoStack: [...s.undoStack, s.board].slice(-UNDO_LIMIT), redoStack: [] };
 }
 
 /**

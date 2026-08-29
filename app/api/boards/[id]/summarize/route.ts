@@ -4,6 +4,7 @@ import { resolveConfig } from '@/lib/ai/config';
 import { openaiStreamDeltas } from '@/lib/ai/openai';
 import { SUMMARY_MAX_TOKENS, SUMMARY_SYSTEM_PROMPT, summaryInstruction } from '@/lib/ai/summary-prompt';
 import { causeChain } from '@/lib/ai/upstream';
+import { loadBoard } from '@/lib/db';
 import { parseBoard } from '@/lib/graph';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,14 @@ export const runtime = 'nodejs';
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
+  // Privacy Mode refuses here too, and this is the half that makes the promise
+  // whole: a summary is user-invoked, but it still ships the entire board
+  // upstream. Silencing the ghost while ⌘. stayed open would be a privacy
+  // toggle that isn't one. Plain JSON, same non-SSE shape as no_api_key below.
+  if (loadBoard(id).privacy) {
+    return NextResponse.json({ summary: null, reason: 'privacy' });
+  }
+
   const cfg = resolveConfig();
   if (!cfg) {
     // No provider configured: valid, not an error — same contract as /suggest.
@@ -36,6 +45,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const board = parseBoard(id, body.board);
+  // Covers the autosave window, same as /suggest.
+  if (board.privacy) {
+    return NextResponse.json({ summary: null, reason: 'privacy' });
+  }
+
   const instruction = summaryInstruction(board);
   const encoder = new TextEncoder();
 

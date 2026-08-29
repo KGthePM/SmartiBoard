@@ -20,6 +20,7 @@ type Props = {
   onDragStart: (e: React.PointerEvent) => void;
   onPortDown: (e: React.PointerEvent) => void;
   onResizeStart: (e: React.PointerEvent) => void;
+  onToggleDone: () => void;
   onDelete: () => void;
 };
 
@@ -61,6 +62,7 @@ export function NodeCard({
   onDragStart,
   onPortDown,
   onResizeStart,
+  onToggleDone,
   onDelete,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -109,7 +111,7 @@ export function NodeCard({
 
   return (
     <div
-      className={`card ${editing ? 'editing' : ''} ${node.layer === 'accepted' ? 'accepted' : ''} ${selected ? 'selected' : ''}`}
+      className={`card ${editing ? 'editing' : ''} ${node.layer === 'accepted' ? 'accepted' : ''} ${node.done ? 'done' : ''} ${selected ? 'selected' : ''}`}
       style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
       onPointerDown={(e) => {
         onSelect();
@@ -187,6 +189,22 @@ export function NodeCard({
           <RichTextView text={node.text} />
         </div>
       )}
+      {/* The mirror of the × at the opposite corner: cross the idea off. */}
+      <button
+        type="button"
+        className="tick"
+        aria-pressed={node.done}
+        aria-label={node.done ? 'Mark as not done' : 'Mark as done'}
+        title={node.done ? 'Mark as not done (D)' : 'Mark as done (D)'}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleDone();
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        ✓
+      </button>
       <button
         type="button"
         className="del"

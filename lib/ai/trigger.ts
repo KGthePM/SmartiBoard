@@ -44,6 +44,7 @@ export type TriggerDecision =
   | { fire: false; reason: TriggerBlockReason };
 
 export type TriggerBlockReason =
+  | 'privacy'
   | 'in_flight'
   | 'cooling_down'
   | 'proposal_limit'
@@ -58,18 +59,24 @@ export type TriggerBlockReason =
  * not change what the board *says*, so it must never spend a token. Text and
  * topology are what the model reasons about, so those are what we hash — and
  * text is stripped of formatting markers for the same reason: bolding a word
- * is presentation, not a new idea.
+ * is presentation, not a new idea. Done is the exception among node state:
+ * the model is told which ideas are finished, so crossing one off changes
+ * what the board says and belongs here.
+ *
+ * The objective is here for the same reason and the title is not: the objective
+ * leads the prompt, so rewriting it gives the model a genuinely different board
+ * to reason about, while a rename changes nothing the model ever sees.
  */
 export function fingerprint(board: Board): string {
   const nodes = board.nodes
-    .map((n) => `${n.id}:${stripMarks(n.text).trim()}`)
+    .map((n) => `${n.id}:${n.done ? '1' : '0'}:${stripMarks(n.text).trim()}`)
     .sort()
     .join('|');
   const edges = board.edges
     .map((e) => (e.from < e.to ? `${e.from}>${e.to}` : `${e.to}>${e.from}`))
     .sort()
     .join('|');
-  return `${board.nodes.length}#${hash(`${nodes}//${edges}`)}`;
+  return `${board.nodes.length}#${hash(`${board.objective.trim()}//${nodes}//${edges}`)}`;
 }
 
 /**
@@ -87,6 +94,13 @@ export function shouldRequest(
   state: TriggerState,
   now: number,
 ): TriggerDecision {
+  // Absolute, and therefore first: no state, no timing, and no fingerprint can
+  // get past it. A private board is not one the AI is quiet on — it is one the
+  // AI is never told about. This check is a convenience, though, not the
+  // guarantee: the routes refuse on their own, because a client that stops
+  // asking is only a client.
+  if (board.privacy) return { fire: false, reason: 'privacy' };
+
   if (state.inFlight) return { fire: false, reason: 'in_flight' };
 
   if (state.failedAt !== null && now - state.failedAt < FAILURE_COOLDOWN_MS) {

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createNode, edgePair, emptyBoard, NODE_MIN_H, NODE_MIN_W } from './graph';
+import {
+  createNode,
+  edgePair,
+  emptyBoard,
+  NODE_MIN_H,
+  NODE_MIN_W,
+  OBJECTIVE_MAX,
+} from './graph';
 import { rejectedFor, useBoard } from './store';
 import type { ProposalDraft } from './proposal';
 
@@ -30,12 +37,17 @@ describe('beginLoad', () => {
     // autosave then writes that content under the new board's id.
     open('undo-a');
     s().addNode(0, 0);
-    expect(s().undoStack).toHaveLength(1);
+    s().undo();
+    expect(s().redoStack).toHaveLength(1);
 
     open('undo-b');
     expect(s().undoStack).toEqual([]);
+    expect(s().redoStack).toEqual([]);
 
     s().undo();
+    expect(s().board.id).toBe('undo-b');
+    expect(s().board.nodes).toEqual([]);
+    s().redo();
     expect(s().board.id).toBe('undo-b');
     expect(s().board.nodes).toEqual([]);
   });
@@ -68,6 +80,129 @@ describe('beginLoad', () => {
     s().beginLoad('load-b');
     expect(s().loaded).toBe(false);
     expect(s().board.id).toBe('load-b');
+  });
+});
+
+describe('redo', () => {
+  it('walks an undone edit back in, and the round trip repeats', () => {
+    open('redo-a');
+    s().addNode(0, 0);
+    s().addNode(300, 0);
+    const before = s().board;
+
+    s().undo();
+    expect(s().board.nodes).toHaveLength(1);
+    s().redo();
+    expect(s().board).toEqual(before);
+    expect(s().redoStack).toEqual([]);
+
+    // History is a two-way street: the walk repeats.
+    s().undo();
+    s().redo();
+    expect(s().board).toEqual(before);
+  });
+
+  it('is itself undoable — redo puts the board it leaves back on the undo stack', () => {
+    open('redo-b');
+    s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+    s().redo();
+    const undoDepth = s().undoStack.length;
+
+    s().undo();
+    expect(s().board.nodes).toHaveLength(1);
+    expect(s().undoStack).toHaveLength(undoDepth - 1);
+  });
+
+  it('is spent by the next deliberate edit', () => {
+    open('redo-c');
+    s().addNode(0, 0);
+    s().undo();
+    expect(s().redoStack).toHaveLength(1);
+
+    s().addNode(300, 0);
+    expect(s().redoStack).toEqual([]);
+  });
+
+  it('survives a ghost arriving, but is spent by accepting it', () => {
+    // Arrival is not an edit; accepting is. Same split as the undo stack.
+    open('redo-d');
+    s().addNode(0, 0);
+    s().undo();
+    s().receiveProposal(draft);
+    expect(s().redoStack).toHaveLength(1);
+
+    s().acceptProposal();
+    expect(s().redoStack).toEqual([]);
+  });
+
+  it('is spent by a move: a redo snapshot is the whole board, positions included', () => {
+    // Otherwise redoing after a drag would snap the card back — the board
+    // would feel haunted, the exact thing the ghost layer is kept out of.
+    open('redo-e');
+    const a = s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+    expect(s().redoStack).toHaveLength(1);
+
+    s().moveNode(a, 999, 999);
+    expect(s().redoStack).toEqual([]);
+  });
+
+  it('is spent by a resize, the same as a move', () => {
+    open('redo-f');
+    const a = s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+
+    s().resizeNode(a, 400, 200);
+    expect(s().redoStack).toEqual([]);
+  });
+
+  it('ends the typing burst, so the first post-undo keystroke is its own undo step', () => {
+    open('redo-g');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'one');
+    s().setNodeText(a, 'one two'); // coalesced: the burst is one step
+    expect(s().undoStack).toHaveLength(2); // addNode + the burst
+
+    s().undo();
+    expect(s().board.nodes[0]?.text).toBe('');
+
+    // Without the burst reset this would coalesce onto the pre-undo burst and
+    // leave the new text with no undo step of its own.
+    s().setNodeText(a, 'fresh');
+    expect(s().undoStack).toHaveLength(2);
+    s().undo();
+    expect(s().board.nodes[0]?.text).toBe('');
+  });
+
+  it('brings a deleted connection back, through undo of the delete', () => {
+    open('redo-h');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    s().connect(a, b);
+    s().deleteEdge(s().board.edges[0].id);
+    expect(s().board.edges).toHaveLength(0);
+
+    s().undo();
+    expect(s().board.edges).toHaveLength(1);
+    s().undo(); // past the connect
+    expect(s().board.edges).toHaveLength(0);
+    s().redo();
+    expect(s().board.edges).toHaveLength(1);
+  });
+
+  it('clears the selection like undo does', () => {
+    open('redo-i');
+    const a = s().addNode(0, 0);
+    s().addNode(300, 0);
+    s().undo();
+    s().select(a);
+
+    s().redo();
+    expect(s().selectedId).toBeNull();
   });
 });
 
@@ -150,6 +285,54 @@ describe('setTitle', () => {
     const before = s().lastMutationAt;
     s().setTitle('Q3 pricing');
     expect(s().lastMutationAt).toBe(before);
+  });
+});
+
+describe('setObjective', () => {
+  it('coalesces a burst into a single undo step', () => {
+    open('obj-a');
+    for (const t of ['W', 'Win', 'Win back', 'Win back churned teams']) s().setObjective(t);
+    expect(s().board.objective).toBe('Win back churned teams');
+    expect(s().undoStack).toHaveLength(1);
+
+    s().undo();
+    expect(s().board.objective).toBe('');
+  });
+
+  it('counts as thinking, unlike a rename', () => {
+    // The objective leads both prompts, so rewriting it gives the model a
+    // different board — the ghost should be allowed to answer the new framing.
+    open('obj-b');
+    // Pinned rather than compared against a real clock, as elsewhere here.
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    s().setObjective('Win back churned design teams.');
+    expect(s().lastMutationAt).toBe(12345);
+
+    // The control: the same keystrokes in the title field spend nothing.
+    s().setTitle('Q3 pricing');
+    expect(s().lastMutationAt).toBe(12345);
+    vi.restoreAllMocks();
+  });
+
+  it('truncates at the cap', () => {
+    open('obj-c');
+    s().setObjective('x'.repeat(OBJECTIVE_MAX + 50));
+    expect(s().board.objective).toHaveLength(OBJECTIVE_MAX);
+  });
+
+  it('closes the popover on a board switch', () => {
+    open('obj-d');
+    s().setObjectiveOpen(true);
+    expect(s().objectiveOpen).toBe(true);
+    s().beginLoad('obj-e');
+    expect(s().objectiveOpen).toBe(false);
+  });
+
+  it('does not follow you to the next board', () => {
+    open('obj-f');
+    s().setObjective('Win back churned design teams.');
+    open('obj-g');
+    expect(s().board.objective).toBe('');
   });
 });
 
@@ -328,6 +511,47 @@ describe('resizeNode', () => {
   });
 });
 
+describe('toggleNodeDone', () => {
+  it('crosses off the idea, and only that idea, both ways', () => {
+    open('done-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+
+    s().toggleNodeDone(a);
+    expect(s().board.nodes.find((n) => n.id === a)?.done).toBe(true);
+    expect(s().board.nodes.find((n) => n.id === b)?.done).toBe(false);
+
+    s().toggleNodeDone(a);
+    expect(s().board.nodes.find((n) => n.id === a)?.done).toBe(false);
+  });
+
+  it('is a deliberate action: one undo step per toggle, and ⌘Z walks them back', () => {
+    open('done-b');
+    const a = s().addNode(0, 0);
+    const depth = s().undoStack.length;
+
+    s().toggleNodeDone(a);
+    s().toggleNodeDone(a);
+    expect(s().undoStack).toHaveLength(depth + 2);
+
+    s().undo();
+    expect(s().board.nodes[0].done).toBe(true);
+    s().undo();
+    expect(s().board.nodes[0].done).toBe(false);
+  });
+
+  it('counts as thinking, so the ghost debounces instead of waking at once', () => {
+    // Done is content the model sees, so crossing an idea off belongs on the
+    // same clock as editing one — unlike moving or resizing.
+    open('done-c');
+    const a = s().addNode(0, 0);
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    s().toggleNodeDone(a);
+    expect(s().lastMutationAt).toBe(12345);
+    vi.restoreAllMocks();
+  });
+});
+
 describe('failRequest', () => {
   // A request that never reached the model says nothing about this board, so
   // the board must not be treated as already asked about — otherwise one
@@ -345,5 +569,79 @@ describe('failRequest', () => {
     s().failRequest();
     s().markRequested('board-hash');
     expect(s().suggestFailedAt).toBeNull();
+  });
+});
+
+describe('setPrivacy', () => {
+  it('turns the board silent, and back', () => {
+    open('privacy-a');
+    expect(s().board.privacy).toBe(false);
+    s().setPrivacy(true);
+    expect(s().board.privacy).toBe(true);
+    s().setPrivacy(false);
+    expect(s().board.privacy).toBe(false);
+  });
+
+  it('spends nothing: no undo step, no token', () => {
+    // The model never sees this flag, so flipping it says nothing new about
+    // the board and must not put the ghost back on the clock.
+    open('privacy-b');
+    s().addNode(0, 0);
+    const undoDepth = s().undoStack.length;
+    const before = s().lastMutationAt;
+    s().setPrivacy(true);
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().lastMutationAt).toBe(before);
+  });
+
+  it('retires a live ghost without recording it as a rejection', () => {
+    // The user silenced the board; they did not turn this idea down. Routing
+    // it through rejectedByBoard would suppress it forever after.
+    open('privacy-c');
+    s().receiveProposal(draft);
+    expect(s().proposal).not.toBeNull();
+
+    s().setPrivacy(true);
+    expect(s().proposal).toBeNull();
+    expect(rejectedFor(s())).toEqual([]);
+  });
+
+  it('survives undo — ⌘Z can never put a board back on speaking terms', () => {
+    // The single most important guarantee here: undo restores a whole board
+    // snapshot, so without pinning, one ⌘Z would silently re-enable sending
+    // this board to a model, invisibly and with no way to notice.
+    open('privacy-d');
+    const n = s().addNode(0, 0);
+    s().setNodeText(n, 'pricing');
+    s().setPrivacy(true);
+
+    s().undo();
+    expect(s().board.privacy).toBe(true);
+    s().undo();
+    expect(s().board.privacy).toBe(true);
+  });
+
+  it('survives redo too, in both directions', () => {
+    open('privacy-e');
+    const n = s().addNode(0, 0);
+    s().setPrivacy(true);
+    s().undo();
+    s().redo();
+    expect(s().board.privacy).toBe(true);
+
+    // And the mirror: a board turned public stays public across the walk.
+    s().setPrivacy(false);
+    s().setNodeText(n, 'churn');
+    s().undo();
+    expect(s().board.privacy).toBe(false);
+    s().redo();
+    expect(s().board.privacy).toBe(false);
+  });
+
+  it('does not follow you to the next board', () => {
+    open('privacy-f');
+    s().setPrivacy(true);
+    open('privacy-g');
+    expect(s().board.privacy).toBe(false);
   });
 });

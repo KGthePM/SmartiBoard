@@ -233,6 +233,16 @@ export function Board({ boardId }: { boardId: string }) {
         useBoard.getState().undo();
         return;
       }
+      // Redo: ⌘⇧Z everywhere, ⌘Y as the Windows habit. Before the typing
+      // guard like undo, so it reaches into a card's textarea too.
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) ||
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y')
+      ) {
+        e.preventDefault();
+        useBoard.getState().redo();
+        return;
+      }
       if (typing) return;
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
         e.preventDefault();
@@ -240,6 +250,19 @@ export function Board({ boardId }: { boardId: string }) {
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && selectedEdgeId) {
         e.preventDefault();
         useBoard.getState().deleteEdge(selectedEdgeId);
+      }
+      // D crosses the selected idea off, the way the ✓ does. Unmodified only:
+      // ⌘D and friends belong to the browser.
+      if (
+        e.key.toLowerCase() === 'd' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        selectedId
+      ) {
+        e.preventDefault();
+        useBoard.getState().toggleNodeDone(selectedId);
       }
       if (e.key === 'Escape') {
         useBoard.getState().select(null);
@@ -332,6 +355,7 @@ export function Board({ boardId }: { boardId: string }) {
                     startY: e.clientY,
                   });
                 }}
+                onToggleDone={() => store.toggleNodeDone(n.id)}
                 onDelete={() => {
                   lastDeleteAt.current = Date.now();
                   store.deleteNode(n.id);
@@ -353,8 +377,8 @@ export function Board({ boardId }: { boardId: string }) {
       <BoardChrome />
 
       <div className="hint">
-        Double-click to add an idea · drag the dot to connect · drag a corner to resize · click a
-        line to select it · ⌘Z to undo
+        Double-click to add an idea · drag the dot to connect · drag a corner to resize · D marks it
+        done · click a line to select it · ⌘Z / ⌘⇧Z to undo & redo
       </div>
 
       <div className="legend">
@@ -380,9 +404,19 @@ export function Board({ boardId }: { boardId: string }) {
   );
 }
 
-/** Exactly what gets PUT, and therefore what "already saved" is compared against. */
+/**
+ * Exactly what gets PUT, and therefore what "already saved" is compared against.
+ * A PUT is a full replace validated only by parseBoard, so a field missing here
+ * is not merely unsaved — it is erased on the next autosave.
+ */
 function savePayload(board: Board): string {
-  return JSON.stringify({ title: board.title, nodes: board.nodes, edges: board.edges });
+  return JSON.stringify({
+    title: board.title,
+    objective: board.objective,
+    privacy: board.privacy,
+    nodes: board.nodes,
+    edges: board.edges,
+  });
 }
 
 function clamp(v: number, lo: number, hi: number) {

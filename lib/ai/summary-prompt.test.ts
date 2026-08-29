@@ -52,3 +52,15 @@ describe('SUMMARY_SYSTEM_PROMPT', () => {
     expect(SUMMARY_SYSTEM_PROMPT).toContain('begin with the gist line');
   });
 });
+
+describe('the objective in a read', () => {
+  it('carries the objective through to the reader', () => {
+    const b = { ...board(['a', 'b', 'c']), objective: 'Win back churned design teams.' };
+    expect(summaryInstruction(b)).toContain('Win back churned design teams.');
+  });
+
+  it('tells the reader to read the board against it, without echoing it back', () => {
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('read the ideas against it');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('never restate the objective');
+  });
+});

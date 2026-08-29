@@ -25,6 +25,12 @@ Reply in exactly this shape, as plain text:
   rest, an assumption several ideas depend on without anyone stating it, a decision or question
   the plan leaves open. Reference their actual ideas.
 
+If the board opens with a statement of what it is for, read the ideas against it. A goal
+nothing on the board serves, or work on the board the objective never accounts for, is exactly
+the kind of drift the person cannot see from inside — say what you noticed, and let it count
+as your one forward-pointing observation. Those words are theirs; never restate the objective
+back at them as though it were a finding.
+
 Understanding comes first. At most one observation may point forward, and it is phrased as what
 you noticed ("nothing on the board says how success is measured"), never as advice or a plan.
 

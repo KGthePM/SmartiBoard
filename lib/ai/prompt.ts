@@ -52,6 +52,14 @@ How to write a proposal:
   one or two that actually motivated it; these determine where your suggestion appears
   on the canvas, so anchoring it to everything places it nowhere in particular.
 
+Some boards open with a stated objective — what the person is trying to do, in their own
+words. When one is there, it is the standard you judge against: the gaps worth naming are the
+ones that stand between this board and that objective, and an idea on the board that pulls
+away from it is worth noticing. Do not propose the objective, or any part of it, back as an
+idea, and do not propose that they define a goal when they have already written one. When
+there is no objective, work from the ideas alone as you otherwise would — its absence is not
+itself the gap.
+
 The person may have already dismissed earlier suggestions. Anything listed as dismissed is
 a signal about what they do not want from you — do not re-propose it, and do not propose a
 lightly reworded version of it.`;
@@ -96,15 +104,19 @@ export const PROPOSAL_SCHEMA = {
  *
  * This is the shared "model's view" — the summary behavior reads the same
  * rendering the ghost behavior reasons over, so both see the identical board.
+ * The objective leads it when there is one, so every behavior is framed by the
+ * person's own statement of intent before it sees a single idea.
  */
 export function serializeBoardContent(board: Board): string {
   // Markers are stripped: the model reasons about ideas, not emphasis, and
   // never seeing markers means it never echoes them back in proposals.
   const plain = (t: string) => stripMarks(t).trim();
 
+  // Done rides along as an annotation, not a filter: a finished idea is still
+  // on the board, still a valid anchor, and still fair game for a connection.
   const nodes = board.nodes
     .filter((n) => plain(n.text).length > 0)
-    .map((n) => `- ${n.id} [${n.layer}]: ${plain(n.text)}`)
+    .map((n) => `- ${n.id} [${n.layer}${n.done ? ', done' : ''}]: ${plain(n.text)}`)
     .join('\n');
 
   const byId = new Map(board.nodes.map((n) => [n.id, plain(n.text)]));
@@ -112,13 +124,29 @@ export function serializeBoardContent(board: Board): string {
     .map((e) => `- ${byId.get(e.from) ?? e.from} — ${byId.get(e.to) ?? e.to}`)
     .join('\n');
 
-  return [
-    'Ideas on the board:',
-    nodes || '(none)',
-    '',
-    'Existing connections:',
-    edges || '(none)',
-  ].join('\n');
+  const parts: string[] = [];
+
+  // Only when set: an empty objective should leave no trace in the prompt at all,
+  // not a header with "(none)" under it inviting the model to fill the silence.
+  if (board.objective.trim().length > 0) {
+    parts.push(
+      "What this board is for, in the person's own words:",
+      board.objective.trim(),
+      '',
+    );
+  }
+
+  parts.push('Ideas on the board:', nodes || '(none)');
+
+  if (board.nodes.some((n) => n.done && plain(n.text).length > 0)) {
+    parts.push(
+      '',
+      'Nodes marked done are ideas the person considers finished — completed, not deleted.',
+    );
+  }
+
+  parts.push('', 'Existing connections:', edges || '(none)');
+  return parts.join('\n');
 }
 
 /**

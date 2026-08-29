@@ -18,6 +18,11 @@ export type IdeaNode = {
   w: number;
   h: number;
   layer: Layer;
+  /**
+   * The whiteboard's crossed-off idea. Unlike size or formatting this is
+   * content the model sees, so it joins the fingerprint — see lib/ai/trigger.
+   */
+  done: boolean;
   createdAt: number;
 };
 
@@ -36,6 +41,22 @@ export type Board = {
    * thinking in it, so this stays empty until someone renames it.
    */
   title: string;
+  /**
+   * What this board is for, in the person's own words. Unlike the title this is
+   * content the model reads: it leads the prompt both AI behaviors see, so it
+   * joins the fingerprint (lib/ai/trigger) the way `done` does. Empty is the
+   * normal state — nobody has to declare an objective to think in a board.
+   */
+  objective: string;
+  /**
+   * Privacy Mode: this board's contents are never sent to a model. It is the
+   * inverse of the objective — the objective is content the model reads, this
+   * is the switch that decides whether there is a model at all. The AI paths
+   * check it, so it is not presentation; but the model never sees it, so it
+   * never joins the fingerprint and never spends a token. False is the normal
+   * state, and boards saved before it existed load that way.
+   */
+  privacy: boolean;
   nodes: IdeaNode[];
   edges: Edge[];
   updatedAt: number;
@@ -43,6 +64,12 @@ export type Board = {
 
 /** Renames are stored, not typed at, so a generous cap is enough. */
 export const TITLE_MAX = 120;
+/**
+ * The objective is typed into, and every character of it rides in front of both
+ * prompts. A paragraph is enough to state a goal, an audience, and a constraint;
+ * past that it stops being the frame and starts competing with the board.
+ */
+export const OBJECTIVE_MAX = 400;
 
 export const NODE_W = 200;
 export const NODE_H = 96;
@@ -72,7 +99,15 @@ export function newId(prefix: string): string {
 }
 
 export function emptyBoard(id: string): Board {
-  return { id, title: '', nodes: [], edges: [], updatedAt: Date.now() };
+  return {
+    id,
+    title: '',
+    objective: '',
+    privacy: false,
+    nodes: [],
+    edges: [],
+    updatedAt: Date.now(),
+  };
 }
 
 export function createNode(
@@ -86,6 +121,7 @@ export function createNode(
     w: partial.w ?? NODE_W,
     h: partial.h ?? NODE_H,
     layer: partial.layer ?? 'user',
+    done: partial.done ?? false,
     createdAt: partial.createdAt ?? Date.now(),
   };
 }
@@ -157,6 +193,9 @@ export function parseBoard(id: string, raw: unknown): Board {
             w: typeof n.w === 'number' ? n.w : NODE_W,
             h: typeof n.h === 'number' ? n.h : NODE_H,
             layer: n.layer === 'accepted' ? 'accepted' : 'user',
+            // Boards saved before done existed load as not done, and anything
+            // that is not strictly true is junk off the wire.
+            done: n.done === true,
             createdAt: typeof n.createdAt === 'number' ? n.createdAt : Date.now(),
           }),
         ];
@@ -186,6 +225,12 @@ export function parseBoard(id: string, raw: unknown): Board {
   return {
     id,
     title: typeof obj.title === 'string' ? obj.title.slice(0, TITLE_MAX) : '',
+    // Boards saved before objectives existed load without one, same as `done`.
+    objective:
+      typeof obj.objective === 'string' ? obj.objective.slice(0, OBJECTIVE_MAX) : '',
+    // Strictly true or it is not private. A board is only silent because
+    // someone said so — never because a malformed row was ambiguous.
+    privacy: obj.privacy === true,
     nodes,
     edges,
     updatedAt: typeof obj.updatedAt === 'number' ? obj.updatedAt : Date.now(),

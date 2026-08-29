@@ -89,14 +89,18 @@ export function saveBoard(board: Board): void {
     )
     .run({
       id: board.id,
-      data: JSON.stringify({
-        title: board.title,
-        nodes: board.nodes,
-        edges: board.edges,
-        updatedAt: board.updatedAt,
-      }),
+      // Everything except `id`, which is the row key and must not be duplicated
+      // inside the blob. Spread rather than listed field by field on purpose: a
+      // hand-written list silently drops the next field added to Board, and a
+      // dropped field here is not a missing feature, it is data loss on save.
+      data: JSON.stringify(withoutId(board)),
       updatedAt: board.updatedAt,
     });
+}
+
+function withoutId(board: Board): Omit<Board, 'id'> {
+  const { id: _id, ...data } = board;
+  return data;
 }
 
 type Row = {
