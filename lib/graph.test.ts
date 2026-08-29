@@ -7,15 +7,18 @@ import {
   emptyBoard,
   fitViewport,
   NODE_FONT_DEFAULT,
+  NODE_H,
   NODE_MIN_H,
   NODE_MIN_W,
   NODE_FONT_STEPS,
+  NODE_W,
   nodesInRect,
   OBJECTIVE_MAX,
   parseBoard,
   removeNodes,
   snapFontSize,
   stepFontSize,
+  unionRect,
   VIEW_MAX_SCALE,
   visibleRect,
   VIEW_MIN_SCALE,
@@ -309,5 +312,30 @@ describe('containsRect', () => {
     expect(containsRect(outer, { x: 0, y: 0, w: 100, h: 100 })).toBe(true);
     expect(containsRect(outer, { x: 90, y: 10, w: 20, h: 20 })).toBe(false);
     expect(containsRect(outer, { x: -1, y: 10, w: 20, h: 20 })).toBe(false);
+  });
+});
+
+describe('unionRect', () => {
+  it('returns null for an empty board — there is nothing to frame', () => {
+    expect(unionRect([])).toBeNull();
+  });
+
+  it('bounds every card, wherever they sit', () => {
+    const nodes = [
+      createNode({ id: 'a', x: -300, y: 120 }),
+      createNode({ id: 'b', x: 1800, y: -900, w: 400, h: 200 }),
+    ];
+    // Node a's bottom: 120 + 96 = 216; node b's far edge 1800 + 400 = 2200,
+    // bottom -900 + 200 = -700. So the union spans y -900..216, x -300..2200.
+    expect(unionRect(nodes)).toEqual({ x: -300, y: -900, w: 2500, h: 1116 });
+  });
+
+  it('is exact for a single card — the union is the card', () => {
+    expect(unionRect([createNode({ id: 'a', x: 40, y: 50 })])).toEqual({
+      x: 40,
+      y: 50,
+      w: NODE_W,
+      h: NODE_H,
+    });
   });
 });

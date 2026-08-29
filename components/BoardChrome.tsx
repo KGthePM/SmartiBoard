@@ -212,6 +212,17 @@ export function BoardChrome() {
           Present
         </button>
 
+        {/* window.print() fires beforeprint, which mounts the sheets — the
+            button carries no logic of its own, exactly like native ⌘P. */}
+        <button
+          className="chrome-print"
+          title="Print this board (⌘P)"
+          disabled={!loaded}
+          onClick={() => window.print()}
+        >
+          Print
+        </button>
+
         {/* Navigation, not a board action: leaving unmounts the canvas, whose
             cleanup flushes any unsaved edit fire-and-forget — the same exit the
             board switch takes. */}
@@ -248,6 +259,7 @@ export function BoardChrome() {
             <span>Click a line to select it</span>
             <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
             <span>⌘F to find &amp; replace</span>
+            <span>⌘P to print</span>
           </div>
         </div>
       </div>

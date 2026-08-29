@@ -306,5 +306,38 @@ the user's to make — say what needs looking at and stop there.
   meant); Neon states it as a rule — solid content blooms via `--shadow-1`, the ghost has no
   shadow and is the only thing that does not glow — and colors the AI cyan among greens.
 
+- **Print** (v2.5): ⌘P or the Print button prints the board as a read-only paper copy — the
+  browser's own dialog is the whole feature (paper size, copies, and Save-as-PDF all come with
+  it; there is no PDF pipeline and no dependency). The printed thing is a separate React render
+  (`components/canvas/PrintSheets.tsx`), never the live canvas: the sheets mount only for the
+  duration of a print — `beforeprint` does `flushSync(() => setPrinting(true))` in Board.tsx,
+  `afterprint` (including a cancel) unmounts them — so the button itself is just
+  `window.print()` and native ⌘P needs no key interception at all (it works mid-presentation,
+  where no chrome is mounted, for free). `printPlan` in `lib/print.ts` is pure geometry over
+  `unionRect` (shared with `fitViewport`): the board shrinks to fit one page but never upscales
+  (you print the size you authored), and **one page is the norm** (v2.6, user request: the
+  tile sets did not look good) — the fit may shrink all the way down to
+  `MIN_PRINT_SCALE = 0.4` (a single sheet at that floor covers a board up to ~1738×2290 css-px,
+  nearly every real board; the 12px font rung prints at ~4.8px — small type, but one page
+  beats a pile of pages). Only a board too sprawling for even that holds at the floor and
+  tiles into exact page windows — straight slices, no gaps, no overlaps, centered as a grid —
+  so a card straddling a boundary prints partially on each sheet and tapes back together. The first sheet carries the
+  board's name (`boardTitle`) in a short bar that shortens row 0's window; name only, by
+  decision. Sheets are sized in CSS px (96/inch) to sit inside both A4 and Letter portrait at
+  the stylesheet's `@page` 12mm margin, minus headroom, because a sheet one pixel over the
+  printable area spills and breaks the one-sheet-one-page mapping. What prints: every card
+  (the shared `RichTextView`, so paper and screen cannot disagree about what a card says;
+  committed text, so a card caught mid-edit has no special case; done strikes, accepted
+  markers, rich text, font sizes) and every edge (`EdgeLayer` with `proposal={null}`).
+  What never prints: the ghost (a proposal is not content — the presenting ruling), selection,
+  search tints, all chrome and panels, the empty-card placeholder, and the grid. Paper is
+  always light: the `@media print` block redeclares the light tokens over dark and neon
+  installs (a full copy of the `:root` block — keep them in sync) plus
+  `print-color-adjust: exact` so borders and the accepted dot survive. Pure presentation, like
+  presenting: component-local state, no store field, no undo/redo spend, no `lastMutationAt`,
+  never a token, absent from the fingerprint; Privacy Mode is irrelevant (printing is local).
+  Printing from the index page is untouched browser behavior — the sheets and their CSS belong
+  to the board page only.
+
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

@@ -1,17 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IdeaNode } from '@/lib/graph';
-import { markMatches, type Match } from '@/lib/search';
-import {
-  PALETTE,
-  parseRichText,
-  toggleColor,
-  toggleWrap,
-  type ColorKey,
-  type Edit,
-  type Segment,
-} from '@/lib/richtext';
+import type { Match } from '@/lib/search';
+import { PALETTE, toggleColor, toggleWrap, type ColorKey, type Edit } from '@/lib/richtext';
+import { RichTextView } from './RichTextView';
 
 type Props = {
   node: IdeaNode;
@@ -34,49 +27,10 @@ type Props = {
   onDelete: () => void;
 };
 
-function markClasses(s: Segment & { hit?: 'on' | 'active' }): string {
-  return [
-    s.bold && 'rt-b',
-    s.italic && 'rt-i',
-    s.underline && 'rt-u',
-    s.strike && 'rt-s',
-    s.color && `rt-c-${s.color}`,
-    s.hit && (s.hit === 'active' ? 'find active' : 'find'),
-  ]
-    .filter(Boolean)
-    .join(' ');
-}
-
 /**
- * The read view. Segments become React spans — never innerHTML — so stored
- * text can never inject markup. Search hits split those segments further; the
- * split is exact because the segments of a parse concatenate back to the
- * stripped text the offsets index into.
+ * The canvas card. The read view itself lives in RichTextView, shared with
+ * the print sheet; everything else here is editing surface.
  */
-function RichTextView({
-  text,
-  matches,
-  activeMatch,
-}: {
-  text: string;
-  matches: Match[];
-  activeMatch: number | null;
-}) {
-  const segments = useMemo(
-    () => markMatches(parseRichText(text), matches, activeMatch),
-    [text, matches, activeMatch],
-  );
-  if (segments.length === 0) return null;
-  return (
-    <>
-      {segments.map((s, i) => (
-        <span key={i} className={markClasses(s)}>
-          {s.text}
-        </span>
-      ))}
-    </>
-  );
-}
 
 export function NodeCard({
   node,

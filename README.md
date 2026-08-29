@@ -183,6 +183,11 @@ layer.
 - **⌘⇧F / Ctrl+Shift+F** (or the **Present** button) puts the board on a screen for a room:
   fullscreen, read-only, everything fitted to view. Pan and zoom still work; **Esc** exits
   and you come back exactly where you were
+- **⌘P / Ctrl+P** (or the **Print** button) prints the board — or saves it as a PDF — as a
+  read-only paper copy: the whole board on one page, shrinking as far as ~40% to make it
+  fit; only a truly sprawling board tiles across pages. Every card and connection prints
+  with its done strikes and formatting; the AI's pending suggestion, selections, and search
+  highlights never do
 
 ## What the board is for
 

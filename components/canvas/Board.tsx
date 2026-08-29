@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
 import {
   emptyBoard,
@@ -23,6 +24,7 @@ import { EdgeLayer } from './EdgeLayer';
 import { GhostCard } from './GhostCard';
 import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
+import { PrintSheets } from './PrintSheets';
 
 const AUTOSAVE_MS = 700;
 /** How often a failed save retries itself while the indicator shows error. */
@@ -111,6 +113,10 @@ export function Board({ boardId }: { boardId: string }) {
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
   const lastDeleteAt = useRef(0);
+  // True only between beforeprint and afterprint — the window in which the
+  // print sheets exist. Nothing on screen changes for it: the stylesheet
+  // shows the sheets under @media print and nowhere else.
+  const [printing, setPrinting] = useState(false);
 
   const toBoardCoords = useCallback(
     (clientX: number, clientY: number) => {
@@ -361,6 +367,26 @@ export function Board({ boardId }: { boardId: string }) {
     // mid-session deserves the same refit. Pan and zoom in between never
     // retrigger this — they change the viewport, not the surface or the nodes.
   }, [presenting, surface, board.nodes]);
+
+  /* ---------- print: the sheets exist only for the duration ---------- */
+
+  // The browser owns the trigger: beforeprint fires for the Print button's
+  // window.print(), for native ⌘P, and for the menu's Print alike, so one
+  // listener covers every path without intercepting a single key — it even
+  // works mid-presentation, where no chrome is mounted at all. The sheets
+  // must be in the DOM before the dialog snapshots the page, hence flushSync;
+  // afterprint — including a cancel — unmounts them. Component-local on
+  // purpose: printing is pure presentation, like the selection.
+  useEffect(() => {
+    const prep = () => flushSync(() => setPrinting(true));
+    const done = () => setPrinting(false);
+    window.addEventListener('beforeprint', prep);
+    window.addEventListener('afterprint', done);
+    return () => {
+      window.removeEventListener('beforeprint', prep);
+      window.removeEventListener('afterprint', done);
+    };
+  }, []);
 
   /* ---------- pointer handling ---------- */
 
@@ -684,6 +710,10 @@ export function Board({ boardId }: { boardId: string }) {
           </div>
         </>
       )}
+
+      {/* The printout itself: mounted between beforeprint and afterprint,
+          invisible on screen, the only thing visible on paper. */}
+      {printing ? <PrintSheets board={board} /> : null}
     </>
   );
 }

@@ -226,22 +226,18 @@ export function fitViewport(
   surface: { w: number; h: number },
   pad = FIT_PAD,
 ): Viewport {
-  if (nodes.length === 0) return { x: 0, y: 0, scale: 1 };
-
-  const minX = Math.min(...nodes.map((n) => n.x));
-  const minY = Math.min(...nodes.map((n) => n.y));
-  const maxX = Math.max(...nodes.map((n) => n.x + n.w));
-  const maxY = Math.max(...nodes.map((n) => n.y + n.h));
+  const bounds = unionRect(nodes);
+  if (!bounds) return { x: 0, y: 0, scale: 1 };
 
   const availW = Math.max(1, surface.w - pad * 2);
   const availH = Math.max(1, surface.h - pad * 2);
-  const raw = Math.min(availW / (maxX - minX), availH / (maxY - minY));
+  const raw = Math.min(availW / bounds.w, availH / bounds.h);
   const scale = Math.min(VIEW_MAX_SCALE, Math.max(VIEW_MIN_SCALE, raw));
 
   return {
     scale,
-    x: (surface.w - (maxX - minX) * scale) / 2 - minX * scale,
-    y: (surface.h - (maxY - minY) * scale) / 2 - minY * scale,
+    x: (surface.w - bounds.w * scale) / 2 - bounds.x * scale,
+    y: (surface.h - bounds.h * scale) / 2 - bounds.y * scale,
   };
 }
 
@@ -280,6 +276,20 @@ export function containsRect(outer: Rect, inner: Rect): boolean {
 
 export function rectOf(n: Pick<IdeaNode, 'x' | 'y' | 'w' | 'h'>): Rect {
   return { x: n.x, y: n.y, w: n.w, h: n.h };
+}
+
+/**
+ * The bounding box of every card, or null when there are none. The shared
+ * measure behind "show the whole board" — the presentation fit on screen and
+ * the print plan on paper both frame exactly this.
+ */
+export function unionRect(nodes: IdeaNode[]): Rect | null {
+  if (nodes.length === 0) return null;
+  const minX = Math.min(...nodes.map((n) => n.x));
+  const minY = Math.min(...nodes.map((n) => n.y));
+  const maxX = Math.max(...nodes.map((n) => n.x + n.w));
+  const maxY = Math.max(...nodes.map((n) => n.y + n.h));
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 export function intersects(a: Rect, b: Rect, pad = 0): boolean {

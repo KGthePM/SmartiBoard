@@ -734,6 +734,7 @@ html, body {
 .chrome-ideas,
 .chrome-objective,
 .chrome-privacy,
+.chrome-print,
 .chrome-search,
 .chrome-undo,
 .chrome-redo {
@@ -841,6 +842,14 @@ html, body {
 }
 .chrome-present:hover:not(:disabled) { color: var(--ink); }
 .chrome-present:disabled { opacity: 0.45; cursor: default; }
+.chrome-print {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chrome-print:hover:not(:disabled) { color: var(--ink); }
+.chrome-print:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- presentation mode ---------- */
 
@@ -1708,3 +1717,153 @@ html, body {
 .t-node.t-accepted { stroke: var(--accepted-border); }
 .t-edge { stroke: var(--user-border); stroke-width: 0.8; }
 .t-edge.t-accepted { stroke: var(--accepted-border); }
+
+/* ---------- print (v2.5): paper is a different medium, not another theme ----------
+   The printed board is a separate React subtree (PrintSheets), mounted only
+   between beforeprint and afterprint. On screen there is nothing to show;
+   under @media print it is the only thing visible — the canvas, the chrome,
+   the panels, and the ghost all stay behind, because paper gets content, not
+   interface. */
+
+.print-root { display: none; }
+
+/* The one paper decision the app makes for itself: the sheet constants in
+   lib/print.ts are computed against this margin at 96 CSS px to the inch,
+   for A4 and Letter portrait alike. Everything else — paper size, copies,
+   landscape, PDF — belongs to the browser's dialog, which is the feature. */
+@page {
+  margin: 12mm;
+}
+
+@media print {
+  /* Paper is always light, whatever the install's screen theme: dark and
+     neon are screens, and nobody should print #14161a. This is a full copy
+     of the light :root block — if a token changes there, it changes here. */
+  :root,
+  :root[data-theme='dark'],
+  :root[data-theme='neon'] {
+    --bg: #f7f7f5;
+    --grid: #e4e4e0;
+    --ink: #1c1c1a;
+    --muted: #6b6b66;
+
+    --user-bg: #ffffff;
+    --user-border: #c9c9c2;
+
+    --accepted-bg: #ffffff;
+    --accepted-border: #9aa8c4;
+    --accepted-mark: #4f6ba8;
+
+    --ghost-bg: #f2f4fb;
+    --ghost-border: #7f93c4;
+    --ghost-ink: #3c4a68;
+
+    --done-faded: #a0a09a;
+
+    --mark-red: #b3261e;
+    --mark-amber: #9a6700;
+    --mark-green: #1a7f37;
+    --mark-blue: #0969da;
+    --mark-violet: #8250df;
+
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --on-accent: #ffffff;
+
+    --scrim: rgba(28,28,26,0.18);
+    --wash: rgba(28,28,26,0.06);
+    --wash-strong: rgba(28,28,26,0.08);
+    --ring: rgba(28,28,26,0.12);
+    --swatch-ring: rgba(0,0,0,0.15);
+
+    --shadow-1: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-2: 0 1px 3px rgba(0,0,0,0.1);
+    --shadow-modal: 0 8px 28px rgba(0,0,0,0.14);
+
+    --rationale-bg: var(--ink);
+    --rationale-ink: #f4f4f2;
+
+    --find-bg: rgba(255,205,80,0.5);
+    --find-active-bg: #ffcf4d;
+    --find-ink: inherit;
+  }
+
+  /* Browsers economize backgrounds by default; the cards' borders, the
+     accepted dot, and the done strike are the content. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  html, body {
+    overflow: visible;
+    height: auto;
+    background: var(--bg);
+  }
+
+  /* Everything interactive stays on the screen where it belongs — the canvas
+     included, since the sheets render their own copy of the board. */
+  .viewport,
+  .board-name,
+  .chrome,
+  .legend,
+  .status,
+  .present-bar,
+  .search,
+  .ideas,
+  .switcher-back,
+  .settings-back,
+  .objective-back {
+    display: none !important;
+  }
+
+  .print-root { display: block; }
+
+  .print-sheet {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    /* Centered horizontally on papers wider than the sheet; vertical margins
+       must stay zero or the next sheet starts a page late. */
+    margin: 0 auto;
+    break-after: page;
+    page-break-after: always;
+  }
+  /* The last sheet must not buy a trailing blank page. */
+  .print-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .print-name {
+    flex: none;
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .print-window {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  .print-world {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+  }
+
+  /* Edge furniture is editing chrome, not content. */
+  .edge-hit,
+  .edge-x { display: none; }
+
+  /* Shadows are screen depth; on paper they are just ink. */
+  .card { box-shadow: none; }
+
+  /* The empty-card placeholder is an invitation to type, not content. */
+  .rt:empty::before { content: none; }
+}
