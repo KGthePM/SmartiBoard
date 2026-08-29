@@ -55,11 +55,11 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 | Canvas | Hand-rolled React + SVG/DOM. **Not** tldraw or Excalidraw. |
 | License | AGPL-3.0-only |
 | v1 wedge | Strategy / product ideation |
-| LLM provider | Bring-your-own, chosen in-app (Anthropic / z.ai / Ollama / custom OpenAI-compatible), stored in the local SQLite file. `ANTHROPIC_API_KEY` is the headless fallback. |
+| LLM provider | Bring-your-own, chosen in-app (Anthropic / z.ai / z.ai Coding Plan / Ollama / custom OpenAI-compatible), stored in the local SQLite file. `ANTHROPIC_API_KEY` is the headless fallback. |
 | Framework | Next.js App Router + TypeScript, single process |
 | Persistence | SQLite via better-sqlite3, board stored as JSON |
 | State | zustand (`lib/store.ts`) |
-| Model | Default `claude-opus-5`: structured output, `effort: 'low'`, adaptive thinking. Non-Anthropic providers go over OpenAI chat-completions with a prompt-enforced JSON contract. |
+| Model | Default `claude-opus-5`: structured output, `effort: 'low'`, adaptive thinking. Anthropic-flavor third parties (z.ai Coding Plan) get plain Messages calls with a prompt-enforced JSON contract, same as OpenAI-flavor providers. |
 
 ## Where things live
 
@@ -72,6 +72,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/config.ts` — `resolveConfig()`: the db row, then the env var. The only db-aware
   piece of the provider layer.
 - `lib/ai/openai.ts` — the OpenAI-compatible wire flavor (z.ai, Ollama, LM Studio, vLLM…).
+- `lib/ai/upstream.ts` — `short`/`classify`: how an upstream failure becomes words. Pure, shared
+  by the two user-invoked settings routes.
 - `lib/ai/trigger.ts` — when the AI may speak. Pure functions; tune here first.
 - `lib/ai/prompt.ts` — system prompt (wedge-tuned) and the response schema. `serializeBoardContent` is the shared model's-eye view of the board.
 - `lib/ai/summary-prompt.ts` — the summary behavior's prompt and token budget (streamed prose, no schema).
@@ -79,7 +81,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`.
 - `app/api/boards/route.ts` — the collection: list and create.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `summarize/route.ts` (the streamed summary call).
-- `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection check).
+- `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
+  check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
 - `app/page.tsx` + `components/index/` — the project library and its minimaps.
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name and ⌘K switcher.
@@ -142,13 +145,25 @@ like a collaborator or a paperclip. Both are now settled:
   and choosing who answers adds no AI behavior. Still exactly one unsolicited behavior.
 - **Configuration failures are loud exactly once** (v1.4). The ghost and the summary keep
   failing quietly — an unsolicited collaborator that nags about setup is the paperclip.
-  `POST /api/settings/test` is the one place that reports upstream errors in words, and it
-  is user-invoked from the panel.
-- **Board summary** (v1.3): user-invoked (⌘.), streamed, read-only prose in a side panel —
-  never a node, never the title, never undoable, never persisted. Session-only, cached by board
-  fingerprint; `beginLoad` closes the panel, which aborts the stream. Same 3-idea floor as the
-  ghost. Opening the panel is the only automatic request — a board switch under an open panel
-  shows a button rather than spending tokens.
+  The settings panel's two user-invoked calls — `POST /api/settings/test` and
+  `POST /api/settings/models` — are the only places that report upstream errors in words,
+  and both fire on a button and nowhere else. Listing models on panel open, or on each
+  keystroke of a key, would make the panel chatter at a provider unasked; it is one click,
+  and the loaded list is discarded whenever the provider, key, or endpoint changes, because
+  a catalogue belongs to the endpoint it came from. A model already typed or saved is never
+  silently replaced by something from the list.
+- **Board summary** (v1.3): user-invoked — the Summary button or ⌘. opens the panel, and the
+  in-panel launch button is the only thing that fires the request. Streamed, read-only prose in
+  a side panel — never a node, never the title, never undoable, never persisted. Session-only,
+  cached by board fingerprint; `beginLoad` closes the panel, which aborts the stream, and an
+  interrupted stream is cancelled back to idle. The panel never spends a token on its own — no
+  fetch on mount (which also keeps it StrictMode-safe). Same 3-idea floor as the ghost.
+- **Node resize** (v1.5, functional not flourish): drag a card's bottom-right corner to set
+  width and height (`clampSize` minimums in `lib/graph.ts`; `resizeNode` in the store).
+  Size follows the `moveNode` doctrine — presentation, not content: no undo snapshot, no
+  `lastMutationAt` bump, never a token. Text still clips in a too-small card; the ghost
+  stays default-sized, because a proposal is not content. `w`/`h` were already on every
+  node and in the persisted JSON, so there was no schema change.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

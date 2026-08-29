@@ -19,6 +19,7 @@ type Props = {
   onChange: (text: string, format?: boolean) => void;
   onDragStart: (e: React.PointerEvent) => void;
   onPortDown: (e: React.PointerEvent) => void;
+  onResizeStart: (e: React.PointerEvent) => void;
   onDelete: () => void;
 };
 
@@ -59,6 +60,7 @@ export function NodeCard({
   onChange,
   onDragStart,
   onPortDown,
+  onResizeStart,
   onDelete,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -205,6 +207,15 @@ export function NodeCard({
         onPointerDown={(e) => {
           e.stopPropagation();
           onPortDown(e);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      />
+      <div
+        className="resize"
+        title="Drag to resize"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onResizeStart(e);
         }}
         onDoubleClick={(e) => e.stopPropagation()}
       />

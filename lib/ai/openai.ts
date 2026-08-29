@@ -48,18 +48,21 @@ export type ChatRequest = {
   signal?: AbortSignal;
 };
 
-function endpoint(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+function endpoint(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${path}`;
+}
+
+function authHeaders(apiKey: string | null): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  // Ollama and friends are fine without it; some servers reject an empty one.
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  return headers;
 }
 
 function buildRequest(cfg: OpenAiConfig, req: ChatRequest, stream: boolean): Request {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  // Ollama and friends are fine without it; some servers reject an empty one.
-  if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
-
-  return new Request(endpoint(cfg.baseUrl), {
+  return new Request(endpoint(cfg.baseUrl, 'chat/completions'), {
+    headers: authHeaders(cfg.apiKey),
     method: 'POST',
-    headers,
     body: JSON.stringify({
       model: cfg.model,
       messages: [
@@ -132,4 +135,45 @@ export async function* sseDataLines(body: ReadableStream<Uint8Array>): AsyncGene
   }
   buffer += decoder.decode();
   if (buffer.startsWith('data: ')) yield buffer.slice(6).replace(/\r$/, '');
+}
+
+/** One model the provider says this key can reach. */
+export type ModelInfo = { id: string; label?: string };
+
+/**
+ * The `{ data: [{ id }] }` envelope that OpenAI, z.ai, Ollama, LM Studio and
+ * vLLM all return from /models. Pure and exported separately from the fetch
+ * below for the same reason `sseDataLines` is: the parse is the part that
+ * breaks, and this repo never mocks fetch.
+ *
+ * Anything without a string id is dropped rather than shown as a blank row,
+ * duplicates collapse, and the result is sorted — servers return their models
+ * in whatever order they please, and a picker needs a stable one.
+ */
+export function parseModelList(json: unknown): ModelInfo[] {
+  const data = (json as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+
+  const seen = new Set<string>();
+  const models: ModelInfo[] = [];
+  for (const entry of data) {
+    const id = (entry as { id?: unknown } | null)?.id;
+    if (typeof id !== 'string' || !id.trim() || seen.has(id)) continue;
+    seen.add(id);
+    models.push({ id });
+  }
+  return models.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** GET /models. Same failure vocabulary as a completion: throws OpenAiError. */
+export async function openaiListModels(cfg: {
+  apiKey: string | null;
+  baseUrl: string;
+}): Promise<ModelInfo[]> {
+  const res = await fetch(endpoint(cfg.baseUrl, 'models'), {
+    method: 'GET',
+    headers: authHeaders(cfg.apiKey),
+  });
+  if (!res.ok) throw new OpenAiError(res.status, await snippet(res));
+  return parseModelList(await res.json());
 }

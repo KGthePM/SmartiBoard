@@ -2,11 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { resolveConfig } from '@/lib/ai/config';
 import { openaiComplete } from '@/lib/ai/openai';
+import { causeChain } from '@/lib/ai/upstream';
 import { proposalFromText } from '@/lib/ai/parse';
 import { JSON_CONTRACT, PROPOSAL_SCHEMA, SYSTEM_PROMPT, serializeBoard } from '@/lib/ai/prompt';
 import { parseBoard } from '@/lib/graph';
 
 export const runtime = 'nodejs';
+
+/** Long enough for a slow model, short enough that a dead socket isn't forever. */
+const SUGGEST_TIMEOUT_MS = 60_000;
 
 /**
  * One non-blocking request per proposal. Not streamed: a ghost node needs the
@@ -44,27 +48,54 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   let text: string | null;
 
   if (cfg.flavor === 'anthropic') {
-    const client = new Anthropic({ apiKey: cfg.apiKey!, baseURL: cfg.baseUrl || undefined });
+    // Bounded, unlike the SDK's ten-minute default: nobody is waiting on a ghost,
+    // but an in-flight request blocks every later one behind the trigger's
+    // in_flight gate, so a wedged connection must not outlive the session.
+    const client = new Anthropic({
+      apiKey: cfg.apiKey!,
+      baseURL: cfg.baseUrl || undefined,
+      timeout: SUGGEST_TIMEOUT_MS,
+    });
+
+    // The SDK extras — adaptive thinking, schema-constrained output, prompt
+    // caching — are Anthropic-the-company features that a third party speaking
+    // this wire flavor (z.ai's Coding Plan) may reject. They ride along only
+    // for the real thing; everyone else gets the same plain call the openai
+    // flavor makes, with the JSON contract in the message instead.
+    const params: Anthropic.MessageCreateParamsNonStreaming =
+      cfg.provider === 'anthropic'
+        ? {
+            model: cfg.model,
+            max_tokens: 2000,
+            thinking: { type: 'adaptive' },
+            output_config: {
+              // Latency matters more than depth for a single suggestion. Effort is
+              // the cost lever here — not disabling thinking, which has its own
+              // failure modes on this model.
+              effort: 'low',
+              format: { type: 'json_schema', schema: PROPOSAL_SCHEMA },
+            },
+            // Stable prefix gets the cache breakpoint; the volatile board goes after it.
+            system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+            messages: [{ role: 'user', content: user }],
+          }
+        : {
+            model: cfg.model,
+            max_tokens: 2000,
+            // Thinking off, explicitly: a compat endpoint that reasons by
+            // default (GLM on z.ai's Coding Plan does) spends the whole budget
+            // on a thinking block and stops before the JSON — a ghost that
+            // never appears, indistinguishable from having nothing to add.
+            thinking: { type: 'disabled' },
+            system: SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: `${user}\n\n${JSON_CONTRACT}` }],
+          };
 
     let response;
     try {
-      response = await client.messages.create({
-        model: cfg.model,
-        max_tokens: 2000,
-        thinking: { type: 'adaptive' },
-        output_config: {
-          // Latency matters more than depth for a single suggestion. Effort is
-          // the cost lever here — not disabling thinking, which has its own
-          // failure modes on this model.
-          effort: 'low',
-          format: { type: 'json_schema', schema: PROPOSAL_SCHEMA },
-        },
-        // Stable prefix gets the cache breakpoint; the volatile board goes after it.
-        system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: user }],
-      });
+      response = await client.messages.create(params);
     } catch (err) {
-      console.error('[suggest] request failed', err);
+      console.error('[suggest] request failed:', causeChain(err));
       return NextResponse.json({ proposal: null, reason: 'upstream_error' });
     }
 
@@ -81,9 +112,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         user: `${user}\n\n${JSON_CONTRACT}`,
         maxTokens: 2000,
         json: true,
+        // Plain fetch has no timeout of its own; same bound as the SDK path.
+        signal: AbortSignal.timeout(SUGGEST_TIMEOUT_MS),
       });
     } catch (err) {
-      console.error('[suggest] request failed', err);
+      console.error('[suggest] request failed:', causeChain(err));
       return NextResponse.json({ proposal: null, reason: 'upstream_error' });
     }
   }

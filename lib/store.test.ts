@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createNode, edgePair, emptyBoard } from './graph';
+import { createNode, edgePair, emptyBoard, NODE_MIN_H, NODE_MIN_W } from './graph';
 import { rejectedFor, useBoard } from './store';
 import type { ProposalDraft } from './proposal';
 
@@ -56,6 +56,13 @@ describe('beginLoad', () => {
     expect(s().lastRequestedFingerprint).toBeNull();
   });
 
+  it('forgets a failed request so the next board is not born cooling down', () => {
+    open('fail-a');
+    s().failRequest();
+    open('fail-b');
+    expect(s().suggestFailedAt).toBeNull();
+  });
+
   it('reports the board as unloaded until its content arrives', () => {
     open('load-a');
     s().beginLoad('load-b');
@@ -76,6 +83,30 @@ describe('hydrate', () => {
     expect(s().board.id).toBe('stale-b');
     expect(s().board.nodes).toEqual([]);
     expect(s().loaded).toBe(false);
+  });
+});
+
+describe('cancelSummary', () => {
+  it('puts an abandoned stream back to idle with nothing half-written', () => {
+    // Closing the panel mid-stream must not leave a corpse: reopening shows
+    // the launch button, not a frozen partial summary pretending to stream.
+    open('cancel-a');
+    s().beginSummary();
+    s().appendSummary('The board is about ');
+    s().cancelSummary();
+    expect(s().summaryStatus).toBe('idle');
+    expect(s().summaryText).toBe('');
+  });
+
+  it('leaves a finished summary alone — that is the cache the panel reopens to', () => {
+    open('cancel-b');
+    s().beginSummary();
+    s().appendSummary('a finished read');
+    s().finishSummary('fp-1');
+    s().cancelSummary();
+    expect(s().summaryStatus).toBe('done');
+    expect(s().summaryText).toBe('a finished read');
+    expect(s().summaryFingerprint).toBe('fp-1');
   });
 });
 
@@ -267,5 +298,52 @@ describe('receiveProposal after a deleted connection', () => {
     const d = s().addNode(300, 0);
     s().receiveProposal(connDraft(c, d));
     expect(s().proposal).not.toBeNull();
+  });
+});
+
+describe('resizeNode', () => {
+  it('resizes only the target card, on whole pixels, never below the minimums', () => {
+    open('size-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    s().resizeNode(a, 340.6, 180.2);
+    expect(s().board.nodes[0]).toMatchObject({ w: 341, h: 180 });
+    expect(s().board.nodes[1]).toMatchObject({ w: 200, h: 96 });
+
+    s().resizeNode(a, 10, 5);
+    expect(s().board.nodes[0]).toMatchObject({ w: NODE_MIN_W, h: NODE_MIN_H });
+  });
+
+  it('is presentation, not content: no undo step, no token', () => {
+    // Same doctrine as moveNode — rearranging the picture must neither haunt
+    // the undo stack nor debounce the trigger.
+    open('size-b');
+    const n = s().addNode(0, 0);
+    const undoDepth = s().undoStack.length;
+    const before = s().lastMutationAt;
+    s().resizeNode(n, 400, 200);
+    expect(s().board.nodes[0]).toMatchObject({ w: 400, h: 200 });
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().lastMutationAt).toBe(before);
+  });
+});
+
+describe('failRequest', () => {
+  // A request that never reached the model says nothing about this board, so
+  // the board must not be treated as already asked about — otherwise one
+  // dropped connection retires the ghost until the user edits something.
+  it('releases the fingerprint and stamps the failure', () => {
+    open('fail-c');
+    s().markRequested('board-hash');
+    s().failRequest();
+    expect(s().lastRequestedFingerprint).toBeNull();
+    expect(s().suggestFailedAt).not.toBeNull();
+  });
+
+  it('lets a request that got through end the cooldown', () => {
+    open('fail-d');
+    s().failRequest();
+    s().markRequested('board-hash');
+    expect(s().suggestFailedAt).toBeNull();
   });
 });

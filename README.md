@@ -2,8 +2,8 @@
 
 A web idea board where an AI continuously co-authors the board with you — proposing
 gap-fills and connections as you work — rather than responding to prompts on demand.
-One deliberate exception: **⌘.** asks for a read-only summary of the whole board, streamed
-into a side panel and never merged into your content.
+One deliberate exception: **⌘.** opens a summary panel where one click asks for a read-only
+summary of the whole board, streamed back and never merged into your content.
 
 The board is a **typed graph** (nodes + edges), not a pixel canvas. That's what makes the
 AI behavior tractable, and it's what everything else is built on.
@@ -98,12 +98,18 @@ directly.
 |---|---|---|
 | Anthropic (Claude) | API key | Structured output and adaptive thinking — the reference path. |
 | z.ai (GLM) | API key | OpenAI-compatible endpoint. |
+| z.ai Coding Plan (GLM) | API key | For Coding Plan subscriptions: Anthropic-compatible coding endpoint. A plan key has no balance on the general z.ai API above. |
 | Ollama (local) | nothing | `http://localhost:11434/v1`. Nothing leaves your machine. |
 | Custom | endpoint + model | Anything speaking OpenAI chat-completions: LM Studio, vLLM, OpenRouter. |
 
+**Load models** asks the provider which models your key can actually reach and turns the
+Model field into a dropdown of them. It only ever runs when you click it, and a model you
+already typed or saved is kept even if the provider didn't list it — pick *Type a name…*
+to go back to the text box.
+
 **Test** makes one one-token call and tells you whether the key, the address, and the
-model name are right. It is the only place the app reports an AI failure out loud — the
-ghost and the summary fail quietly on purpose.
+model name are right. Along with Load models it is the only place the app reports an AI
+failure out loud — the ghost and the summary fail quietly on purpose.
 
 The key is stored in the same local SQLite file as your boards and is **write-only**: it
 goes to the server once and never comes back, not even to the panel that saved it, which
@@ -152,7 +158,7 @@ layer.
 - **⌘Z / Ctrl+Z** to undo; **Backspace** deletes the selected card
 - Suggestions appear on their own. **Accept** or **Dismiss** — both are one click, and
   accepting is undoable
-- **⌘. / Ctrl+.** (or the **Summarize** button) reads the board back: one gist line plus a
+- **⌘. / Ctrl+.** (or the **Summary** button) reads the board back: one gist line plus a
   few observations, streamed as they're written. It's read-only — never a node, never the
   board's name, and gone when the session is
 
@@ -185,9 +191,12 @@ opposite rules because it answers a question rather than proposing content:
   and nothing is re-spent
 - It's read-only and session-only: no node, no edge, no title change, no undo entry,
   nothing written to SQLite
-- Switching boards under an open panel never auto-summarizes the next board — you get a
-  button. Navigating is not asking
-- Closing the panel (Esc, ×, ⌘., or a board switch) aborts the stream mid-token
+- Opening the panel never spends a token: you get the cached summary if it's still fresh,
+  otherwise a launch button. The click is the asking
+- Switching boards under an open panel never auto-summarizes the next board — the panel
+  closes. Navigating is not asking
+- Closing the panel (Esc, ×, ⌘., or a board switch) aborts the stream mid-token and discards
+  the partial text — reopening offers the button again
 - Same floor as the ghost: fewer than 3 real ideas and there's nothing to read yet
 
 ## v1 scope

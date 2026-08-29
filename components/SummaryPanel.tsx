@@ -10,19 +10,20 @@ import { useBoard } from '@/lib/store';
  * that interjects on its own policy.
  *
  * Lifecycle rules that matter:
- *  - Opening the panel is the invocation: one request fires automatically
- *    unless a summary cached for the current fingerprint is still fresh.
- *  - A board switch under an open panel does NOT auto-summarize the new
- *    board — navigating is not asking, and switching must not spend tokens.
- *    The idle state offers an explicit button instead.
- *  - Closing the panel (or switching boards) aborts the fetch; deltas are
- *    also boardId-guarded, so a late frame can never land in the next board.
+ *  - Opening the panel is NOT the invocation. It shows the summary cached
+ *    for the current fingerprint if one is fresh, and a launch button
+ *    otherwise — no token is spent without a click. (This also keeps the
+ *    panel trivially StrictMode-safe: nothing fires on mount, so React's
+ *    dev-only double mount has nothing to abort.)
+ *  - Closing the panel (or switching boards — `beginLoad` closes it) aborts
+ *    the fetch and cancels an in-progress stream back to idle, so a reopened
+ *    panel offers the button instead of a frozen half-summary. Deltas are
+ *    boardId-guarded, so a late frame can never land in the next board.
  *  - Stream chunks are buffered and flushed once per animation frame — a
  *    store write per token would re-render the canvas chrome needlessly.
  */
 export function SummaryPanel() {
   const board = useBoard((s) => s.board);
-  const boardId = useBoard((s) => s.boardId);
   const loaded = useBoard((s) => s.loaded);
   const text = useBoard((s) => s.summaryText);
   const status = useBoard((s) => s.summaryStatus);
@@ -32,8 +33,6 @@ export function SummaryPanel() {
   const abortRef = useRef<AbortController | null>(null);
   const pendingRef = useRef('');
   const rafRef = useRef<number | null>(null);
-  /** One automatic request per panel opening, not per board under an open panel. */
-  const autoRef = useRef(false);
 
   const drain = useCallback(() => {
     if (rafRef.current != null) {
@@ -131,20 +130,16 @@ export function SummaryPanel() {
     }
   }, [drain]);
 
-  /* One auto-request per opening; board switches and reloads wait for a click. */
+  /* Unmounting — closing the panel, or a board switch closing it — cancels:
+   * abort the fetch, drop the pending frame, and put an interrupted stream
+   * back to idle so the next opening starts from the button, not a corpse. */
   useEffect(() => {
-    if (!loaded) return;
-    const s = useBoard.getState();
-    const fresh = s.summaryFingerprint === fingerprint(s.board) && s.summaryStatus === 'done';
-    if (!autoRef.current) {
-      autoRef.current = true;
-      if (!fresh) void run();
-    }
     return () => {
       abortRef.current?.abort();
       drain();
+      useBoard.getState().cancelSummary();
     };
-  }, [boardId, loaded, run]);
+  }, [drain]);
 
   /* Esc closes — same dismissibility as everything else the AI shows. */
   useEffect(() => {
@@ -192,7 +187,11 @@ export function SummaryPanel() {
 
         {status === 'streaming' && !text ? <p className="summary-note">reading the board…</p> : null}
         {text ? <div className="summary-text">{text}</div> : null}
-        {status === 'error' && !text ? <p className="summary-note">couldn&apos;t summarize this board</p> : null}
+        {/* `done` with nothing in it is the same dead end as an error, and must
+            not render as an empty panel. */}
+        {(status === 'error' || status === 'done') && !text ? (
+          <p className="summary-note">couldn&apos;t summarize this board</p>
+        ) : null}
       </div>
 
       {(status === 'done' || stale || status === 'error') && canSummarize ? (

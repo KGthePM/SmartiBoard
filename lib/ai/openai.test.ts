@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sseDataLines } from './openai';
+import { parseModelList, sseDataLines } from './openai';
 
 /** A byte stream that hands out exactly the chunk boundaries the test wants. */
 function stream(...chunks: string[]): ReadableStream<Uint8Array> {
@@ -55,5 +55,38 @@ describe('sseDataLines', () => {
 
   it('has nothing to yield for an empty stream', async () => {
     expect(await collect(stream())).toEqual([]);
+  });
+});
+
+describe('parseModelList', () => {
+  it('reads the OpenAI-shaped envelope that z.ai and Ollama both return', () => {
+    const models = parseModelList({
+      object: 'list',
+      data: [
+        { id: 'glm-4.6', object: 'model' },
+        { id: 'glm-4.5-air', object: 'model' },
+      ],
+    });
+    expect(models).toEqual([{ id: 'glm-4.5-air' }, { id: 'glm-4.6' }]);
+  });
+
+  // Servers list models in whatever order they please; a picker needs one that
+  // does not reshuffle between loads.
+  it('sorts by id and drops duplicates', () => {
+    const models = parseModelList({ data: [{ id: 'b' }, { id: 'a' }, { id: 'b' }] });
+    expect(models.map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  // A blank row in the dropdown is worse than a short list.
+  it('drops entries with no usable id', () => {
+    const models = parseModelList({ data: [{ id: 'ok' }, { id: 42 }, { id: '  ' }, null, 'nope'] });
+    expect(models).toEqual([{ id: 'ok' }]);
+  });
+
+  it('returns nothing rather than throwing on a body it does not recognize', () => {
+    expect(parseModelList({})).toEqual([]);
+    expect(parseModelList({ data: null })).toEqual([]);
+    expect(parseModelList(null)).toEqual([]);
+    expect(parseModelList('models')).toEqual([]);
   });
 });

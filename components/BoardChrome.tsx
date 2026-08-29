@@ -98,11 +98,11 @@ export function BoardChrome() {
 
         <button
           className="chrome-summarize"
-          title={canSummarize ? 'Summarize this board (⌘.)' : 'Needs at least 3 ideas'}
+          title={canSummarize ? 'Board summary (⌘.)' : 'Needs at least 3 ideas'}
           disabled={!canSummarize}
           onClick={() => setSummaryOpen(!summaryOpen)}
         >
-          Summarize
+          Summary
         </button>
 
         <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>

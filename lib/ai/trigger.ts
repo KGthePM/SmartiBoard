@@ -11,6 +11,16 @@ import { stripMarks } from '../richtext';
  */
 
 export const DEBOUNCE_MS = 4000;
+/**
+ * How long to wait after a request that never came back with an answer.
+ *
+ * A failed request says nothing about the board, so the fingerprint is released
+ * and the same board may be asked about again — but the canvas ticks once a
+ * second, and a provider that is down would be hammered at that rate. One
+ * attempt every half-minute is the compromise: a blip costs a cycle, an outage
+ * costs almost nothing.
+ */
+export const FAILURE_COOLDOWN_MS = 30_000;
 /** Below this, there is no structure to reason about yet. */
 export const MIN_NODES = 3;
 /** A board with several live suggestions is worse than one with none. */
@@ -25,6 +35,8 @@ export type TriggerState = {
   liveProposals: number;
   /** Is a suggest request already in flight? */
   inFlight: boolean;
+  /** When the last request failed to produce an answer, or null. */
+  failedAt: number | null;
 };
 
 export type TriggerDecision =
@@ -33,6 +45,7 @@ export type TriggerDecision =
 
 export type TriggerBlockReason =
   | 'in_flight'
+  | 'cooling_down'
   | 'proposal_limit'
   | 'too_few_nodes'
   | 'debouncing'
@@ -75,6 +88,10 @@ export function shouldRequest(
   now: number,
 ): TriggerDecision {
   if (state.inFlight) return { fire: false, reason: 'in_flight' };
+
+  if (state.failedAt !== null && now - state.failedAt < FAILURE_COOLDOWN_MS) {
+    return { fire: false, reason: 'cooling_down' };
+  }
 
   if (state.liveProposals >= MAX_LIVE_PROPOSALS) {
     return { fire: false, reason: 'proposal_limit' };

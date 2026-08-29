@@ -46,6 +46,21 @@ export const TITLE_MAX = 120;
 
 export const NODE_W = 200;
 export const NODE_H = 96;
+/** Floor for a manual resize: below this a card fits no word and no toolbar row. */
+export const NODE_MIN_W = 120;
+export const NODE_MIN_H = 48;
+
+/** A manual resize lands on whole pixels and never below the minimums. */
+export function clampSize(w: number, h: number): { w: number; h: number } {
+  return {
+    w: clampDim(w, NODE_MIN_W),
+    h: clampDim(h, NODE_MIN_H),
+  };
+}
+
+function clampDim(v: number, min: number): number {
+  return Number.isFinite(v) ? Math.max(min, Math.round(v)) : min;
+}
 
 let counter = 0;
 

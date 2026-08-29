@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, emptyBoard, newId, type Board } from '../graph';
-import { DEBOUNCE_MS, fingerprint, shouldRequest, type TriggerState } from './trigger';
+import {
+  DEBOUNCE_MS,
+  FAILURE_COOLDOWN_MS,
+  fingerprint,
+  shouldRequest,
+  type TriggerState,
+} from './trigger';
 
 const NOW = 1_000_000;
 
@@ -15,6 +21,7 @@ const idle: TriggerState = {
   lastRequestedFingerprint: null,
   liveProposals: 0,
   inFlight: false,
+  failedAt: null,
 };
 
 describe('shouldRequest', () => {
@@ -26,6 +33,18 @@ describe('shouldRequest', () => {
   it('holds while the user is still typing', () => {
     const d = shouldRequest(board(['a', 'b', 'c']), { ...idle, lastMutationAt: NOW - 500 }, NOW);
     expect(d).toEqual({ fire: false, reason: 'debouncing' });
+  });
+
+  it('waits out the cooldown after a request that never answered', () => {
+    // The fingerprint was released, so nothing else is holding this back —
+    // without the cooldown the canvas would re-ask once a second.
+    const d = shouldRequest(board(['a', 'b', 'c']), { ...idle, failedAt: NOW - 1000 }, NOW);
+    expect(d).toEqual({ fire: false, reason: 'cooling_down' });
+  });
+
+  it('tries again once the cooldown is over', () => {
+    const state = { ...idle, failedAt: NOW - FAILURE_COOLDOWN_MS - 1 };
+    expect(shouldRequest(board(['a', 'b', 'c']), state, NOW).fire).toBe(true);
   });
 
   it('stays quiet below the node floor', () => {

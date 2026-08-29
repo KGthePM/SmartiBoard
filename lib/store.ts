@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import {
+  clampSize,
   createNode,
   edgeExists,
   edgePair,
@@ -82,6 +83,12 @@ export type State = {
   undoStack: Board[];
   lastMutationAt: number;
   lastRequestedFingerprint: string | null;
+  /**
+   * When the last suggest request failed to come back with an answer. A failure
+   * says nothing about the board, so the fingerprint is released and this
+   * stands in its place — see FAILURE_COOLDOWN_MS in lib/ai/trigger.ts.
+   */
+  suggestFailedAt: number | null;
   /** Which node the last text edit touched, so typing coalesces into one undo step. */
   lastTextEditId: NodeId | null;
   loaded: boolean;
@@ -92,6 +99,7 @@ export type State = {
   addNode: (x: number, y: number) => NodeId;
   setNodeText: (id: NodeId, text: string, format?: boolean) => void;
   moveNode: (id: NodeId, x: number, y: number) => void;
+  resizeNode: (id: NodeId, w: number, h: number) => void;
   deleteNode: (id: NodeId) => void;
   connect: (from: NodeId, to: NodeId, layer?: Layer) => void;
   deleteEdge: (id: string) => void;
@@ -102,6 +110,7 @@ export type State = {
 
   setSuggesting: (v: boolean) => void;
   markRequested: (fingerprint: string) => void;
+  failRequest: () => void;
   receiveProposal: (draft: ProposalDraft) => void;
   acceptProposal: () => void;
   dismissProposal: () => void;
@@ -112,6 +121,7 @@ export type State = {
   appendSummary: (chunk: string) => void;
   finishSummary: (fingerprint: string) => void;
   failSummary: (reason: string) => void;
+  cancelSummary: () => void;
 
   undo: () => void;
 };
@@ -145,6 +155,7 @@ export const useBoard = create<State>((set, get) => ({
   undoStack: [],
   lastMutationAt: 0,
   lastRequestedFingerprint: null,
+  suggestFailedAt: null,
   lastTextEditId: null,
   loaded: false,
 
@@ -172,6 +183,7 @@ export const useBoard = create<State>((set, get) => ({
       summaryFingerprint: null,
       settingsOpen: false,
       lastRequestedFingerprint: null,
+      suggestFailedAt: null,
       lastTextEditId: null,
       viewport: { x: 0, y: 0, scale: 1 },
     }),
@@ -228,6 +240,16 @@ export const useBoard = create<State>((set, get) => ({
       // picture without changing what the board says, so it must not spend a token.
     })),
 
+  resizeNode: (id, w, h) =>
+    set((s) => ({
+      board: {
+        ...s.board,
+        nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, ...clampSize(w, h) } : n)),
+      },
+      // Same doctrine as moveNode: a box's size is presentation, not content —
+      // no undo snapshot, no lastMutationAt bump, never a token.
+    })),
+
   deleteNode: (id) =>
     set((s) => ({
       ...pushUndo(s),
@@ -281,7 +303,17 @@ export const useBoard = create<State>((set, get) => ({
   setSurface: (surface) => set({ surface }),
 
   setSuggesting: (v) => set({ suggesting: v }),
-  markRequested: (fingerprint) => set({ lastRequestedFingerprint: fingerprint }),
+  // A request that got through ends any cooldown, whatever it came back with.
+  markRequested: (fingerprint) =>
+    set({ lastRequestedFingerprint: fingerprint, suggestFailedAt: null }),
+
+  /**
+   * The request never reached the model. Release the fingerprint so this board
+   * can be asked about again — otherwise one dropped connection retires the
+   * ghost until the user happens to edit something — and stamp the failure so
+   * the trigger's cooldown paces the retry.
+   */
+  failRequest: () => set({ lastRequestedFingerprint: null, suggestFailedAt: Date.now() }),
 
   receiveProposal: (draft) => {
     const { board, deletedEdgesByBoard, viewport, surface } = get();
@@ -377,6 +409,16 @@ export const useBoard = create<State>((set, get) => ({
     set((s) =>
       s.summaryStatus === 'streaming'
         ? { summaryStatus: reason === 'no_api_key' ? 'no_key' : 'error' }
+        : s,
+    ),
+
+  // Closing the panel mid-stream is a cancellation, not a failure: back to
+  // idle with nothing half-written, so reopening offers the button again. A
+  // finished summary is untouched — it is the cache the panel reopens to.
+  cancelSummary: () =>
+    set((s) =>
+      s.summaryStatus === 'streaming'
+        ? { summaryText: '', summaryStatus: 'idle' }
         : s,
     ),
 

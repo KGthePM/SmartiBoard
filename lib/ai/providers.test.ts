@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { keyHint, PRESETS, resolveConfigFrom, type StoredSettings } from './providers';
+import {
+  keyHint,
+  PRESETS,
+  resolveConfigFrom,
+  resolveEndpointFrom,
+  type StoredSettings,
+} from './providers';
 
 const row = (over: Partial<StoredSettings> = {}): StoredSettings => ({
   provider: 'anthropic',
@@ -48,6 +54,22 @@ describe('resolveConfigFrom', () => {
     expect(resolveConfigFrom(row({ provider: 'zai', apiKey: '   ' }), undefined)).toBeNull();
   });
 
+  it('resolves the z.ai Coding Plan onto its coding endpoint', () => {
+    // The subscription key has no balance on the general z.ai API — it is only
+    // entitled to the Anthropic-compatible coding endpoint, which is the whole
+    // reason this preset exists separately from 'zai'.
+    const cfg = resolveConfigFrom(row({ provider: 'zai-coding', apiKey: 'sk-plan' }), undefined);
+    expect(cfg).toEqual({
+      provider: 'zai-coding',
+      flavor: 'anthropic',
+      apiKey: 'sk-plan',
+      baseUrl: PRESETS['zai-coding'].defaultBaseUrl,
+      model: PRESETS['zai-coding'].defaultModel,
+    });
+    expect(cfg?.baseUrl).toBe('https://api.z.ai/api/anthropic');
+    expect(resolveConfigFrom(row({ provider: 'zai-coding' }), undefined)).toBeNull();
+  });
+
   it('fills a blank endpoint and model from the preset', () => {
     const cfg = resolveConfigFrom(row({ provider: 'ollama' }), undefined);
     expect(cfg?.baseUrl).toBe(PRESETS.ollama.defaultBaseUrl);
@@ -78,6 +100,35 @@ describe('resolveConfigFrom', () => {
   it('reports the wire flavor each provider speaks', () => {
     expect(resolveConfigFrom(row({ apiKey: 'sk-1' }), undefined)?.flavor).toBe('anthropic');
     expect(resolveConfigFrom(row({ provider: 'ollama' }), undefined)?.flavor).toBe('openai');
+  });
+});
+
+describe('resolveEndpointFrom', () => {
+  // The whole reason this exists: listing a provider's models has to work
+  // before a model has been chosen, so a blank model is not a failure here.
+  it('resolves with no model set at all', () => {
+    expect(resolveEndpointFrom(row({ apiKey: 'sk-live', model: '' }))).toEqual({
+      provider: 'anthropic',
+      flavor: 'anthropic',
+      apiKey: 'sk-live',
+      baseUrl: '',
+    });
+  });
+
+  it('still refuses a key-requiring provider with no key', () => {
+    expect(resolveEndpointFrom(row({ provider: 'zai' }))).toBeNull();
+  });
+
+  // Without an endpoint there is nowhere to send the request; only the
+  // anthropic flavor gets to leave it blank and let the SDK decide.
+  it('still refuses an openai-flavored provider with no endpoint', () => {
+    expect(resolveEndpointFrom(row({ provider: 'custom', baseUrl: '' }))).toBeNull();
+  });
+
+  it('fills a blank endpoint from the preset', () => {
+    const end = resolveEndpointFrom(row({ provider: 'ollama' }));
+    expect(end?.baseUrl).toBe(PRESETS.ollama.defaultBaseUrl);
+    expect(end?.apiKey).toBeNull();
   });
 });
 

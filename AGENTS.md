@@ -40,11 +40,15 @@ the user's to make — say what needs looking at and stop there.
 ## Environment
 
 - **Provider config lives in the database, not the environment.** The user picks a
-  provider (Anthropic / z.ai / Ollama / custom OpenAI-compatible) in the Settings panel;
-  it lands in the single `settings` row. `lib/ai/config.ts` resolves it, falling back to
-  the env var only when no row exists. Unset is a supported configuration: the board must
-  stay fully usable without any model. Never send a key to the browser — GET returns a
-  last-four hint and nothing more.
+  provider (Anthropic / z.ai / z.ai Coding Plan / Ollama / custom OpenAI-compatible) in the
+  Settings panel; it lands in the single `settings` row. `lib/ai/config.ts` resolves it,
+  falling back to the env var only when no row exists. Unset is a supported configuration:
+  the board must stay fully usable without any model. Never send a key to the browser — GET
+  returns a last-four hint and nothing more. The Coding Plan preset speaks the *anthropic*
+  wire flavor to `https://api.z.ai/api/anthropic` — a plan key has no balance on the general
+  z.ai API, which is why it is a separate preset. SDK extras (adaptive thinking,
+  `output_config`, prompt caching) are gated to `provider === 'anthropic'` in the suggest
+  and summarize routes; third parties get plain Messages calls.
 - `ANTHROPIC_API_KEY` — server-side only, optional, now the headless fallback.
 - `SMARTI_DB_PATH` — SQLite file, default `./data/smarti.db`. `data/` is runtime state.
 
@@ -78,13 +82,22 @@ the user's to make — say what needs looking at and stop there.
   5-color palette, stored as inline markers inside `node.text` (see `lib/richtext.ts`). The AI
   paths always see `stripMarks()` output — formatting never changes the fingerprint, never
   reaches the prompt, and proposals are always plain text.
-- **Board summary** (v1.3): the second AI behavior — user-invoked (⌘. or the Summarize button),
-  streamed, read-only prose in a side panel. It is not a proposal: it never becomes a node or
-  edge, never touches the derived title, never enters the undo stack, and never persists —
-  session-only, cached by board fingerprint so reopening costs nothing if the board hasn't
-  changed. Opening the panel is the only automatic request; switching boards under an open panel
-  shows a button instead of spending tokens, and `beginLoad` closes the panel, which aborts the
-  stream. Same 3-idea floor as the ghost (`substantiveNodes` in `lib/ai/trigger.ts`).
+- **Board summary** (v1.3): the second AI behavior — user-invoked (the Summary button or ⌘.
+  opens the panel; the in-panel launch button fires the request), streamed, read-only prose in a
+  side panel. It is not a proposal: it never becomes a node or edge, never touches the derived
+  title, never enters the undo stack, and never persists — session-only, cached by board
+  fingerprint so reopening costs nothing if the board hasn't changed. The panel never spends a
+  token on its own — opening shows the cached summary or a launch button, nothing more (which
+  also makes it StrictMode-safe: no fetch on mount). `beginLoad` closes the panel, which aborts
+  the stream; an interrupted stream is cancelled back to idle, not left half-written.
+  Same 3-idea floor as the ghost (`substantiveNodes` in `lib/ai/trigger.ts`).
+- **Node resize** (v1.5, functional not flourish): drag a card's bottom-right corner to set
+  its width and height, clamped to minimums (`clampSize` in `lib/graph.ts`). Size is
+  presentation, not content — it follows the `moveNode` doctrine exactly: no undo snapshot,
+  no `lastMutationAt` bump, never a token, and the fingerprint (text + topology only) is
+  untouched by construction. Text clips inside a too-small card exactly as it always has;
+  the ghost stays default-sized, because a proposal is not content. No schema change: `w`/`h`
+  already lived on every node and in the persisted board JSON.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

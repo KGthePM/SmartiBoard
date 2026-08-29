@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { ModelInfo } from '@/lib/ai/openai';
 import { PRESETS, PROVIDERS, type ProviderId } from '@/lib/ai/providers';
 
 /**
@@ -35,8 +36,16 @@ const REASONS: Record<string, string> = {
   auth: 'The provider rejected the key.',
   unreachable: "Couldn't reach that address. Is the server running?",
   model: 'That model name was not found.',
+  unsupported: "That endpoint doesn't list its models — type the name instead.",
+  no_models: 'The provider listed no models — type the name instead.',
   error: 'The provider returned an error.',
 };
+
+/**
+ * The escape hatch out of the dropdown, as a <select> value. A control
+ * character so it can never collide with a real model id.
+ */
+const FREE_TEXT = '\u0000';
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [provider, setProvider] = useState<ProviderId>('anthropic');
@@ -47,6 +56,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
+  /** null means free-text mode: either nothing loaded yet, or the user opted out. */
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [listing, setListing] = useState(false);
 
   const preset = PRESETS[provider];
   /** A key already saved for *this* provider — switching away stops crediting it. */
@@ -95,6 +107,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     setProvider(id);
     setApiKey('');
     setTest({ phase: 'idle' });
+    setModels(null);
     setBaseUrl(stored?.provider === id ? stored.baseUrl || next.defaultBaseUrl : next.defaultBaseUrl);
     setModel(stored?.provider === id ? stored.model || next.defaultModel : next.defaultModel);
   };
@@ -106,6 +119,49 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     baseUrl: baseUrl.trim(),
     model: model.trim(),
   });
+
+  /**
+   * Ask the provider what this key can reach. Strictly button-driven — opening
+   * the panel or typing a key must never call out on its own.
+   */
+  const loadModels = async () => {
+    setListing(true);
+    setTest({ phase: 'idle' });
+    try {
+      const res = await fetch('/api/settings/models', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // Everything payload() sends except the model — that is what is being asked for.
+        body: JSON.stringify({
+          provider,
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          baseUrl: baseUrl.trim(),
+        }),
+      });
+      const d = (await res.json()) as {
+        ok?: boolean;
+        models?: ModelInfo[];
+        reason?: string;
+        detail?: string;
+      };
+      if (!d.ok) {
+        setTest({ phase: 'bad', reason: d.reason ?? 'error', detail: d.detail });
+      } else if (!d.models?.length) {
+        // A dropdown with nothing in it is worse than the box they already had.
+        setTest({ phase: 'bad', reason: 'no_models' });
+      } else {
+        setModels(d.models);
+        // Only fill a blank field. A model already typed or saved stays put even
+        // when the provider didn't list it — silently reassigning it is the one
+        // thing this feature must not do.
+        if (!model.trim()) setModel(d.models[0].id);
+      }
+    } catch {
+      setTest({ phase: 'bad', reason: 'error' });
+    } finally {
+      setListing(false);
+    }
+  };
 
   const runTest = async () => {
     setTest({ phase: 'running' });
@@ -152,12 +208,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     setStored(d.settings);
     setApiKey('');
     setTest({ phase: 'idle' });
+    setModels(null);
   };
 
-  // Anthropic talks to the SDK's own endpoint; there is nothing useful to type.
+  // The anthropic flavor's endpoint is baked into each preset (or left to the
+  // SDK, for Anthropic itself); there is nothing useful to type.
   const showBaseUrl = preset.flavor === 'openai';
   const showKey = preset.needsKey || provider === 'custom';
-  const canSave = ready && !saving && Boolean(model.trim()) && (!showBaseUrl || Boolean(baseUrl.trim()));
+  const canSave =
+    ready && !saving && Boolean(model.trim()) && (!showBaseUrl || Boolean(baseUrl.trim()));
+  // Listing needs everything a call needs except the model — that is the point.
+  const canList =
+    ready &&
+    !listing &&
+    (!showBaseUrl || Boolean(baseUrl.trim())) &&
+    (!preset.needsKey || Boolean(apiKey.trim()) || keptKey);
+  /** A saved-but-unlisted model still belongs in the list, at the top. */
+  const options =
+    models && model.trim() && !models.some((m) => m.id === model)
+      ? [{ id: model }, ...models]
+      : (models ?? []);
 
   return (
     <div className="settings-back" onPointerDown={onClose}>
@@ -206,7 +276,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                 spellCheck={false}
                 value={apiKey}
                 placeholder={keptKey ? `saved · ${stored?.keyHint ?? ''}` : 'sk-…'}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  // A different key may see a different catalogue.
+                  setModels(null);
+                }}
               />
               {keptKey ? (
                 <span className="settings-hint">
@@ -228,22 +302,63 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                 spellCheck={false}
                 value={baseUrl}
                 placeholder="http://localhost:11434/v1"
-                onChange={(e) => setBaseUrl(e.target.value)}
+                onChange={(e) => {
+                  setBaseUrl(e.target.value);
+                  // The loaded list belongs to the endpoint it came from.
+                  setModels(null);
+                }}
               />
             </label>
           ) : null}
 
-          <label className="settings-field">
-            <span className="settings-label">Model</span>
-            <input
-              className="settings-input"
-              autoComplete="off"
-              spellCheck={false}
-              value={model}
-              placeholder={preset.defaultModel || 'model name'}
-              onChange={(e) => setModel(e.target.value)}
-            />
-          </label>
+          <div className="settings-field">
+            {/* A div, not a label, for the same reason as the key field: the
+                Load button must not double as a click on the input. */}
+            <span className="settings-label-row">
+              <label className="settings-label" htmlFor="settings-model">
+                Model
+              </label>
+              <button
+                className="settings-link"
+                onClick={() => void loadModels()}
+                disabled={!canList}
+              >
+                {listing ? 'Loading…' : 'Load models'}
+              </button>
+            </span>
+            {models ? (
+              <select
+                id="settings-model"
+                className="settings-select"
+                value={model}
+                onChange={(e) => {
+                  if (e.target.value === FREE_TEXT) {
+                    setModels(null);
+                    return;
+                  }
+                  setModel(e.target.value);
+                  setTest({ phase: 'idle' });
+                }}
+              >
+                {options.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label ? `${m.id} · ${m.label}` : m.id}
+                  </option>
+                ))}
+                <option value={FREE_TEXT}>Type a name…</option>
+              </select>
+            ) : (
+              <input
+                id="settings-model"
+                className="settings-input"
+                autoComplete="off"
+                spellCheck={false}
+                value={model}
+                placeholder={preset.defaultModel || 'model name'}
+                onChange={(e) => setModel(e.target.value)}
+              />
+            )}
+          </div>
 
           <p className="settings-note">
             Stored on this machine, in the same file as your boards. The key is never sent to

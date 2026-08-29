@@ -2,13 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { OpenAiError, openaiComplete } from '@/lib/ai/openai';
 import { PRESETS, resolveConfigFrom, type ProviderId } from '@/lib/ai/providers';
+import { classify, short, type UpstreamReason } from '@/lib/ai/upstream';
 import { loadSettings } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
 /**
- * "Does this configuration actually work?" — the one place in the product that
- * reports an AI failure out loud.
+ * "Does this configuration actually work?" — with its sibling /models, one of
+ * the two places in the product that report an AI failure out loud, and the
+ * only one that reports on a real completion.
  *
  * It exists because both real AI behaviors fail quietly by design: the ghost
  * simply never appears, and the summary says only "couldn't summarize". That
@@ -22,44 +24,11 @@ export const runtime = 'nodejs';
 
 type TestResult =
   | { ok: true; model: string }
-  | { ok: false; reason: 'no_config' | 'auth' | 'unreachable' | 'model' | 'error'; detail?: string };
+  | { ok: false; reason: UpstreamReason; detail?: string };
 
-/**
- * One line, never the key. Providers wrap the useful sentence in a JSON error
- * envelope (and the SDK prefixes it with the status), so dig the message out
- * when there is one — "API key is invalid" is worth showing, the envelope isn't.
- */
-function short(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  const brace = flat.indexOf('{');
-  if (brace !== -1) {
-    try {
-      const body = JSON.parse(flat.slice(brace)) as {
-        error?: { message?: unknown };
-        message?: unknown;
-      };
-      const msg = body.error?.message ?? body.message;
-      if (typeof msg === 'string' && msg.trim()) return msg.trim().slice(0, 200);
-    } catch {
-      // Not JSON, or truncated JSON — the raw text is still better than nothing.
-    }
-  }
-  return flat.slice(0, 200);
-}
-
-/**
- * Status codes mean roughly the same thing everywhere: 401/403 is the key,
- * 404 is the endpoint or the model name. Anything with no status at all never
- * reached a server — a wrong host or a local model server that isn't running,
- * which is the single most common Ollama mistake.
- */
-function classify(status: number | undefined, detail: string): TestResult {
-  if (status === undefined) return { ok: false, reason: 'unreachable', detail };
-  if (status === 401 || status === 403) return { ok: false, reason: 'auth', detail };
-  if (status === 404 || (status === 400 && /model/i.test(detail))) {
-    return { ok: false, reason: 'model', detail };
-  }
-  return { ok: false, reason: 'error', detail: `${status} · ${detail}` };
+/** classify() gives the verdict; a failed test is always `ok: false`. */
+function failed(status: number | undefined, detail: string): TestResult {
+  return { ok: false, ...classify(status, detail) };
 }
 
 export async function POST(req: Request) {
@@ -106,12 +75,14 @@ export async function POST(req: Request) {
     return NextResponse.json<TestResult>({ ok: true, model: cfg.model });
   } catch (err) {
     if (err instanceof OpenAiError) {
-      return NextResponse.json(classify(err.status, short(err.detail)));
+      return NextResponse.json<TestResult>(failed(err.status, short(err.detail)));
     }
     if (err instanceof Anthropic.APIError) {
-      return NextResponse.json(classify(err.status, short(err.message)));
+      return NextResponse.json<TestResult>(failed(err.status, short(err.message)));
     }
     // A fetch that never got a response — bad host, wrong port, nothing listening.
-    return NextResponse.json(classify(undefined, short(err instanceof Error ? err.message : '')));
+    return NextResponse.json<TestResult>(
+      failed(undefined, short(err instanceof Error ? err.message : '')),
+    );
   }
 }

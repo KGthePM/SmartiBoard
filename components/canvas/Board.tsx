@@ -15,6 +15,7 @@ const TRIGGER_TICK_MS = 1000;
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; originX: number; originY: number }
   | { kind: 'node'; id: NodeId; dx: number; dy: number }
+  | { kind: 'resize'; id: NodeId; startW: number; startH: number; startX: number; startY: number }
   | { kind: 'connect'; from: NodeId; to: { x: number; y: number } }
   | null;
 
@@ -136,6 +137,7 @@ export function Board({ boardId }: { boardId: string }) {
         lastRequestedFingerprint: s.lastRequestedFingerprint,
         liveProposals: s.proposal ? 1 : 0,
         inFlight: s.suggesting,
+        failedAt: s.suggestFailedAt,
       };
 
       const decision = shouldRequest(s.board, state, Date.now());
@@ -151,10 +153,18 @@ export function Board({ boardId }: { boardId: string }) {
       })
         .then((r) => r.json())
         .then((data) => {
-          if (data?.proposal) useBoard.getState().receiveProposal(data.proposal);
+          if (data?.proposal) {
+            useBoard.getState().receiveProposal(data.proposal);
+          } else if (data?.reason === 'upstream_error') {
+            // Nothing was asked and nothing was answered, so this board is still
+            // unasked. A plain null proposal is different: the model looked and
+            // had nothing to add, and that answer holds until the board changes.
+            useBoard.getState().failRequest();
+          }
         })
         .catch(() => {
           /* Silence is the correct failure mode for an unsolicited suggestion. */
+          useBoard.getState().failRequest();
         })
         .finally(() => useBoard.getState().setSuggesting(false));
     };
@@ -177,6 +187,12 @@ export function Board({ boardId }: { boardId: string }) {
     } else if (drag.kind === 'node') {
       const p = toBoardCoords(e.clientX, e.clientY);
       store.moveNode(drag.id, p.x - drag.dx, p.y - drag.dy);
+    } else if (drag.kind === 'resize') {
+      // Deltas are measured in client pixels, then divided by the live scale so
+      // the corner tracks the pointer exactly at any zoom.
+      const dx = (e.clientX - drag.startX) / viewport.scale;
+      const dy = (e.clientY - drag.startY) / viewport.scale;
+      store.resizeNode(drag.id, drag.startW + dx, drag.startH + dy);
     } else if (drag.kind === 'connect') {
       setDrag({ ...drag, to: toBoardCoords(e.clientX, e.clientY) });
     }
@@ -306,6 +322,16 @@ export function Board({ boardId }: { boardId: string }) {
                 onPortDown={(e) => {
                   setDrag({ kind: 'connect', from: n.id, to: toBoardCoords(e.clientX, e.clientY) });
                 }}
+                onResizeStart={(e) => {
+                  setDrag({
+                    kind: 'resize',
+                    id: n.id,
+                    startW: n.w,
+                    startH: n.h,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                  });
+                }}
                 onDelete={() => {
                   lastDeleteAt.current = Date.now();
                   store.deleteNode(n.id);
@@ -327,8 +353,8 @@ export function Board({ boardId }: { boardId: string }) {
       <BoardChrome />
 
       <div className="hint">
-        Double-click to add an idea · drag the dot to connect · click a line to select it · ⌘Z to
-        undo
+        Double-click to add an idea · drag the dot to connect · drag a corner to resize · click a
+        line to select it · ⌘Z to undo
       </div>
 
       <div className="legend">

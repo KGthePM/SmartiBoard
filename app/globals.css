@@ -211,6 +211,30 @@ html, body {
 }
 .card:hover .del { opacity: 1; }
 
+/* Resize affordance: a corner bracket, shown like the port and the ×. */
+.resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.resize::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--user-border);
+  border-bottom: 2px solid var(--user-border);
+  border-bottom-right-radius: 1px;
+}
+.card:hover .resize, .card.selected .resize { opacity: 1; }
+
 /* ---------- edges: lines are content, not decoration ---------- */
 
 .edge-line { stroke: var(--user-border); stroke-width: 1.5; }
@@ -621,6 +645,14 @@ html, body {
   gap: 4px;
 }
 .settings-label { font-size: 11px; color: var(--muted); }
+/* Label on the left, its one action on the right — the Load button sits here
+   rather than under the field so it reads as part of choosing a model. */
+.settings-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
 .settings-input,
 .settings-select {
   width: 100%;
@@ -651,7 +683,8 @@ html, body {
   cursor: pointer;
   padding: 0;
 }
-.settings-link:hover { color: var(--ink); }
+.settings-link:hover:not(:disabled) { color: var(--ink); }
+.settings-link:disabled { opacity: 0.45; cursor: default; text-decoration: none; }
 .settings-result {
   margin: 0;
   font-size: 11px;
