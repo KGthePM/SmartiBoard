@@ -618,6 +618,12 @@ html, body {
   transform: translateX(-50%);
   display: flex;
   gap: 3px;
+  /* The one card control that lives outside the card's own box, so it is the
+     one that can steal a press from a *neighbouring* card. The container is
+     inert and pointer-events below mirrors opacity exactly: a chip you cannot
+     see is a chip you cannot press, which is the same rule the eye is already
+     being told. */
+  pointer-events: none;
 }
 .react {
   position: relative;
@@ -634,9 +640,10 @@ html, body {
   line-height: 1;
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms;
 }
-.card:hover .react, .card.selected .react { opacity: 0.55; }
+.card:hover .react, .card.selected .react { opacity: 0.55; pointer-events: auto; }
 .card:hover .react:hover { opacity: 1; }
 
 /* A chosen mark is not an affordance — it is what the card says — so it holds
@@ -645,6 +652,8 @@ html, body {
    Dark and, in Neon, the bloom. */
 .react.on {
   opacity: 1;
+  /* Visible on an untouched card, so pressable on one too. */
+  pointer-events: auto;
   background: var(--react-bg);
   border-color: var(--react-ring);
   box-shadow: var(--shadow-1);

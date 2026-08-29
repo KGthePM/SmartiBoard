@@ -392,6 +392,15 @@ like a collaborator or a paperclip. Both are now settled:
   `document.elementFromPoint` instead of `e.target.closest` — touch captures implicitly to the
   element the press began in, so every connection resolved to its own source port and silently did
   nothing. That was a bug on touch before this, not a limitation.
+  **The capture is taken on the first real movement, never on the press** (v2.71, fixing a v2.6
+  regression). A capture retargets the compatibility mouse events too, so a captured press sends
+  its `click` and `dblclick` to the surface instead of the card they landed on: the card could no
+  longer be opened for editing, and the surface read the double-click as bare canvas and answered
+  it with a new node. `DRAG_SLOP` is now the one threshold that says a press became a gesture —
+  the same 3px that already told a card drag from a click — and nothing is captured below it.
+  Cheap to get wrong again: the card's own controls were unaffected only because each of them
+  stops `pointerdown`, so the surface never saw the press and never captured it; the card body is
+  the one press that bubbles.
   **Hover-only affordances are a reachability bug, not a style choice.** A control you cannot see
   is a control that does not exist, so the card's `×` joins its siblings on `.selected` (it was the
   odd one out, and cards could not be deleted from a phone), the library's archive `×` and the

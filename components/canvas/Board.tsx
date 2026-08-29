@@ -42,6 +42,13 @@ const TRIGGER_TICK_MS = 1000;
 /** One shared empty list, so a card with no matches gets a stable prop. */
 const EMPTY_MATCHES: Match[] = [];
 
+/**
+ * How far a pointer must travel before the press counts as a gesture rather
+ * than a click. It decides two things that are really the same thing: whether
+ * a card drag was a drag, and whether the surface takes the pointer capture.
+ */
+const DRAG_SLOP = 3;
+
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; originX: number; originY: number }
   | {
@@ -135,8 +142,21 @@ export function Board({ boardId }: { boardId: string }) {
    * Every pointer currently down on the surface, by id. One entry is a drag;
    * two are a pinch. A mouse only ever puts one thing in here, so nothing about
    * this changes what a mouse does.
+   *
+   * `x`/`y` follow the pointer; `ox`/`oy` are where it went down and never
+   * move. The origin is what tells a click from a gesture, which is what
+   * decides whether the surface may take the capture — see `onPointerMove`.
    */
-  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pointersRef = useRef<Map<number, { x: number; y: number; ox: number; oy: number }>>(
+    new Map(),
+  );
+  /**
+   * Whether the press in flight landed on bare canvas. A double-click only
+   * creates a node when it did: `e.target` alone is not enough to say so,
+   * because a captured pointer retargets the click to the surface, and "add a
+   * node here" must mean the gesture *started* on empty canvas.
+   */
+  const pressOnEmptyRef = useRef(false);
   /**
    * The armed long press. Touch has no Shift key, so a press that stays still
    * long enough stands in for one — see `armLongPress`.
@@ -470,8 +490,22 @@ export function Board({ boardId }: { boardId: string }) {
   const onPointerMove = (e: React.PointerEvent) => {
     // Track first: the pinch reads both entries, and the long press needs to
     // know how far this pointer has wandered even when nothing is dragging.
-    if (pointersRef.current.has(e.pointerId)) {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const down = pointersRef.current.get(e.pointerId);
+    if (down) {
+      pointersRef.current.set(e.pointerId, { ...down, x: e.clientX, y: e.clientY });
+      // Carried far enough to be a gesture rather than a click: now the surface
+      // takes the pointer, which keeps a finger that slides off the edge
+      // driving it and guarantees the matching pointerup arrives here. Held
+      // back until this moment so a plain click and a double-click still reach
+      // the card they landed on.
+      const el = surfaceRef.current;
+      if (
+        el &&
+        !el.hasPointerCapture(e.pointerId) &&
+        distance({ x: down.ox, y: down.oy }, { x: e.clientX, y: e.clientY }) > DRAG_SLOP
+      ) {
+        el.setPointerCapture(e.pointerId);
+      }
     }
     const held = longPressRef.current;
     if (held && distance(held.at, { x: e.clientX, y: e.clientY }) > LONG_PRESS_SLOP) {
@@ -509,7 +543,7 @@ export function Board({ boardId }: { boardId: string }) {
         drag.items.map((it) => ({ id: it.id, x: bx + it.ox - drag.gx, y: by + it.oy - drag.gy })),
       );
       // The click-vs-drag rule: a few pixels of jitter is still a click.
-      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 3) {
+      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_SLOP) {
         setDrag({ ...drag, moved: true });
       }
     } else if (drag.kind === 'marquee') {
@@ -661,8 +695,18 @@ export function Board({ boardId }: { boardId: string }) {
           // it supersedes. Registered before the target gate below for exactly
           // that reason: the second finger often lands on a card.
           if (pointersRef.current.size === 1) {
-            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            pointersRef.current.set(e.pointerId, {
+              x: e.clientX,
+              y: e.clientY,
+              ox: e.clientX,
+              oy: e.clientY,
+            });
             cancelLongPress();
+            pressOnEmptyRef.current = false;
+            // Two fingers down is unambiguously a gesture — there is no click
+            // hiding inside it — so this one captures immediately rather than
+            // waiting for movement the way a single pointer does.
+            e.currentTarget.setPointerCapture(e.pointerId);
             const pts = [...pointersRef.current.values()];
             const m = midpoint(pts[0], pts[1]);
             setDrag({
@@ -675,17 +719,30 @@ export function Board({ boardId }: { boardId: string }) {
             });
             return;
           }
-          // Registered and captured for *any* press that reaches the surface,
-          // a card's included — this handler sees them by bubbling, and a card
-          // drag has always been driven by the surface's own pointermove. The
-          // capture keeps a finger that slides off the edge driving the gesture
-          // and guarantees the matching pointerup arrives here.
-          pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-          e.currentTarget.setPointerCapture(e.pointerId);
+          // Registered for *any* press that reaches the surface, a card's
+          // included — this handler sees them by bubbling, and a card drag has
+          // always been driven by the surface's own pointermove.
+          //
+          // Deliberately *not* captured here. A capture retargets the
+          // compatibility mouse events too, so click and dblclick would be
+          // dispatched at the surface instead of the card the press landed on —
+          // which is a card that can no longer be opened for editing, and a
+          // double-click the surface reads as bare canvas and answers with a
+          // new node. The capture is taken on the first real movement instead
+          // (see `onPointerMove`), which is late enough to leave a click alone
+          // and early enough for every gesture that needs it.
+          pointersRef.current.set(e.pointerId, {
+            x: e.clientX,
+            y: e.clientY,
+            ox: e.clientX,
+            oy: e.clientY,
+          });
           // Only an empty patch of canvas pans or sweeps. Everything below is
           // the surface's own gesture; a card's was already set up by NodeCard.
-          if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('world'))
-            return;
+          const onEmpty =
+            e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('world');
+          pressOnEmptyRef.current = onEmpty;
+          if (!onEmpty) return;
           // Presenting keeps exactly one gesture: the pan. The marquee is an
           // editing tool, and there is nothing to select.
           if (!presenting && e.shiftKey) {
@@ -729,6 +786,9 @@ export function Board({ boardId }: { boardId: string }) {
         onWheel={onWheel}
         onDoubleClick={(e) => {
           if (presenting) return;
+          // Both must agree that this is bare canvas: what the event says it
+          // hit, and where the press that produced it actually went down.
+          if (!pressOnEmptyRef.current) return;
           if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('world'))
             return;
           if (Date.now() - lastDeleteAt.current < 400) return;

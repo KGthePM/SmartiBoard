@@ -76,6 +76,9 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   It reaches every descendant, which is why `.card.editing textarea` opts back into `pan-y`.
 - Pointer capture is on, so the connect drop must use `document.elementFromPoint`, never
   `e.target.closest` — touch captures implicitly to the press origin.
+- **Never capture on `pointerdown`.** A capture retargets `click`/`dblclick` to the capturing
+  element, which kills double-click-to-edit on a card and makes the surface answer it with a new
+  node. The surface captures on the first movement past `DRAG_SLOP` and not before.
 - `pointercancel` must stay wired: an iOS system gesture takes the pointer with no `pointerup`.
 - **Never gate an affordance on `:hover` alone.** Give it `.selected`, or answer
   `@media (hover: none)`. Hit areas grow under `@media (pointer: coarse)` with a transparent
