@@ -6,6 +6,7 @@ import { emptyBoard, newId, parseBoard, type Board } from './graph';
 import type { ProviderId, StoredSettings } from './ai/providers';
 import { normalizeGhostDelay } from './ai/trigger';
 import { DEFAULT_THEME, normalizeTheme, type ThemeId } from './theme';
+import { tutorialBoard } from './tutorial';
 
 /**
  * One SQLite file, one table. Self-hosting should be `docker run`, not a
@@ -157,11 +158,25 @@ export function listBoards(): BoardSummary[] {
 /**
  * Written to disk immediately and deliberately: an empty board that only gets a
  * row on first edit would be invisible in the index right after you made it.
+ *
+ * Takes an optional prebuilt board so the tutorial has no second write path of
+ * its own — one function, both templates.
  */
-export function createBoard(): Board {
-  const board = emptyBoard(newId('b'));
+export function createBoard(board: Board = emptyBoard(newId('b'))): Board {
   saveBoard(board);
   return board;
+}
+
+/**
+ * First run only: a boards table with no rows at all gets the tutorial, so
+ * nobody lands on an empty library with nothing to read. The guard is the row
+ * count, not a flag — no column, no migration. Archived boards are still rows,
+ * so archiving everything does not re-seed; deleting everything does, which is
+ * the right reading of a library someone emptied.
+ */
+export function seedIfEmpty(): void {
+  const row = conn().prepare('SELECT COUNT(*) AS n FROM boards').get() as { n: number };
+  if (row.n === 0) createBoard(tutorialBoard(newId('b')));
 }
 
 /** Archiving is reversible and does not touch the board's content. */

@@ -55,6 +55,15 @@
      opposite of the board it sits on. On a light board that means dark. */
   --rationale-bg: var(--ink);
   --rationale-ink: #f4f4f2;
+
+  /* Search hits (v2.4). Amber, and amber on purpose: the proposal layer is
+     blue in this theme, so a highlighted word can never be mistaken for one.
+     The active hit is solid, the rest are a wash — one place you are standing,
+     several places you could go. Ink inherits, so a colored or bold word keeps
+     its own color under the tint. */
+  --find-bg: rgba(255,205,80,0.5);
+  --find-active-bg: #ffcf4d;
+  --find-ink: inherit;
 }
 
 /* ==========================================================================
@@ -128,6 +137,14 @@
 
   --rationale-bg: #eeeee8;
   --rationale-ink: #1c1c1a;
+
+  /* The layer answer holds: a hit is a tint *on* a raised user card, and the
+     ghost is the thing recessed below the canvas — a highlight can never be
+     read as a proposal because it never appears without a card under it.
+     Re-picked rather than dimmed, like the emphasis palette above. */
+  --find-bg: rgba(220,176,74,0.3);
+  --find-active-bg: rgba(226,182,80,0.68);
+  --find-ink: inherit;
 }
 
 /* The index keeps its own scoped palette, so it needs its own override —
@@ -200,6 +217,15 @@
 
   --rationale-bg: #00d5ff;
   --rationale-ink: #04121a;
+
+  /* Magenta, and flat. Two rules to keep here, not one: the AI owns cyan and
+     the user owns green, so a hit takes the third hue and is confusable with
+     neither; and the ghost is the only thing on this board that does not glow,
+     so a highlight must be a *fill*, never a bloom, or it would start
+     competing for the one property that marks a proposal as provisional. */
+  --find-bg: rgba(255,61,168,0.32);
+  --find-active-bg: #ff3da8;
+  --find-ink: #10030a;
 }
 
 :root[data-theme='neon'] .index {
@@ -312,6 +338,18 @@ html, body {
 .rt-c-green { color: var(--mark-green); }
 .rt-c-blue { color: var(--mark-blue); }
 .rt-c-violet { color: var(--mark-violet); }
+
+/* A search hit, painted over whatever formatting the word already had. Only
+   `.find.active` takes the ink override, because only it is ever a solid fill;
+   the wash leaves colored and bold text reading as itself. */
+.find {
+  background: var(--find-bg);
+  border-radius: 2px;
+}
+.find.active {
+  background: var(--find-active-bg);
+  color: var(--find-ink);
+}
 
 /* Formatting toolbar, pinned above the card while editing. */
 .rt-bar {
@@ -696,6 +734,7 @@ html, body {
 .chrome-ideas,
 .chrome-objective,
 .chrome-privacy,
+.chrome-search,
 .chrome-undo,
 .chrome-redo {
   font: inherit;
@@ -730,6 +769,20 @@ html, body {
   cursor: pointer;
 }
 .chrome-settings:hover { color: var(--ink); }
+/* Open-state, not a mode: the bar it opens is the real readout, so this is the
+   quiet version of the privacy toggle's treatment. */
+.chrome-search {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chrome-search:hover { color: var(--ink); }
+.chrome-search.on {
+  color: var(--ink);
+  background: var(--wash-strong);
+}
+.chrome-search:disabled { opacity: 0.4; cursor: default; }
 /* The dot is the whole state readout: hollow means this board has no objective
    yet, filled means it has one and the AI is working against it. */
 .chrome-objective {
@@ -1312,6 +1365,128 @@ html, body {
 /* Only near the cap — a counter that is always loud reads as a warning. */
 .objective-count.tight { color: var(--mark-amber); }
 
+/* ---------- find & replace: a bar over the board, never a modal ----------
+   The switcher and the settings panel both sit on a full-screen scrim, because
+   both are things you summon, act in, and dismiss. This is the opposite kind of
+   object: you keep working while it is open, and the matches it is counting are
+   painted on the canvas behind it. So it takes the switcher's surface and shadow
+   and none of its geometry — no scrim, no centering, and a z-index under the
+   chrome row it tucks beneath. */
+
+.search {
+  position: fixed;
+  top: 46px;
+  right: 14px;
+  z-index: 6;
+  width: min(430px, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-modal);
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-input {
+  font: inherit;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--user-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.search-input::placeholder { color: var(--muted); }
+
+.search-opt,
+.search-nav,
+.search-do,
+.search-x {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--user-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.search-opt:hover,
+.search-nav:hover,
+.search-do:hover,
+.search-x:hover { color: var(--ink); }
+
+.search-opt { padding: 0 6px; }
+.search-opt.on,
+.search-opt.on:hover {
+  color: var(--on-accent);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.search-nav { padding: 0 7px; font-size: 15px; }
+
+/* A refusal has to look like one: a disabled Replace is the button telling you
+   this match spans formatting, and its title says the rest. */
+.search-nav:disabled,
+.search-do:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.search-nav:disabled:hover,
+.search-do:disabled:hover { color: var(--muted); }
+
+.search-x { border-color: transparent; background: transparent; font-size: 15px; }
+
+.search-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 62px;
+  text-align: right;
+}
+
+/* The objective is not on the canvas, so its match is shown here rather than by
+   throwing the objective popover over the board you are searching. */
+.search-where {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.search-where-tag {
+  flex: none;
+  color: var(--ink);
+}
+.search-where-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-where-text .find { color: var(--find-ink); }
+
+.search-note {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
 /* ---------- board index ---------- */
 
 /* Its own scroll container: the board page relies on body overflow staying
@@ -1375,6 +1550,22 @@ html, body {
   background: var(--index-rule);
 }
 .index-count { margin: 16px 0 0; font-size: 12px; color: var(--muted); }
+/* A door back to the tutorial, not a project: a quiet link under the count,
+   on the same tokens as everything else so it follows all three themes. */
+.index-tutorial {
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.index-tutorial:hover:not(:disabled) { color: var(--ink); }
+.index-tutorial:disabled { opacity: 0.5; cursor: default; }
 /* The entablature: a double hairline closing the header. */
 .index-head::after {
   content: "";

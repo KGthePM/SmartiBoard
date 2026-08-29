@@ -12,6 +12,7 @@ import {
   removeNodes,
   stepFontSize,
   TITLE_MAX,
+  visibleRect,
   type Board,
   type Layer,
   type NodeId,
@@ -20,7 +21,6 @@ import {
 import { DEBOUNCE_MS, fingerprint } from './ai/trigger';
 import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
-import type { Rect } from './graph';
 import type { Proposal, ProposalDraft } from './proposal';
 
 /** Screen size of the canvas surface, needed to know what's actually visible. */
@@ -105,6 +105,24 @@ export type State = {
    * the board — but it closes on a board switch for the same reason.
    */
   objectiveOpen: boolean;
+  /**
+   * Find and Replace (v2.4). All six fields are session UI and spend nothing —
+   * no undo snapshot, no redo stack, no lastMutationAt bump, never a token, and
+   * deliberately absent from the fingerprint: looking for a word you already
+   * wrote says nothing new about the board. Per-board like the Objective
+   * popover, so beginLoad clears the lot.
+   *
+   * The matches themselves are NOT here. They are derived from the board and
+   * the query wherever they are needed, so there is nothing to invalidate when
+   * a card changes underneath them. `searchIndex` is an ordinal into that
+   * derived list, clamped by whoever holds it — the BoardSwitcher's cursor rule.
+   */
+  searchOpen: boolean;
+  searchQuery: string;
+  searchReplace: string;
+  searchCase: boolean;
+  searchWhole: boolean;
+  searchIndex: number;
   viewport: Viewport;
   surface: Surface;
   /**
@@ -198,6 +216,13 @@ export type State = {
   setIdeasOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setObjectiveOpen: (open: boolean) => void;
+  setSearchOpen: (open: boolean) => void;
+  setSearchQuery: (query: string) => void;
+  setSearchReplace: (replacement: string) => void;
+  setSearchOptions: (opts: { caseSensitive?: boolean; wholeWord?: boolean }) => void;
+  setSearchIndex: (i: number) => void;
+  /** Rewritten text for a batch of cards, and the objective if it changed. */
+  replaceText: (nodes: { id: NodeId; text: string }[], objective?: string) => void;
   beginIdeas: (seedId: NodeId | null) => void;
   receiveIdea: (draft: IdeaDraft) => void;
   finishIdeas: (fingerprint: string) => void;
@@ -236,6 +261,12 @@ export const useBoard = create<State>((set, get) => ({
   ideasSeedId: null,
   settingsOpen: false,
   objectiveOpen: false,
+  searchOpen: false,
+  searchQuery: '',
+  searchReplace: '',
+  searchCase: false,
+  searchWhole: false,
+  searchIndex: 0,
   viewport: { x: 0, y: 0, scale: 1 },
   surface: { w: 1200, h: 800 },
   presenting: false,
@@ -278,6 +309,16 @@ export const useBoard = create<State>((set, get) => ({
       ideasSeedId: null,
       settingsOpen: false,
       objectiveOpen: false,
+      searchOpen: false,
+      searchQuery: '',
+      searchReplace: '',
+      // The toggles reset too. They could plausibly be a sticky preference, but
+      // then they would be the only search field that survives a board switch
+      // and still not survive a reload — one rule is worth more than the
+      // convenience of keeping `Aa` on across boards.
+      searchCase: false,
+      searchWhole: false,
+      searchIndex: 0,
       lastRequestedFingerprint: null,
       suggestFailedAt: null,
       lastTextEditId: null,
@@ -519,6 +560,10 @@ export const useBoard = create<State>((set, get) => ({
         prePresentViewport: s.viewport,
         selectedIds: [],
         selectedEdgeId: null,
+        // The find bar's chrome unmounts under the overlay, but its highlights
+        // are painted on the cards themselves — no tinted words on a projector,
+        // for the same reason there is no selection ring on one.
+        searchOpen: false,
       };
     }),
 
@@ -612,6 +657,70 @@ export const useBoard = create<State>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   setObjectiveOpen: (open) => set({ objectiveOpen: open }),
+
+  /**
+   * The find bar. Closing it deliberately keeps the query: reopening on the
+   * same board should offer back what you were looking for, and there is
+   * nothing to spend by remembering it.
+   */
+  setSearchOpen: (open) => set({ searchOpen: open }),
+
+  // A changed query or option makes the old ordinal meaningless — back to the
+  // first match, the way the switcher's cursor resets as you type.
+  setSearchQuery: (query) => set({ searchQuery: query, searchIndex: 0 }),
+
+  setSearchReplace: (replacement) => set({ searchReplace: replacement }),
+
+  setSearchOptions: (opts) =>
+    set((s) => ({
+      searchCase: opts.caseSensitive ?? s.searchCase,
+      searchWhole: opts.wholeWord ?? s.searchWhole,
+      searchIndex: 0,
+    })),
+
+  setSearchIndex: (i) => set({ searchIndex: i }),
+
+  /**
+   * A replace, of one match or of every match on the board. One action for
+   * both, because a single Replace is the batch of one — the same reason
+   * deleteNode delegates to deleteNodes.
+   *
+   * The doctrine is the ordinary one for content: ONE undo snapshot for the
+   * whole batch and ONE lastMutationAt bump, so a Replace All across twelve
+   * cards is a single ⌘Z and a single settle of the ghost clock. Looping
+   * setNodeText would give twelve of each, because its coalescing is keyed on
+   * node identity with no timer — a different id ends the burst every time.
+   *
+   * It bumps lastMutationAt (unlike a move or a resize) because it changes what
+   * the board says, and the ghost is allowed to answer the board's new wording.
+   */
+  replaceText: (nodes, objective) =>
+    set((s) => {
+      const edits = new Map(nodes.map((n) => [n.id, n.text]));
+      const board = {
+        ...s.board,
+        nodes: s.board.nodes.map((n) =>
+          edits.has(n.id) && edits.get(n.id) !== n.text ? { ...n, text: edits.get(n.id)! } : n,
+        ),
+        objective:
+          objective === undefined ? s.board.objective : objective.slice(0, OBJECTIVE_MAX),
+      };
+
+      // Nothing actually moved: not an edit, so nothing to snapshot. The guard
+      // deleteNodes uses, for the same reason.
+      const changed =
+        board.objective !== s.board.objective || board.nodes.some((n, i) => n !== s.board.nodes[i]);
+      if (!changed) return s;
+
+      return {
+        ...pushUndo(s),
+        board,
+        lastMutationAt: Date.now(),
+        // End the typing burst: the first keystroke after a replace is a new
+        // edit and must get a snapshot of its own, as after an undo.
+        lastTextEditId: null,
+      };
+    }),
 
   beginIdeas: (seedId) => set({ ideas: [], ideasStatus: 'streaming', ideasSeedId: seedId }),
 
@@ -746,11 +855,6 @@ export const useBoard = create<State>((set, get) => ({
 /** What the user has turned down on the board they are looking at. */
 export function rejectedFor(s: State): string[] {
   return s.rejectedByBoard[s.board.id] ?? [];
-}
-
-/** The on-screen region, expressed in board coordinates. */
-function visibleRect(v: Viewport, s: Surface): Rect {
-  return { x: -v.x / v.scale, y: -v.y / v.scale, w: s.w / v.scale, h: s.h / v.scale };
 }
 
 function pushUndo(s: State): { undoStack: Board[]; redoStack: Board[] } {

@@ -9,6 +9,7 @@ import { BoardSwitcher } from './BoardSwitcher';
 import { ObjectivePanel } from './ObjectivePanel';
 import { SettingsPanel } from './SettingsPanel';
 import { IdeasPanel } from './IdeasPanel';
+import { SearchPanel } from './SearchPanel';
 
 /**
  * Board identity, top-left: the name leads the board. The buttons stay
@@ -28,6 +29,7 @@ export function BoardChrome() {
   const settingsOpen = useBoard((s) => s.settingsOpen);
   const setSettingsOpen = useBoard((s) => s.setSettingsOpen);
   const objectiveOpen = useBoard((s) => s.objectiveOpen);
+  const searchOpen = useBoard((s) => s.searchOpen);
   const setObjectiveOpen = useBoard((s) => s.setObjectiveOpen);
   const hasObjective = useBoard((s) => s.board.objective.trim().length > 0);
   const privacy = useBoard((s) => s.board.privacy);
@@ -60,6 +62,13 @@ export function BoardChrome() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         useBoard.getState().setPrivacy(!useBoard.getState().board.privacy);
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        // Opens, never toggles: ⌘F pressed again while the bar is open means
+        // "search for something else", and the bar itself answers that by
+        // re-selecting its input. preventDefault is what keeps the browser's
+        // own find bar — which cannot see a card that is off screen — shut.
+        e.preventDefault();
+        useBoard.getState().setSearchOpen(true);
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         // Present. This handler is unmounted while presenting (the overlay
         // replaces the chrome), so from here it is always the way in.
@@ -142,6 +151,16 @@ export function BoardChrome() {
           onClick={() => useBoard.getState().redo()}
         >
           Redo
+        </button>
+
+        <button
+          className={`chrome-search${searchOpen ? ' on' : ''}`}
+          title="Find & replace (⌘F)"
+          aria-pressed={searchOpen}
+          disabled={!loaded}
+          onClick={() => useBoard.getState().setSearchOpen(!searchOpen)}
+        >
+          Find
         </button>
 
         <button
@@ -228,11 +247,13 @@ export function BoardChrome() {
             <span>Shift+click or Shift+drag selects several</span>
             <span>Click a line to select it</span>
             <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
+            <span>⌘F to find &amp; replace</span>
           </div>
         </div>
       </div>
 
       {open ? <BoardSwitcher onClose={() => setOpen(false)} currentId={board.id} /> : null}
+      {searchOpen ? <SearchPanel /> : null}
       {ideasOpen ? <IdeasPanel /> : null}
       {objectiveOpen ? <ObjectivePanel onClose={() => setObjectiveOpen(false)} /> : null}
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}

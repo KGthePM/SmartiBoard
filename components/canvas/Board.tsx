@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
 import {
   emptyBoard,
@@ -15,7 +15,9 @@ import {
   type NodeId,
   type Rect,
 } from '@/lib/graph';
+import type { Match } from '@/lib/search';
 import { rejectedFor, useBoard } from '@/lib/store';
+import { activeIndex, useSearchMatches } from '../SearchPanel';
 import { BoardChrome } from '../BoardChrome';
 import { EdgeLayer } from './EdgeLayer';
 import { GhostCard } from './GhostCard';
@@ -26,6 +28,9 @@ const AUTOSAVE_MS = 700;
 /** How often a failed save retries itself while the indicator shows error. */
 const SAVE_RETRY_MS = 5000;
 const TRIGGER_TICK_MS = 1000;
+
+/** One shared empty list, so a card with no matches gets a stable prop. */
+const EMPTY_MATCHES: Match[] = [];
 
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; originX: number; originY: number }
@@ -64,10 +69,34 @@ export function Board({ boardId }: { boardId: string }) {
     presenting,
     selectedIds,
     selectedEdgeId,
+    searchOpen,
+    searchIndex,
     loaded,
     lastMutationAt,
     lastRequestedFingerprint,
   } = store;
+
+  const searchMatches = useSearchMatches();
+
+  /**
+   * This board's matches, split per card, with the index of the active one
+   * inside each card's own list. Computed once here rather than per NodeCard,
+   * and only while the bar is open — closing it clears the tint without
+   * clearing what you were looking for.
+   */
+  const hits = useMemo(() => {
+    const out = new Map<NodeId, { list: Match[]; active: number | null }>();
+    if (!searchOpen) return out;
+    const at = activeIndex(searchMatches, searchIndex);
+    searchMatches.forEach((m, i) => {
+      if (m.target.kind !== 'node') return;
+      const entry = out.get(m.target.id) ?? { list: [], active: null };
+      if (i === at) entry.active = entry.list.length;
+      entry.list.push(m);
+      out.set(m.target.id, entry);
+    });
+    return out;
+  }, [searchOpen, searchMatches, searchIndex]);
 
   const surfaceRef = useRef<HTMLDivElement>(null);
   const savedRef = useRef<string>('');
@@ -537,6 +566,8 @@ export function Board({ boardId }: { boardId: string }) {
             <div key={presenting ? `${n.id}:p` : n.id} data-node-id={n.id} style={{ position: 'absolute' }}>
               <NodeCard
                 node={n}
+                matches={hits.get(n.id)?.list ?? EMPTY_MATCHES}
+                activeMatch={hits.get(n.id)?.active ?? null}
                 selected={selectedIds.includes(n.id)}
                 sole={selectedIds.length === 1 && selectedIds[0] === n.id}
                 onCardDown={(e) => {

@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Smarti Board',
-  description: 'An idea board that thinks with you.',
+  description: 'A smarter board for the way you think.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

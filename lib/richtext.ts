@@ -221,6 +221,61 @@ export function stripMarks(text: string): string {
   return out;
 }
 
+/**
+ * `stripMarks`, plus the way back: `map[i]` is the index in `text` of the i-th
+ * character of `plain`. Search runs on what the reader sees, but a replace has
+ * to splice what is stored, and the two strings are different lengths.
+ *
+ * Built from the same tokenize/pairMarkers pass as `stripMarks` so the two can
+ * never disagree about which markers are real, and exact because `tokenize` is
+ * lossless: the tokens' text and src concatenate back to the source.
+ */
+export function stripMarksWithMap(text: string): { plain: string; map: number[] } {
+  const tokens = tokenize(text);
+  const pairs = pairMarkers(tokens);
+  const closers = new Set(pairs.values());
+
+  let plain = '';
+  const map: number[] = [];
+  let at = 0;
+
+  tokens.forEach((t, idx) => {
+    const src = t.kind === 'text' ? t.text : t.src;
+    // The same keep-rule as stripMarks: text always, markers only when they
+    // never paired up and are therefore literal.
+    if (t.kind === 'text' || (!pairs.has(idx) && !closers.has(idx))) {
+      for (let i = 0; i < src.length; i += 1) {
+        plain += src[i];
+        map.push(at + i);
+      }
+    }
+    at += src.length;
+  });
+
+  return { plain, map };
+}
+
+/**
+ * The source range a plain range covers, or null when it cannot be spliced.
+ *
+ * Null means a matched marker pair sits *inside* the range — `hello` against
+ * `he**llo**` is one word to the reader but straddles the `**` in storage.
+ * Overwriting that span would delete the opening marker and leave the closing
+ * one, silently restyling the rest of the card, so the caller must refuse
+ * rather than guess. Markers just outside the range are not a problem: the
+ * test is that the mapped span is as long as the plain one.
+ */
+export function sourceRange(
+  map: number[],
+  start: number,
+  end: number,
+): [number, number] | null {
+  if (end <= start || start < 0 || end > map.length) return null;
+  const a = map[start];
+  const b = map[end - 1] + 1;
+  return b - a === end - start ? [a, b] : null;
+}
+
 export type Edit = { text: string; start: number; end: number };
 
 function escapeRegExp(s: string): string {

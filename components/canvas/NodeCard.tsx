@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IdeaNode } from '@/lib/graph';
+import { markMatches, type Match } from '@/lib/search';
 import {
   PALETTE,
   parseRichText,
@@ -14,6 +15,10 @@ import {
 
 type Props = {
   node: IdeaNode;
+  /** Search hits in this card's readable text, in order. Empty when idle. */
+  matches: Match[];
+  /** Which of this card's matches is the one being stood on, if any. */
+  activeMatch: number | null;
   /** In the selection — one card or many. */
   selected: boolean;
   /** This card is the entire selection. Gates the empty-card auto-edit. */
@@ -29,13 +34,14 @@ type Props = {
   onDelete: () => void;
 };
 
-function markClasses(s: Segment): string {
+function markClasses(s: Segment & { hit?: 'on' | 'active' }): string {
   return [
     s.bold && 'rt-b',
     s.italic && 'rt-i',
     s.underline && 'rt-u',
     s.strike && 'rt-s',
     s.color && `rt-c-${s.color}`,
+    s.hit && (s.hit === 'active' ? 'find active' : 'find'),
   ]
     .filter(Boolean)
     .join(' ');
@@ -43,10 +49,23 @@ function markClasses(s: Segment): string {
 
 /**
  * The read view. Segments become React spans — never innerHTML — so stored
- * text can never inject markup.
+ * text can never inject markup. Search hits split those segments further; the
+ * split is exact because the segments of a parse concatenate back to the
+ * stripped text the offsets index into.
  */
-function RichTextView({ text }: { text: string }) {
-  const segments = useMemo(() => parseRichText(text), [text]);
+function RichTextView({
+  text,
+  matches,
+  activeMatch,
+}: {
+  text: string;
+  matches: Match[];
+  activeMatch: number | null;
+}) {
+  const segments = useMemo(
+    () => markMatches(parseRichText(text), matches, activeMatch),
+    [text, matches, activeMatch],
+  );
   if (segments.length === 0) return null;
   return (
     <>
@@ -61,6 +80,8 @@ function RichTextView({ text }: { text: string }) {
 
 export function NodeCard({
   node,
+  matches,
+  activeMatch,
   selected,
   sole,
   onCardDown,
@@ -194,7 +215,9 @@ export function NodeCard({
         </>
       ) : (
         <div className="rt">
-          <RichTextView text={node.text} />
+          {/* Read view only: the edit view is a textarea over the raw marked-up
+              text, where a match's offsets do not even mean the same thing. */}
+          <RichTextView text={node.text} matches={matches} activeMatch={activeMatch} />
         </div>
       )}
       {/* The mirror of the × at the opposite corner: cross the idea off. */}

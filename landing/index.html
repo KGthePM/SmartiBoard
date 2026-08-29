@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Smarti Board — a board that thinks with you</title>
-<meta name="description" content="Smarti Board is an open-source, self-hostable infinite idea board with an AI co-author that proposes gap-fills and connections as you work — every suggestion a ghost you accept or dismiss in one click.">
-<meta property="og:title" content="Smarti Board — a board that thinks with you">
-<meta property="og:description" content="An infinite idea board with an AI co-author that never touches the board without asking. Open source, self-hostable, bring your own model.">
+<title>Smarti Board — a smarter board for the way you think</title>
+<meta name="description" content="Smarti Board is an open-source, self-hostable infinite idea board with a built-in Smarti Assistant that suggests gap-fills and connections as you work — every suggestion a ghost you accept or dismiss in one click.">
+<meta property="og:title" content="Smarti Board — a smarter board for the way you think">
+<meta property="og:description" content="An infinite idea board with a built-in assistant that never touches the board without asking. Open source, self-hostable, your keys, your data.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#f7f7f5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23f7f7f5'/%3E%3Crect x='3.5' y='12' width='13' height='11' rx='2.5' fill='%23ffffff' stroke='%23c9c9c2'/%3E%3Crect x='13' y='7' width='13' height='11' rx='2.5' fill='%23f2f4fb' stroke='%237f93c4' stroke-dasharray='3 2.4'/%3E%3Crect x='8' y='15' width='13' height='11' rx='2.5' fill='%23ffffff' stroke='%239aa8c4'/%3E%3Ccircle cx='11.8' cy='18.8' r='1.6' fill='%234f6ba8'/%3E%3C/svg%3E">
@@ -371,9 +371,9 @@ kbd{
 <main>
 <section class="hero">
   <div class="wrap">
-    <span class="eyebrow" data-rv>Open source · self-hostable · bring your own model</span>
-    <h1 data-rv>A board that thinks<br>with you<span class="pd">.</span></h1>
-    <p class="sub" data-rv>Smarti Board is an infinite idea board for strategy and product work, with an AI co-author that reads along as you think — proposing the missing risk, the unspoken connection — <strong>one ghost at a time</strong>. Nothing reaches the board until you accept it.</p>
+    <span class="eyebrow" data-rv>Open source · self-hostable · your keys, your data</span>
+    <h1 data-rv>A smarter board<br>for the way you think<span class="pd">.</span></h1>
+    <p class="sub" data-rv>Smarti Board is an infinite idea board for strategy and product work, with a built-in Smarti Assistant that points out the missing risk, the unspoken connection — <strong>one suggestion at a time</strong>. Nothing reaches the board until you accept it, and any board can be marked private so it never reaches a model at all.</p>
     <div class="hero-btns" data-rv>
       <a class="btn btn-p" href="https://github.com/KGthePM/SmartiBoard" target="_blank" rel="noopener">Clone &amp; run ↗</a>
       <a class="btn btn-s" href="#how">See how it works</a>
@@ -424,7 +424,7 @@ kbd{
         <span class="st-status" id="stStatus">Saved</span>
       </div>
       <div class="st-cap">
-        <span id="capText" class="on" aria-live="polite">The co-author reads the board after the typing settles — and proposes what's missing.</span>
+        <span id="capText" class="on" aria-live="polite">After the typing settles, the Smarti Assistant reads the board — and proposes what's missing.</span>
         <span class="st-dots" aria-hidden="true"><i class="on"></i><i></i><i></i></span>
       </div>
     </div>
@@ -436,13 +436,13 @@ kbd{
     <div class="sec-head" data-rv>
       <span class="eyebrow">The trust model</span>
       <h2>You always know whose idea is whose.</h2>
-      <p>The AI edits a workspace you consider your own thinking, so authorship is never ambiguous. Three visually distinct layers coexist on the board at all times.</p>
+      <p>Suggestions live in their own layer, so it's never ambiguous what's yours and what's proposed. Three visually distinct layers coexist on the board at all times.</p>
     </div>
     <div class="layers-grid">
       <div class="lay" data-rv>
         <div class="lay-vis"><div class="mcard">Weekly digest email</div></div>
         <h3>Yours <span class="tag">layer: user</span></h3>
-        <p>Solid cards, exactly where you put them. The AI never moves, edits, or deletes a node you placed — that rule has no exception.</p>
+        <p>Solid cards, exactly where you put them. The assistant never moves, edits, or deletes a node you placed — that rule has no exception.</p>
       </div>
       <div class="lay" data-rv>
         <div class="lay-vis"><div class="mcard mghost"><span class="gl">suggested</span>Churn — why teams leave</div></div>
@@ -464,9 +464,9 @@ kbd{
 <section class="sec" style="padding-top:20px">
   <div class="wrap two-col">
     <div class="ghost-copy">
-      <span class="eyebrow" data-rv>The co-author</span>
-      <h2 data-rv>It notices what the board is missing.</h2>
-      <p data-rv>As you work, the co-author reads the whole graph — never per keystroke — and offers one suggestion at a time:</p>
+      <span class="eyebrow" data-rv>The Smarti Assistant</span>
+      <h2 data-rv>It points out what the board is missing.</h2>
+      <p data-rv>As you work, the assistant reads the whole graph — never per keystroke — and offers one suggestion at a time:</p>
       <ul class="chips" data-rv>
         <li><i class="dot-red"></i>missing risks</li>
         <li><i class="dot-amber"></i>unaddressed segments</li>
@@ -477,7 +477,7 @@ kbd{
       <p class="fine" data-rv>Each arrives with its reasoning, one click from accepted or gone. Placement spirals outward from the ideas it references, taking the first spot that occludes nothing you placed.</p>
     </div>
     <div class="policy" data-rv>
-      <h3>When it speaks</h3>
+      <h3>When it runs</h3>
       <ol>
         <li>Privacy Mode first — a private board is never told to a model at all.</li>
         <li>4 seconds of quiet after your last meaningful change.</li>
@@ -545,7 +545,7 @@ kbd{
         <div class="kbdrow"><kbd>⌘ ⇧ P</kbd></div>
         <h3>Some boards are walls.</h3>
         <p>Privacy Mode is per board. While it's on, nothing in that board is sent to any model — the routes refuse on the server, not just in the tab, and <strong>⌘Z can never turn it off</strong>, because an undo that quietly reopened the door is one you'd never notice.</p>
-        <p>Your key stays configured; every other board goes on co-authoring as before.</p>
+        <p>Your key stays configured; every other board keeps its suggestions as before.</p>
         <div class="priv-visual"><span class="pill-on">Private</span><span>this board stays off every model — including local ones</span></div>
       </div>
     </div>
@@ -557,7 +557,7 @@ kbd{
     <div class="sec-head" data-rv>
       <span class="eyebrow">Bring your own model</span>
       <h2>You choose who answers.</h2>
-      <p>Pick a provider in settings; change your mind any time. The board works the same either way — it just co-authors or it doesn't.</p>
+      <p>Pick a provider in settings; change your mind any time. The board works the same either way — the assistant is simply on or off.</p>
     </div>
     <div class="prov-grid">
       <div class="prov" data-rv><h4>Anthropic</h4><p>Claude — the reference path. Structured output, adaptive thinking.</p></div>
@@ -566,7 +566,7 @@ kbd{
       <div class="prov" data-rv><h4>Ollama</h4><p>Fully local. Nothing leaves your machine.</p></div>
       <div class="prov" data-rv><h4>Custom</h4><p>Anything speaking OpenAI chat-completions: LM Studio, vLLM, OpenRouter.</p></div>
     </div>
-    <p class="prov-note" data-rv>The key is stored server-side in the same SQLite file as your boards — <code>write-only</code>, never returned to the browser past the last four characters. And configuring nothing is a supported configuration: the board is fully usable; it just doesn't co-author.</p>
+    <p class="prov-note" data-rv>The key is stored server-side in the same SQLite file as your boards — <code>write-only</code>, never returned to the browser past the last four characters. And configuring nothing is a supported configuration: the board is fully usable; the assistant simply stays off.</p>
   </div>
 </section>
 
@@ -575,7 +575,7 @@ kbd{
     <div class="sec-head" data-rv>
       <span class="eyebrow">The board itself</span>
       <h2>Worth using without the AI.</h2>
-      <p>The co-author is the point, but the board underneath is no demo. Local interactions never wait on a model — ever.</p>
+      <p>The assistant is optional, but the board underneath is no demo. Local interactions never wait on a model — ever.</p>
     </div>
     <div class="craft-grid">
       <div class="craft" data-rv>
@@ -606,7 +606,7 @@ kbd{
       <div class="craft" data-rv>
         <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><polyline points="8.5 12.5 11 15 15.5 9.5"/></svg></div>
         <h4>Done marking</h4>
-        <p>Cross an idea off with ✓ — still on the board, clearly finished, and the co-author knows what's done.</p>
+        <p>Cross an idea off with ✓ — still on the board, clearly finished, and the assistant knows what's done.</p>
       </div>
       <div class="craft" data-rv>
         <div class="ic"><svg viewBox="0 0 24 24"><polyline points="5 7 19 7"/><polyline points="5 12 14 12"/><polyline points="5 17 10 17"/></svg></div>
@@ -631,7 +631,7 @@ kbd{
       <ul class="sh-points" data-rv>
         <li><b>start.sh</b> checks your Node (22–26) and, if it can't be used, downloads its own into <b>./.node</b> — no sudo, no version manager, nothing outside the cloned folder.</li>
         <li>Your boards and your API key live in one file you can back up, move, or delete. <b>SMARTI_DB_PATH</b> if you want it elsewhere.</li>
-        <li>Works fully offline with Ollama — the co-author included.</li>
+        <li>Works fully offline with Ollama — the assistant included.</li>
       </ul>
       <p class="sh-license" data-rv><b>AGPL-3.0-only.</b> Self-host it freely; if you run a modified version as a network service, the source goes back out.</p>
       <a class="btn btn-inv" data-rv href="https://github.com/KGthePM/SmartiBoard" target="_blank" rel="noopener">View on GitHub ↗</a>
@@ -668,14 +668,14 @@ kbd{
       </svg>
       Smarti Board
     </span>
-    <p class="tag">An infinite idea board with an AI co-author that never touches the board without asking.</p>
+    <p class="tag">An infinite idea board with a built-in assistant that never touches the board without asking.</p>
     <div class="links">
       <a href="https://github.com/KGthePM/SmartiBoard" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/KGthePM/SmartiBoard/blob/main/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a>
       <a href="#selfhost">Self-host</a>
       <a href="#top">Back to top</a>
     </div>
-    <p class="fine2">No multiplayer. No freehand drawing. No cross-session memory. One job, done well: thinking by arranging ideas — with a collaborator that respects the arrangement.</p>
+    <p class="fine2">No multiplayer. No freehand drawing. No cross-session memory. One job, done well: thinking by arranging ideas — with an assistant that respects the arrangement.</p>
   </div>
 </footer>
 
@@ -748,7 +748,7 @@ kbd{
 
   function sceneA(){
     setDot(0);
-    setCap('Four seconds of quiet after the last edit. The co-author reads the whole board.');
+    setCap('Four seconds of quiet after the last edit. The assistant reads the whole board.');
     return sleep(700).then(function(){
       gA.classList.add('show');return sleep(400);
     }).then(function(){

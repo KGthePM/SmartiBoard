@@ -11,6 +11,8 @@ import { rejectedFor, useBoard } from './store';
 import type { ProposalDraft } from './proposal';
 import type { IdeaDraft } from './ai/ideas';
 import { fingerprint } from './ai/trigger';
+import { findMatches, planReplaceAll } from './search';
+import { stripMarks } from './richtext';
 
 /**
  * The store is a module singleton, so every test starts by pointing it at a
@@ -1054,5 +1056,224 @@ describe('setPrivacy', () => {
     s().setPrivacy(true);
     open('privacy-g');
     expect(s().board.privacy).toBe(false);
+  });
+});
+
+describe('the search slice', () => {
+  it('spends nothing — searching is looking, not editing', () => {
+    open('search-free');
+    s().addNode(0, 0);
+    const before = { undo: s().undoStack.length, at: s().lastMutationAt };
+
+    s().setSearchOpen(true);
+    s().setSearchQuery('pricing');
+    s().setSearchOptions({ caseSensitive: true, wholeWord: true });
+    s().setSearchIndex(3);
+    s().setSearchReplace('billing');
+
+    expect(s().undoStack).toHaveLength(before.undo);
+    expect(s().redoStack).toHaveLength(0);
+    expect(s().lastMutationAt).toBe(before.at);
+  });
+
+  it('is absent from the fingerprint, so it can never wake the ghost', () => {
+    open('search-fp');
+    s().addNode(0, 0);
+    const before = fingerprint(s().board);
+    s().setSearchOpen(true);
+    s().setSearchQuery('anything');
+    expect(fingerprint(s().board)).toBe(before);
+  });
+
+  it('sends the cursor back to the first match when the search changes', () => {
+    open('search-cursor');
+    s().setSearchIndex(4);
+    s().setSearchQuery('a');
+    expect(s().searchIndex).toBe(0);
+    s().setSearchIndex(4);
+    s().setSearchOptions({ wholeWord: true });
+    expect(s().searchIndex).toBe(0);
+  });
+
+  it('keeps the query when the bar closes, and drops it on a board switch', () => {
+    open('search-keep');
+    s().setSearchOpen(true);
+    s().setSearchQuery('pricing');
+    s().setSearchOpen(false);
+    // Reopening the same board should offer back what you were looking for.
+    expect(s().searchQuery).toBe('pricing');
+
+    open('search-other');
+    expect(s().searchOpen).toBe(false);
+    expect(s().searchQuery).toBe('');
+    expect(s().searchReplace).toBe('');
+    expect(s().searchCase).toBe(false);
+    expect(s().searchWhole).toBe(false);
+    expect(s().searchIndex).toBe(0);
+  });
+});
+
+describe('replaceText', () => {
+  /** Three cards, all saying the same word. */
+  function threeCards(id: string) {
+    open(id);
+    const ids = [s().addNode(0, 0), s().addNode(0, 100), s().addNode(0, 200)];
+    ids.forEach((n, i) => s().setNodeText(n, `card ${i} pricing`));
+    return ids;
+  }
+
+  it('is one undo step for the whole batch, however many cards it touched', () => {
+    const ids = threeCards('replace-batch');
+    const before = s().undoStack.length;
+
+    s().replaceText(ids.map((id, i) => ({ id, text: `card ${i} billing` })));
+    expect(s().undoStack).toHaveLength(before + 1);
+    expect(s().board.nodes.map((n) => n.text)).toEqual([
+      'card 0 billing',
+      'card 1 billing',
+      'card 2 billing',
+    ]);
+
+    // And one ⌘Z puts all three back — a Replace All you regret is one action
+    // to leave, not one per card.
+    s().undo();
+    expect(s().board.nodes.map((n) => n.text)).toEqual([
+      'card 0 pricing',
+      'card 1 pricing',
+      'card 2 pricing',
+    ]);
+  });
+
+  it('bumps the mutation clock — it changed what the board says', () => {
+    // Unlike a move or a resize: a replace rewords the board, so the ghost is
+    // allowed to answer the new wording once things settle.
+    const ids = threeCards('replace-bump');
+    // Pinned rather than compared against a real clock, as elsewhere here.
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    s().replaceText(ids.map((id) => ({ id, text: 'billing' })));
+    expect(s().lastMutationAt).toBe(12345);
+    vi.restoreAllMocks();
+  });
+
+  it('ends the typing burst, so the next keystroke snapshots on its own', () => {
+    const ids = threeCards('replace-burst');
+    s().replaceText([{ id: ids[0], text: 'billing' }]);
+    expect(s().lastTextEditId).toBeNull();
+
+    const after = s().undoStack.length;
+    s().setNodeText(ids[0], 'billing!');
+    expect(s().undoStack).toHaveLength(after + 1);
+  });
+
+  it('rewrites the objective when one is handed in, and caps it', () => {
+    open('replace-objective');
+    s().setObjective('ship pricing fast');
+    const before = s().undoStack.length;
+
+    s().replaceText([], 'ship billing fast');
+    expect(s().board.objective).toBe('ship billing fast');
+    expect(s().undoStack).toHaveLength(before + 1);
+
+    s().replaceText([], 'x'.repeat(OBJECTIVE_MAX + 50));
+    expect(s().board.objective).toHaveLength(OBJECTIVE_MAX);
+  });
+
+  it('leaves the objective alone when it is not part of the batch', () => {
+    open('replace-objective-untouched');
+    s().setObjective('ship pricing fast');
+    const id = s().addNode(0, 0);
+    s().setNodeText(id, 'pricing');
+    s().replaceText([{ id, text: 'billing' }]);
+    expect(s().board.objective).toBe('ship pricing fast');
+  });
+
+  it('is not an edit when nothing actually changes', () => {
+    const ids = threeCards('replace-noop');
+    const before = { undo: s().undoStack.length, at: s().lastMutationAt };
+
+    s().replaceText([{ id: ids[0], text: 'card 0 pricing' }]);
+    s().replaceText([{ id: 'gone', text: 'whatever' }]);
+    s().replaceText([]);
+
+    expect(s().undoStack).toHaveLength(before.undo);
+    expect(s().lastMutationAt).toBe(before.at);
+  });
+
+  it('spends the redo stack like any other edit', () => {
+    const ids = threeCards('replace-redo');
+    s().undo();
+    expect(s().redoStack.length).toBeGreaterThan(0);
+    s().replaceText([{ id: ids[0], text: 'billing' }]);
+    expect(s().redoStack).toHaveLength(0);
+  });
+});
+
+describe('find and replace, end to end', () => {
+  /** The exact chain the panel walks: plan it purely, then apply it once. */
+  function replaceAll(query: string, replacement: string) {
+    const plan = planReplaceAll(
+      s().board,
+      query,
+      { caseSensitive: false, wholeWord: false },
+      replacement,
+    );
+    s().replaceText(plan.nodes, plan.objective ?? undefined);
+    return plan;
+  }
+
+  it('renames a word across a formatted board in one undoable step', () => {
+    open('e2e-rename');
+    s().setObjective('Sharpen the pricing story');
+    const ids = [s().addNode(0, 0), s().addNode(0, 100), s().addNode(0, 200)];
+    s().setNodeText(ids[0], '**Pricing** page rewrite');
+    s().setNodeText(ids[1], 'who owns {{red|pricing}}?');
+    // The trap: this one reads as "pricing" but is stored across a marker pair.
+    s().setNodeText(ids[2], 'pri**cing** ladder');
+
+    const before = s().board.nodes.map((n) => n.text);
+    const undos = s().undoStack.length;
+
+    const plan = replaceAll('pricing', 'packaging');
+    expect(plan.replaced).toBe(3);
+    expect(plan.skipped).toBe(1);
+
+    // The two clean matches moved, the markup survived, and the straddling one
+    // is untouched down to the byte.
+    expect(s().board.nodes.map((n) => n.text)).toEqual([
+      '**packaging** page rewrite',
+      'who owns {{red|packaging}}?',
+      'pri**cing** ladder',
+    ]);
+    expect(s().board.objective).toBe('Sharpen the packaging story');
+    expect(stripMarks(s().board.nodes[0].text)).toBe('packaging page rewrite');
+
+    // One step in, one step out.
+    expect(s().undoStack).toHaveLength(undos + 1);
+    s().undo();
+    expect(s().board.nodes.map((n) => n.text)).toEqual(before);
+    expect(s().board.objective).toBe('Sharpen the pricing story');
+  });
+
+  it('leaves nothing behind for the query it just replaced', () => {
+    open('e2e-clean');
+    const id = s().addNode(0, 0);
+    s().setNodeText(id, 'pricing, pricing and **pricing**');
+    replaceAll('pricing', 'cost');
+    expect(findMatches(s().board, 'pricing', { caseSensitive: false, wholeWord: false })).toEqual(
+      [],
+    );
+    expect(s().board.nodes[0].text).toBe('cost, cost and **cost**');
+  });
+
+  it('never sends a private board anywhere — it never left the browser to begin with', () => {
+    // The control for the whole feature: search is navigation, so Privacy Mode
+    // has nothing to say about it and replacing on a private board works.
+    open('e2e-private');
+    s().setPrivacy(true);
+    const id = s().addNode(0, 0);
+    s().setNodeText(id, 'pricing');
+    expect(replaceAll('pricing', 'cost').replaced).toBe(1);
+    expect(s().board.nodes[0].text).toBe('cost');
+    expect(s().board.privacy).toBe(true);
   });
 });

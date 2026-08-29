@@ -78,9 +78,12 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/prompt.ts` — system prompt (wedge-tuned) and the response schema. `serializeBoardContent` is the shared model's-eye view of the board.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
+- `lib/search.ts` — find & replace: `findMatches`, `planReplaceAll`, `markMatches`. Pure.
 - `lib/placement.ts` — where a ghost lands. Pure.
 - `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
   settings UI, `lib/db.ts`, and the tests all import it.
+- `lib/tutorial.ts` — the tutorial board's content: `tutorialBoard(id)`, `TUTORIAL_TITLE`.
+  Pure, node-free; `lib/db.ts` (the seed) and the boards route (the restore link) import it.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
 - `app/api/boards/route.ts` — the collection: list and create.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
@@ -91,6 +94,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
+- `components/SearchPanel.tsx` — the find bar (⌘F), plus `useSearchMatches`, which the canvas
+  also reads to tint the hits.
 
 ## Product in one line
 
@@ -266,6 +271,68 @@ like a collaborator or a paperclip. Both are now settled:
   of the board"); Neon makes it a rule instead of a shade — solid content blooms and **the
   ghost is the only thing on the board that does not glow** — and gives the AI cyan among
   greens so a proposal never reads as a dimmer copy of the user's own work.
+
+- **Tutorial board** (v2.3): onboarding as *content, not chrome*. A first run seeded an empty
+  library and one sentence, and the app's entire help was a hover tip on a `?` nobody had a
+  reason to hover. Rather than a coach-mark layer over the canvas — a state machine, a panel,
+  something to dismiss — the tutorial is an ordinary board whose cards each teach one gesture
+  and are positioned so that reading them *is* performing the gesture: the resize lesson ships
+  at the size floor with more text than it can show, the connect lesson ships the board's one
+  deliberately unlinked card, the create lesson has empty canvas beside it. The board is the
+  interactive medium already; a second one would have been the paperclip.
+  **It is an ordinary board in every other way** — editable, archivable, deletable, autosaving,
+  counted in the index — and wrecking it is allowed, because editing is the lesson. It is
+  therefore not a mode, not a template type, and not a field on `Board`: nothing in the schema
+  knows it exists. `tutorialBoard(id)` is pure and generates fresh ids per call, so two copies
+  may coexist and no id is ever hardcoded.
+  **It seeds on an empty file and nowhere else.** `seedIfEmpty()` guards on `COUNT(*) = 0` over
+  `boards` — a row count, not a flag, so there is no column and no migration; archived boards
+  are still rows, so archiving everything does not re-seed, while deleting everything does,
+  which is the right reading of a library someone emptied. `createBoard` took an optional
+  prebuilt board rather than growing a second write path. The library's quiet "Open the
+  tutorial board" link (`template: 'tutorial'` on `POST /api/boards`) is the door back; an
+  absent, malformed, or unknown body falls through to a blank board, because creating a board
+  must never be refusable.
+  **No ghost is seeded, and none can be** — `Layer` is `'user' | 'accepted'` and a proposal is
+  never a node. The board *describes* the ghost and *shows* the accepted layer with one card,
+  which is also what teaches the three-layer invariant. It is **not** private: a ghost arriving
+  here unasked is the best demonstration the product has, and one card says so. Its objective
+  is load-bearing rather than decorative — a non-empty one is what satisfies `canGenerateIdeas`,
+  so ⌘. is live on it from the first second. It spends no tokens on its own and adds no AI
+  behavior: still exactly one unsolicited and one user-invoked.
+
+- **Search and Replace** (v2.4): ⌘F opens a find bar over the board — every card and the
+  objective, never the title. **Finding spends nothing**: no undo snapshot, no redo spend, no
+  `lastMutationAt` bump, never a token, and deliberately absent from the fingerprint, because
+  looking for a word you already wrote says nothing new about the board. It is the selection's
+  doctrine, not the objective's. **Replacing is an ordinary content edit** and takes the
+  ordinary doctrine: `replaceText` is the one action for both Replace and Replace All (a single
+  replace is the batch of one, exactly as `deleteNode` delegates to `deleteNodes`), with **one**
+  undo snapshot and **one** `lastMutationAt` bump for the whole batch — a board-wide rename is a
+  single ⌘Z, and it is allowed to wake the ghost afterwards because the board now says something
+  different. Looping `setNodeText` would give one undo step per card: its coalescing is keyed on
+  node identity with no timer.
+  **It searches what the reader sees, not what is stored.** Card text carries inline markers, so
+  matching runs on `stripMarks` output and every offset in `lib/search.ts` is an offset into
+  that; `stripMarksWithMap` (`lib/richtext.ts`) is the way back, and `sourceRange` is the rule
+  that decides whether a match can be written to at all. **A match that straddles a marker pair
+  is found, tinted, and never replaced** — `he**llo**` reads as one word but splicing it would
+  delete half the pair and restyle the rest of the card — and the panel *says* it skipped one,
+  because a match still sitting there after you pressed the button reads as a bug. The
+  replacement itself goes in literally; this format has no escape mechanism, and inventing one
+  is a bigger change than this feature.
+  The objective is searched as plain text (it is typed into a bare textarea and never parsed),
+  and its matches are shown **in the bar**, not by throwing ⌘J over the board you are searching.
+  The title is deliberately not searchable: it is the one field the model never sees and
+  `setTitle` spends nothing, so replacing in it would need a third doctrine. The ghost is not
+  searchable either, because a proposal is never a node. Matches are **derived, never stored**,
+  so there is nothing to invalidate when a card changes underneath them; `beginLoad` clears the
+  whole slice and entering presentation closes the bar, for the same reason there is no
+  selection ring on a projector. Two new tokens (`--find-bg`, `--find-active-bg`) with the usual
+  three-theme answer: amber against Light's blue ghost, amber on the raised card in Dark where
+  the ghost is recessed, and in Neon a flat magenta **fill** — never a bloom, because glow is
+  the one property that marks a proposal as provisional. No model call anywhere in it: still
+  exactly one unsolicited AI behavior and one user-invoked one.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

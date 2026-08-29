@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  centerOn,
   clampSize,
+  containsRect,
   createNode,
   emptyBoard,
   fitViewport,
@@ -15,6 +17,7 @@ import {
   snapFontSize,
   stepFontSize,
   VIEW_MAX_SCALE,
+  visibleRect,
   VIEW_MIN_SCALE,
   type Edge,
 } from './graph';
@@ -252,5 +255,59 @@ describe('privacy', () => {
     for (const junk of ['true', 1, {}, [], 'yes']) {
       expect(parseBoard('b', { privacy: junk, nodes: [] }).privacy).toBe(false);
     }
+  });
+});
+
+describe('centerOn', () => {
+  it('puts the rect in the middle of the surface', () => {
+    const v = centerOn({ x: 100, y: 200, w: 200, h: 100 }, { w: 1000, h: 600 }, 1);
+    expect(v).toEqual({ x: 300, y: 50, scale: 1 });
+    // The rect's center lands on the surface's center: 200 * 1 + 300 = 500.
+    expect((100 + 200 / 2) * v.scale + v.x).toBe(500);
+    expect((200 + 100 / 2) * v.scale + v.y).toBe(300);
+  });
+
+  it('leaves the zoom exactly where it was', () => {
+    // Bringing a match into view must not also change how far in you stand —
+    // this is why it is not fitViewport() over a single card.
+    for (const scale of [0.25, 1, 2.5]) {
+      expect(centerOn({ x: 0, y: 0, w: 200, h: 96 }, { w: 800, h: 600 }, scale).scale).toBe(scale);
+    }
+  });
+
+  it('round-trips through visibleRect: the centered rect is on screen', () => {
+    const rect = { x: 4000, y: -900, w: 200, h: 96 };
+    const surface = { w: 900, h: 700 };
+    const v = centerOn(rect, surface, 0.8);
+    expect(containsRect(visibleRect(v, surface), rect)).toBe(true);
+  });
+});
+
+describe('visibleRect', () => {
+  it('is the whole surface at rest', () => {
+    const r = visibleRect({ x: 0, y: 0, scale: 1 }, { w: 1200, h: 800 });
+    // `+ 0` because -0/1 is -0, which Object.is (and so toEqual) distinguishes
+    // from 0. A negative zero origin is a real viewport; it is not a difference.
+    expect([r.x + 0, r.y + 0, r.w, r.h]).toEqual([0, 0, 1200, 800]);
+  });
+
+  it('shows more board as you zoom out, and pans the opposite way', () => {
+    expect(visibleRect({ x: -100, y: -50, scale: 0.5 }, { w: 1000, h: 600 })).toEqual({
+      x: 200,
+      y: 100,
+      w: 2000,
+      h: 1200,
+    });
+  });
+});
+
+describe('containsRect', () => {
+  it('wants the whole rect inside, not just a corner of it', () => {
+    const outer = { x: 0, y: 0, w: 100, h: 100 };
+    expect(containsRect(outer, { x: 10, y: 10, w: 20, h: 20 })).toBe(true);
+    // Flush with the edge counts; one pixel past it does not.
+    expect(containsRect(outer, { x: 0, y: 0, w: 100, h: 100 })).toBe(true);
+    expect(containsRect(outer, { x: 90, y: 10, w: 20, h: 20 })).toBe(false);
+    expect(containsRect(outer, { x: -1, y: 10, w: 20, h: 20 })).toBe(false);
   });
 });

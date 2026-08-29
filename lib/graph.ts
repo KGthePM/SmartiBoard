@@ -245,6 +245,39 @@ export function fitViewport(
   };
 }
 
+/**
+ * The camera that puts a rect in the middle of the surface at the scale you are
+ * already at. Deliberately not `fitViewport([node], …)`, which would zoom one
+ * card up to fill the screen: bringing a search match into view must not also
+ * change how far in you are standing.
+ */
+export function centerOn(rect: Rect, surface: { w: number; h: number }, scale: number): Viewport {
+  return {
+    scale,
+    x: surface.w / 2 - (rect.x + rect.w / 2) * scale,
+    y: surface.h / 2 - (rect.y + rect.h / 2) * scale,
+  };
+}
+
+/** The on-screen region, expressed in board coordinates. */
+export function visibleRect(v: Viewport, surface: { w: number; h: number }): Rect {
+  return { x: -v.x / v.scale, y: -v.y / v.scale, w: surface.w / v.scale, h: surface.h / v.scale };
+}
+
+/**
+ * Whether `inner` sits entirely inside `outer`. The companion to `intersects`:
+ * a card half off the edge of the screen is visible by intersection but is not
+ * something you can read, so "do I need to move the camera" asks this instead.
+ */
+export function containsRect(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  );
+}
+
 export function rectOf(n: Pick<IdeaNode, 'x' | 'y' | 'w' | 'h'>): Rect {
   return { x: n.x, y: n.y, w: n.w, h: n.h };
 }

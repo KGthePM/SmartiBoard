@@ -17,11 +17,16 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
   const active = boards.filter((b) => b.archivedAt === null);
   const archived = boards.filter((b) => b.archivedAt !== null);
 
-  const create = async () => {
+  /** `template` is the tutorial's only entry point once it has been deleted. */
+  const create = async (template?: 'tutorial') => {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await fetch('/api/boards', { method: 'POST' });
+      const res = await fetch('/api/boards', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(template ? { template } : {}),
+      });
       const board = (await res.json()) as { id: string };
       router.push(`/board/${board.id}`);
     } catch {
@@ -99,10 +104,16 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
             ? 'No boards yet — start one and it will name itself.'
             : `${active.length} ${active.length === 1 ? 'board' : 'boards'}`}
         </p>
+        {/* The tutorial is an ordinary board, so it can be archived or deleted
+            like any other; this is how it comes back. A quiet line rather than
+            a card in the grid — it is a door, not a project. */}
+        <button className="index-tutorial" disabled={busy} onClick={() => create('tutorial')}>
+          Open the tutorial board
+        </button>
       </header>
 
       <div className="index-grid">
-        <button className="bcard bcard-new" onClick={create} disabled={busy}>
+        <button className="bcard bcard-new" onClick={() => create()} disabled={busy}>
           <span className="plus">+</span>
           <span>New board</span>
         </button>

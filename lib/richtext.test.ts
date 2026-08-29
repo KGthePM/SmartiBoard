@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseRichText, stripMarks, toggleColor, toggleWrap } from './richtext';
+import {
+  parseRichText,
+  sourceRange,
+  stripMarks,
+  stripMarksWithMap,
+  toggleColor,
+  toggleWrap,
+} from './richtext';
 
 describe('parseRichText', () => {
   it('returns nothing for empty text', () => {
@@ -197,5 +204,81 @@ describe('toggleColor', () => {
       start: 4,
       end: 20,
     });
+  });
+});
+
+const SAMPLES = [
+  'a **b** *c* __d__ ~~e~~ {{red|f}}',
+  '**a *b* {{green|c}}** tail',
+  'literal ** and * stars',
+  '2**3 and 4 * 5',
+  'plain',
+  '',
+];
+
+describe('stripMarksWithMap', () => {
+  it('agrees with stripMarks on the plain text', () => {
+    for (const s of SAMPLES) {
+      expect(stripMarksWithMap(s).plain).toBe(stripMarks(s));
+    }
+  });
+
+  it('gives one source index per plain character', () => {
+    for (const s of SAMPLES) {
+      const { plain, map } = stripMarksWithMap(s);
+      expect(map).toHaveLength(plain.length);
+      // Every mapped index points at the very character it stands for.
+      map.forEach((at, i) => expect(s[at]).toBe(plain[i]));
+    }
+  });
+
+  it('steps over matched markers', () => {
+    // `**bold**` — the b of "bold" is the third character of the source.
+    expect(stripMarksWithMap('**bold**')).toEqual({ plain: 'bold', map: [2, 3, 4, 5] });
+    expect(stripMarksWithMap('{{red|x}}')).toEqual({ plain: 'x', map: [6] });
+  });
+
+  it('maps unmatched markers to themselves — they are literal text', () => {
+    const { plain, map } = stripMarksWithMap('2 * 3');
+    expect(plain).toBe('2 * 3');
+    expect(map).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('is monotonic, so a plain range can never map backwards', () => {
+    for (const s of SAMPLES) {
+      const { map } = stripMarksWithMap(s);
+      for (let i = 1; i < map.length; i += 1) expect(map[i]).toBeGreaterThan(map[i - 1]);
+    }
+  });
+});
+
+describe('sourceRange', () => {
+  it('locates a range that sits inside one run of text', () => {
+    const { map } = stripMarksWithMap('**hello** world');
+    // "hello" is plain 0..5, source 2..7.
+    expect(sourceRange(map, 0, 5)).toEqual([2, 7]);
+    // "world" is plain 6..11, source 10..15 — the markers before it shift it.
+    expect(sourceRange(map, 6, 11)).toEqual([10, 15]);
+  });
+
+  it('refuses a range that straddles a matched marker pair', () => {
+    // `he**llo**` reads as "hello", but splicing 0..5 would orphan the closing **.
+    const { plain, map } = stripMarksWithMap('he**llo**');
+    expect(plain).toBe('hello');
+    expect(sourceRange(map, 0, 5)).toBeNull();
+    // The half that lives inside the bold run is still spliceable.
+    expect(sourceRange(map, 2, 5)).toEqual([4, 7]);
+  });
+
+  it('is unbothered by markers that merely sit beside the range', () => {
+    const { map } = stripMarksWithMap('say **hello**');
+    expect(sourceRange(map, 4, 9)).toEqual([6, 11]);
+  });
+
+  it('returns null for an empty or out-of-bounds range', () => {
+    const { map } = stripMarksWithMap('abc');
+    expect(sourceRange(map, 1, 1)).toBeNull();
+    expect(sourceRange(map, 0, 9)).toBeNull();
+    expect(sourceRange(map, -1, 2)).toBeNull();
   });
 });

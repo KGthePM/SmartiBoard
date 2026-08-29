@@ -1,7 +1,7 @@
 # Smarti Board
 
-A web idea board where an AI continuously co-authors the board with you — proposing
-gap-fills and connections as you work — rather than responding to prompts on demand.
+A web idea board with a built-in Smarti Assistant that points out gap-fills and
+connections as you work — rather than responding to prompts on demand.
 One deliberate exception: **⌘.** opens an ideas panel where one click asks for a handful of
 candidate ideas — for the whole board, or branching off the card you have selected. They
 stage in the panel until you add the ones that land; nothing reaches the board on its own.
@@ -11,8 +11,8 @@ AI behavior tractable, and it's what everything else is built on.
 
 ## The three layers
 
-The AI edits a workspace you consider your own thinking, so authorship is never ambiguous.
-Three visually distinct layers coexist on the board at all times:
+Suggestions live in their own layer, so it's never ambiguous what's yours and what's
+proposed. Three visually distinct layers coexist on the board at all times:
 
 | Layer | Looks like | Lives in |
 |---|---|---|
@@ -53,7 +53,7 @@ npm start                 # http://localhost:3000
 ```
 
 The `data/` directory and the SQLite file inside it are created on first run — no setup
-step, no migration to apply, nothing to seed. A fresh clone starts with an empty library.
+step, no migration to apply. A fresh clone opens onto one board, the tutorial (below).
 
 <details>
 <summary><strong>Why Node 22+, and what if <code>npm install</code> refuses to run?</strong></summary>
@@ -117,8 +117,8 @@ goes to the server once and never comes back, not even to the panel that saved i
 sees only the last four characters. `ANTHROPIC_API_KEY` still works as a headless
 fallback, used only when nothing has been saved in Settings.
 
-Configuring nothing is a supported configuration: the board is fully usable, it just
-doesn't co-author.
+Configuring nothing is a supported configuration: the board is fully usable; the
+assistant simply stays off.
 
 Board state is one SQLite file (`SMARTI_DB_PATH`, default `./data/smarti.db`), one row per
 board. No external services — self-hosting is one process. That default is relative to the
@@ -136,6 +136,13 @@ npm run build
 
 `/` is the project library: every board as a card, with a minimap of its actual graph — a
 board is usually easier to recognize by shape than by name.
+
+**The first board is a tutorial.** An empty library seeds one — an ordinary board whose
+cards each teach one thing and are arranged so that reading them means doing them: the card
+explaining resize is too small to show its own text, the card explaining connections sits
+next to the one card nothing is linked to. It is a real board, so edit it, wreck it, archive
+it, or delete it; *Open the tutorial board* under the header in the library brings a fresh
+copy back whenever you want one.
 
 **Boards name themselves.** There is no naming step, for the same reason there is no save
 button. A board is titled after its first idea, stripped of formatting; rename it from the
@@ -161,6 +168,10 @@ layer.
 - **⌘Z / Ctrl+Z** to undo, **⌘⇧Z / Ctrl+Y** to redo; **Backspace** deletes the selection
 - Suggestions appear on their own. **Accept** or **Dismiss** — both are one click, and
   accepting is undoable
+- **⌘F / Ctrl+F** (or the **Find** button) opens find and replace over this board — every
+  card and the objective. Matches are tinted where they sit, **Enter / ⇧Enter** (or ⌘G) walk
+  them and bring the canvas along, and **Replace all** is a single undo. It searches what you
+  can *read*, so formatting never hides a word from you
 - **⌘J / Ctrl+J** (or the **Objective** button) opens the board's objective — a few lines
   on what this board is for. Optional, but it is the one thing that changes *what* the AI
   suggests rather than *when*
@@ -190,13 +201,13 @@ would otherwise be asked to do.
 
 ## Keeping a board to yourself
 
-Some boards you want a collaborator on. Some you want a wall. **⌘⇧P** turns on **Privacy
+Some boards you want the assistant on. Some you want a wall. **⌘⇧P** turns on **Privacy
 Mode** for the board you're looking at, and while it's on nothing in that board is sent to
 a model — no suggestions arrive, and the Ideas button is unavailable, because generating
 ships the whole board upstream too.
 
 It's per board, not per install. You keep your provider and your key configured, and the
-other boards go on co-authoring as before; the alternative — deleting your key in Settings —
+other boards keep their suggestions as before; the alternative — deleting your key in Settings —
 was all-or-nothing and is what this replaces. The button says which state you're in at a
 glance, filled when it's on, because a privacy switch you have to squint at is not one.
 
@@ -209,10 +220,10 @@ back on speaking terms with a model is one you'd never notice.
 Turning it back off doesn't immediately produce a suggestion: the flag isn't part of what
 the AI reads, so the board looks unchanged to it. The next real edit wakes it.
 
-## How it decides when to speak
+## How it decides when to run
 
 "Continuously" cannot mean per-keystroke — that is expensive and, worse, it is the
-difference between a collaborator and a paperclip. `lib/ai/trigger.ts` holds the whole
+difference between an assistant and a paperclip. `lib/ai/trigger.ts` holds the whole
 policy as pure functions, and it is the file to tune when the behavior feels wrong:
 
 1. Privacy Mode, checked before anything else — a private board is not one the AI is quiet
