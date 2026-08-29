@@ -72,6 +72,43 @@ describe('done', () => {
   });
 });
 
+describe('reactions', () => {
+  it('starts empty on a fresh node', () => {
+    expect(createNode({ x: 0, y: 0 }).reactions).toEqual([]);
+  });
+
+  it('survives a round trip through persistence', () => {
+    const board = emptyBoard('b');
+    board.nodes = [
+      createNode({ id: 'n0', x: 0, y: 0, text: 'ship it', reactions: ['love', 'fire'] }),
+    ];
+    const parsed = parseBoard('b', JSON.parse(JSON.stringify(board)));
+    expect(parsed.nodes[0].reactions).toEqual(['love', 'fire']);
+  });
+
+  it('loads boards saved before reactions existed with none', () => {
+    const parsed = parseBoard('b', {
+      nodes: [{ id: 'n0', x: 0, y: 0, text: 'an old idea' }],
+      edges: [],
+    });
+    expect(parsed.nodes[0].reactions).toEqual([]);
+  });
+
+  it('drops unknown keys and junk rather than failing the row', () => {
+    const parsed = parseBoard('b', {
+      nodes: [
+        { id: 'n0', x: 0, y: 0, text: 'a', reactions: ['love', 'shrug', 'love'] },
+        { id: 'n1', x: 0, y: 0, text: 'b', reactions: 'love' },
+        { id: 'n2', x: 0, y: 0, text: 'c', reactions: null },
+      ],
+      edges: [],
+    });
+    // The cards still load — a bad mark costs the mark, never the idea.
+    expect(parsed.nodes).toHaveLength(3);
+    expect(parsed.nodes.map((n) => n.reactions)).toEqual([['love'], [], []]);
+  });
+});
+
 describe('fontSize', () => {
   it('starts at the body font on a fresh node — untouched cards render as they always did', () => {
     expect(createNode({ x: 0, y: 0 }).fontSize).toBe(NODE_FONT_DEFAULT);

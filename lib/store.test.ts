@@ -887,6 +887,88 @@ describe('toggleNodeDone', () => {
   });
 });
 
+describe('toggleReaction', () => {
+  it('marks the card, and only that card, both ways', () => {
+    open('react-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+
+    s().toggleReaction(a, 'love');
+    expect(s().board.nodes.find((n) => n.id === a)?.reactions).toEqual(['love']);
+    expect(s().board.nodes.find((n) => n.id === b)?.reactions).toEqual([]);
+
+    s().toggleReaction(a, 'love');
+    expect(s().board.nodes.find((n) => n.id === a)?.reactions).toEqual([]);
+  });
+
+  it('holds several at once, in the canonical order', () => {
+    open('react-b');
+    const a = s().addNode(0, 0);
+    s().toggleReaction(a, 'down');
+    s().toggleReaction(a, 'love');
+    expect(s().board.nodes[0].reactions).toEqual(['love', 'down']);
+  });
+
+  it('is a deliberate action: one undo step per toggle, and ⌘Z walks them back', () => {
+    open('react-c');
+    const a = s().addNode(0, 0);
+    const depth = s().undoStack.length;
+
+    s().toggleReaction(a, 'fire');
+    s().toggleReaction(a, 'bang');
+    expect(s().undoStack).toHaveLength(depth + 2);
+
+    s().undo();
+    expect(s().board.nodes[0].reactions).toEqual(['fire']);
+    s().undo();
+    expect(s().board.nodes[0].reactions).toEqual([]);
+  });
+
+  it('spends the redo stack, like every other board edit', () => {
+    open('react-d');
+    const a = s().addNode(0, 0);
+    s().undo();
+    expect(s().redoStack.length).toBeGreaterThan(0);
+    s().redo();
+    s().toggleReaction(a, 'love');
+    expect(s().redoStack).toHaveLength(0);
+  });
+
+  it('never arms the ghost: no lastMutationAt bump', () => {
+    // The whole point of the feature. A reaction is the user talking to their
+    // own board — the model cannot see it, so it must not spend a token.
+    open('react-e');
+    const a = s().addNode(0, 0);
+    const before = s().lastMutationAt;
+    vi.spyOn(Date, 'now').mockReturnValue(99999);
+    s().toggleReaction(a, 'love');
+    expect(s().lastMutationAt).toBe(before);
+    vi.restoreAllMocks();
+  });
+
+  it('leaves the fingerprint untouched, so an undo cannot wake the ghost either', () => {
+    open('react-f');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'pricing is the whole problem');
+    const before = fingerprint(s().board);
+
+    s().toggleReaction(a, 'fire');
+    expect(fingerprint(s().board)).toBe(before);
+
+    // undo bumps lastMutationAt unconditionally, but there is nothing new to
+    // say — the board reads identically to the model on both sides of it.
+    s().undo();
+    expect(fingerprint(s().board)).toBe(before);
+  });
+
+  it('ignores an id that is not on the board', () => {
+    open('react-g');
+    s().addNode(0, 0);
+    s().toggleReaction('nope', 'love');
+    expect(s().board.nodes[0].reactions).toEqual([]);
+  });
+});
+
 describe('setPresenting', () => {
   it('saves the viewport on the way in and restores it on the way out', () => {
     open('present-a');

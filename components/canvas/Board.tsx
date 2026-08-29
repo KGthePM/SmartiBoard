@@ -23,6 +23,7 @@ import {
   zoomAround,
   type PinchStart,
 } from '@/lib/gesture';
+import { REACTIONS } from '@/lib/reactions';
 import type { Match } from '@/lib/search';
 import { rejectedFor, useBoard } from '@/lib/store';
 import { activeIndex, useSearchMatches } from '../SearchPanel';
@@ -617,6 +618,20 @@ export function Board({ boardId }: { boardId: string }) {
         e.preventDefault();
         useBoard.getState().toggleNodeDone(selectedIds[0]);
       }
+      // 1-5 react, in the order the strip draws them. Same guards as D:
+      // unmodified only, and one card, because a reaction is per-idea.
+      const slot = REACTIONS[Number(e.key) - 1];
+      if (
+        slot !== undefined &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        selectedIds.length === 1
+      ) {
+        e.preventDefault();
+        useBoard.getState().toggleReaction(selectedIds[0], slot);
+      }
       if (e.key === 'Escape') {
         useBoard.getState().select(null);
         useBoard.getState().selectEdge(null);
@@ -818,6 +833,7 @@ export function Board({ boardId }: { boardId: string }) {
                 }}
                 onAdjustFont={(dir) => store.adjustNodeFontSize(n.id, dir)}
                 onToggleDone={() => store.toggleNodeDone(n.id)}
+                onToggleReaction={(k) => store.toggleReaction(n.id, k)}
                 onDelete={() => {
                   lastDeleteAt.current = Date.now();
                   store.deleteNode(n.id);

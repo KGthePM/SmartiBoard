@@ -308,6 +308,13 @@ model choice, any further AI behaviors. The AI also never moves or edits a node 
 Tuned for early-stage **product and strategy ideation**: gap-fills are missing risks,
 unaddressed segments, unstated assumptions, absent success metrics, hidden dependencies.
 
+## Landing page
+
+`landing/` is the separately hosted marketing site — a self-contained static
+`index.html`, plus `support.html` (FAQ, troubleshooting, feedback) — deployed to
+Netlify, not part of the Next.js app. Each page carries its own inline styles;
+changes there ship with the Netlify deploy, not with `npm run build`.
+
 ## License
 
 AGPL-3.0-only. Self-host it freely; if you run a modified version as a network service,

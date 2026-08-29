@@ -116,6 +116,15 @@ describe('fingerprint', () => {
     expect(fingerprint(a)).not.toBe(fingerprint(b));
   });
 
+  it('ignores reactions — how you feel about an idea is not a new idea', () => {
+    // The load-bearing test for v2.7: a reaction is content the model never
+    // sees, so marking one must never wake the ghost.
+    const a = board(['pricing', 'onboarding', 'churn']);
+    const b = board(['pricing', 'onboarding', 'churn']);
+    b.nodes[0] = { ...b.nodes[0], reactions: ['love', 'fire'] };
+    expect(fingerprint(a)).toBe(fingerprint(b));
+  });
+
   it('changes when a connection is drawn', () => {
     const a = board(['a', 'b', 'c']);
     const b = board(['a', 'b', 'c']);

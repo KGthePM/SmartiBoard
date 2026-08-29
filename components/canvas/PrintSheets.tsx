@@ -3,6 +3,7 @@
 import { boardTitle } from '@/lib/boards';
 import type { Board, IdeaNode } from '@/lib/graph';
 import { PRINT_HEADER_H, PRINT_PAGE_H, PRINT_PAGE_W, printPlan } from '@/lib/print';
+import { REACTION_GLYPH } from '@/lib/reactions';
 import { EdgeLayer } from './EdgeLayer';
 import { RichTextView } from './RichTextView';
 
@@ -15,6 +16,10 @@ const NO_MATCHES: never[] = [];
  * which is current even mid-edit (typing writes to the store on every
  * keystroke; only the PUT is debounced). Layer and done styling ride the
  * same classes the canvas card uses, so paper and screen agree.
+ *
+ * Reactions print, because a reaction is content the person put on the card —
+ * but only the chosen ones, and as glyphs rather than buttons: paper gets
+ * content, not interface. A card with none draws nothing at all.
  */
 function PrintCard({ node }: { node: IdeaNode }) {
   return (
@@ -25,6 +30,15 @@ function PrintCard({ node }: { node: IdeaNode }) {
       <div className="rt">
         <RichTextView text={node.text} matches={NO_MATCHES} activeMatch={null} />
       </div>
+      {node.reactions.length > 0 && (
+        <div className="reactions">
+          {node.reactions.map((key) => (
+            <span key={key} className="react on">
+              {REACTION_GLYPH[key]}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { IdeaNode } from '@/lib/graph';
 import type { Match } from '@/lib/search';
 import { PALETTE, toggleColor, toggleWrap, type ColorKey, type Edit } from '@/lib/richtext';
+import { REACTIONS, REACTION_GLYPH, REACTION_LABEL, type ReactionKey } from '@/lib/reactions';
 import { RichTextView } from './RichTextView';
 
 type Props = {
@@ -24,6 +25,7 @@ type Props = {
   onResizeStart: (e: React.PointerEvent) => void;
   onAdjustFont: (dir: 1 | -1) => void;
   onToggleDone: () => void;
+  onToggleReaction: (key: ReactionKey) => void;
   onDelete: () => void;
 };
 
@@ -45,6 +47,7 @@ export function NodeCard({
   onResizeStart,
   onAdjustFont,
   onToggleDone,
+  onToggleReaction,
   onDelete,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -269,6 +272,41 @@ export function NodeCard({
         >
           A
         </button>
+      </div>
+      {/* Reactions (v2.7): how you feel about the idea, said to the board and
+          not to the model. All five slots are always rendered, and the unchosen
+          ones only fade — so the glyph you want never moves between the resting
+          card and the hovered one, and the click is not a gamble. Below the
+          card rather than inside it: a card at the height floor has no room to
+          give, and a mark you have to hover to see is not a mark. */}
+      <div
+        className="reactions"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          toolbarPressAt.current = Date.now();
+        }}
+      >
+        {REACTIONS.map((key) => {
+          const on = node.reactions.includes(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`react ${on ? 'on' : ''}`}
+              aria-pressed={on}
+              aria-label={REACTION_LABEL[key]}
+              title={REACTION_LABEL[key]}
+              onMouseDown={(e) => e.preventDefault()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleReaction(key);
+              }}
+            >
+              {REACTION_GLYPH[key]}
+            </button>
+          );
+        })}
       </div>
       <div
         className="port"

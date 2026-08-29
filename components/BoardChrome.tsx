@@ -269,6 +269,7 @@ export function BoardChrome() {
             <span>Drag a corner to resize</span>
             <span>A− / A+ for text size</span>
             <span>D marks it done</span>
+            <span>1-5 react to an idea</span>
             <span>Shift+click or Shift+drag selects several</span>
             <span>On touch, hold instead of Shift</span>
             <span>Pinch to zoom</span>

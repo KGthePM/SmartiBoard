@@ -82,6 +82,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/gesture.ts` — touch as arithmetic: `zoomAround` (the wheel and the pinch alike),
   `pinchViewport`, and the long-press constants. Pure, node-free.
 - `lib/placement.ts` — where a ghost lands. Pure.
+- `lib/reactions.ts` — the five card reactions: the closed set, `normalizeReactions`,
+  `toggleReaction`. Pure, node-free. The one per-node mark the model never sees.
 - `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
   settings UI, `lib/db.ts`, and the tests all import it.
 - `lib/tutorial.ts` — the tutorial board's content: `tutorialBoard(id)`, `TUTORIAL_TITLE`.
@@ -402,6 +404,47 @@ like a collaborator or a paperclip. Both are now settled:
   nothing — no undo snapshot, no `lastMutationAt` bump, not in the fingerprint, never a token, no
   store field and no persisted state — and adds no AI behavior: still exactly one unsolicited and
   one user-invoked.
+
+- **Card reactions** (v2.7): a fixed set of five marks — ❤️ 🔥 ❗ 😂 👎 — several at once
+  per card (`node.reactions`, `lib/reactions.ts`), toggled from a strip below the card or
+  with `1`-`5` on a single selection. **It is the first feature in the app that is
+  deliberately user↔board and not user↔AI**, and that is the whole design: the model never
+  sees a reaction. It is absent from `fingerprint` and absent from `serializeBoardContent`,
+  so reacting cannot wake the ghost, cannot change a proposal, and cannot spend a token.
+  Still exactly one unsolicited AI behavior and one user-invoked one — this adds neither.
+  **It takes the title's doctrine, which nothing else had needed yet**: one undo snapshot
+  per toggle (a misclick on an 18px target must be recoverable, so unlike a drag it is
+  undoable) and the redo stack spent, but **no `lastMutationAt` bump** — the exact inverse
+  of `done`, which is the same kind of deliberate per-card mark but is content the model
+  reads. The two combine without a special case: `undo` bumps `lastMutationAt`
+  unconditionally, but a reaction-only undo leaves the fingerprint identical, so
+  `shouldRequest` still answers `no_material_change` and nothing fires.
+  **The set is closed, like `PALETTE` in `lib/richtext.ts`.** A free emoji picker would
+  make every card a different alphabet and the board would stop being scannable.
+  `normalizeReactions` is shared by `parseBoard` and the tests the way `normalizeTheme` is:
+  unknown keys are dropped, duplicates collapse, and the result is always in `REACTIONS`
+  order, so two cards with the same marks render identically whatever order they were
+  clicked in. A bad mark costs the mark, never the idea — the row still loads. Boards saved
+  before v2.7 load with `[]`, so there was no migration.
+  **Upvote/downvote *counts* were the original ask and were declined**: counts imply
+  multiple voters, multiplayer is out of scope, and a count that is always 1 is a priority
+  flag wearing a costume. ❗ and 👎 carry that meaning directly.
+  All five slots are always in the layout and only their opacity changes — the glyph you
+  are aiming at never moves between the resting card and the hovered one — and a *chosen*
+  mark holds at full strength on an untouched card, the way `.card.done .tick` does,
+  because it is what the card says rather than an affordance. The strip sits below the card
+  (a card at the 48px height floor has no room to give) and clears the A± pair. The glyphs
+  are full-color emoji that ignore the palette, so **the themed part is the chip behind
+  them** (`--react-bg`, `--react-ring`): the card's own surface in Light, the *raised*
+  surface in Dark (the opposite end of the scale from the recessed ghost), and in Neon the
+  user's green, blooming — the reverse of the find highlight's ruling, because a hit is a
+  machine's answer to a query while a reaction is the user's own content. The ghost is
+  still the only thing on the board that does not glow. Reactions are also the one control
+  that cannot take the coarse-pointer `-13px` treatment (five targets in a row cannot each
+  be 44px under a 120px card), so the strip itself grows instead. They print, because a
+  mark the person placed is content; they are inert under Present for free; they are not on
+  the ghost (a proposal is never a node) and not in the minimap (which carries no `done`
+  either).
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

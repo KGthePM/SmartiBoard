@@ -4,6 +4,8 @@
  * these types.
  */
 
+import { normalizeReactions, type ReactionKey } from './reactions';
+
 export type NodeId = string;
 
 /** Authorship layer. Proposals are deliberately absent: they are never nodes. */
@@ -29,6 +31,12 @@ export type IdeaNode = {
    * content the model sees, so it joins the fingerprint — see lib/ai/trigger.
    */
   done: boolean;
+  /**
+   * How the person feels about this idea — see ./reactions. The exact inverse
+   * of `done`: a deliberate mark the model never sees, so it stays out of the
+   * fingerprint and out of the prompt, and toggling one never spends a token.
+   */
+  reactions: ReactionKey[];
   createdAt: number;
 };
 
@@ -155,6 +163,7 @@ export function createNode(
     fontSize: partial.fontSize ?? NODE_FONT_DEFAULT,
     layer: partial.layer ?? 'user',
     done: partial.done ?? false,
+    reactions: partial.reactions ?? [],
     createdAt: partial.createdAt ?? Date.now(),
   };
 }
@@ -331,6 +340,9 @@ export function parseBoard(id: string, raw: unknown): Board {
             // Boards saved before done existed load as not done, and anything
             // that is not strictly true is junk off the wire.
             done: n.done === true,
+            // Boards saved before reactions existed load without any, and
+            // unknown keys are dropped rather than rendered as a blank chip.
+            reactions: normalizeReactions(n.reactions),
             createdAt: typeof n.createdAt === 'number' ? n.createdAt : Date.now(),
           }),
         ];

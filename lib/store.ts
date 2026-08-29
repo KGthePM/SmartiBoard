@@ -21,6 +21,7 @@ import {
 import { DEBOUNCE_MS, fingerprint } from './ai/trigger';
 import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
+import { toggleReaction as toggleIn, type ReactionKey } from './reactions';
 import type { Proposal, ProposalDraft } from './proposal';
 
 /** Screen size of the canvas surface, needed to know what's actually visible. */
@@ -188,6 +189,7 @@ export type State = {
   resizeNode: (id: NodeId, w: number, h: number) => void;
   adjustNodeFontSize: (id: NodeId, dir: 1 | -1) => void;
   toggleNodeDone: (id: NodeId) => void;
+  toggleReaction: (id: NodeId, key: ReactionKey) => void;
   deleteNode: (id: NodeId) => void;
   /** The multi-delete: one deliberate edit, one undo step for the whole batch. */
   deleteNodes: (ids: NodeId[]) => void;
@@ -462,6 +464,24 @@ export const useBoard = create<State>((set, get) => ({
         nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, done: !n.done } : n)),
       },
       lastMutationAt: Date.now(),
+    })),
+
+  /**
+   * Reacting takes the title's doctrine, not the ✓'s: one undo snapshot,
+   * because a misclick on an 18px target must be recoverable — but deliberately
+   * no lastMutationAt bump. A reaction is the user talking to their own board.
+   * It is not in the fingerprint and never reaches a prompt, so arming the
+   * ghost with one would spend a token on a change the model cannot even see.
+   */
+  toggleReaction: (id, key) =>
+    set((s) => ({
+      ...pushUndo(s),
+      board: {
+        ...s.board,
+        nodes: s.board.nodes.map((n) =>
+          n.id === id ? { ...n, reactions: toggleIn(n.reactions, key) } : n,
+        ),
+      },
     })),
 
   // The card's × is the batch of one — one implementation, one doctrine.

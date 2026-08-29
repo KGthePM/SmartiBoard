@@ -64,6 +64,13 @@
   --find-bg: rgba(255,205,80,0.5);
   --find-active-bg: #ffcf4d;
   --find-ink: inherit;
+
+  /* Reactions (v2.7). The glyphs are full-color emoji and ignore the palette
+     entirely, so the chip behind them is where a theme gets to speak. Here it
+     is the card's own surface with the card's own border: a chosen mark reads
+     as part of the card, because it is. */
+  --react-bg: #ffffff;
+  --react-ring: #c9c9c2;
 }
 
 /* ==========================================================================
@@ -145,6 +152,12 @@
   --find-bg: rgba(220,176,74,0.3);
   --find-active-bg: rgba(226,182,80,0.68);
   --find-ink: inherit;
+
+  /* The layer answer again: the chip is the raised surface, so a mark sits
+     *above* the card the way a user card sits above the canvas — the opposite
+     end of the scale from the recessed ghost. */
+  --react-bg: #272b32;
+  --react-ring: #4a4f59;
 }
 
 /* The index keeps its own scoped palette, so it needs its own override —
@@ -226,6 +239,13 @@
   --find-bg: rgba(255,61,168,0.32);
   --find-active-bg: #ff3da8;
   --find-ink: #10030a;
+
+  /* Green, and glowing — the reverse of the find highlight's ruling. A hit is
+     a machine's answer to a query, so it stays flat; a reaction is the user's
+     own content, so it takes the user's hue and blooms with everything else
+     they placed. The ghost is still the only thing that does not glow. */
+  --react-bg: #0e1712;
+  --react-ring: #39ff88;
 }
 
 :root[data-theme='neon'] .index {
@@ -579,6 +599,56 @@ html, body {
 .fs button:hover { border-color: var(--ink); }
 .fs-down { font-size: 8px; }
 .fs-up { font-size: 11px; }
+
+/* ---------- reactions (v2.7): the one mark on a card the model never sees ----------
+   Below the card rather than inside it: a card at the 48px height floor has no
+   room to give, and the strip clears the A± pair that straddles the bottom-left
+   corner at bottom:-9px. Five 18px chips fit under a card at the 120px width
+   floor.
+
+   All five slots are always in the layout and only opacity changes. That is the
+   design: the glyph you are aiming at never moves between the resting card and
+   the hovered one, so the click is not a gamble — and the unchosen four reveal
+   on hover *or* selection, the same pair the ✓ and the × use, because a tap
+   selects and nothing on a touchscreen hovers. */
+.reactions {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+}
+.react {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .react, .card.selected .react { opacity: 0.55; }
+.card:hover .react:hover { opacity: 1; }
+
+/* A chosen mark is not an affordance — it is what the card says — so it holds
+   at full strength on an untouched card, the way .card.done .tick does. It also
+   takes the same shadow solid content takes, which is a small lift in Light and
+   Dark and, in Neon, the bloom. */
+.react.on {
+  opacity: 1;
+  background: var(--react-bg);
+  border-color: var(--react-ring);
+  box-shadow: var(--shadow-1);
+}
 
 /* ---------- edges: lines are content, not decoration ---------- */
 
@@ -1805,7 +1875,22 @@ html, body {
     position: absolute;
     inset: -13px;
   }
-  .port, .del, .tick, .resize, .fs button { position: relative; }
+  .fs button { position: relative; }
+
+  /* The reactions are the one control that cannot take the -13px treatment:
+     five targets in a row cannot each be 44px wide under a 120px card, and
+     overlapping insets would just hand every press to the last sibling. So the
+     strip itself grows — bigger chips, more space between them, and a modest
+     pad that is generous vertically and barely horizontal. This is the
+     exception the rule above admits, not a violation of it: what must not
+     shrink is the card's own furniture, and this is a strip beside the card. */
+  .reactions { gap: 6px; }
+  .react { width: 24px; height: 24px; font-size: 14px; }
+  .react::after {
+    content: "";
+    position: absolute;
+    inset: -6px -3px;
+  }
 
   /* SVG has no box to pad, so the edge controls grow instead. The hit stroke
      is in board units and therefore thins as you zoom out, which is exactly
@@ -1908,6 +1993,9 @@ html, body {
     --find-bg: rgba(255,205,80,0.5);
     --find-active-bg: #ffcf4d;
     --find-ink: inherit;
+
+    --react-bg: #ffffff;
+    --react-ring: #c9c9c2;
   }
 
   /* Browsers economize backgrounds by default; the cards' borders, the

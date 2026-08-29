@@ -40,6 +40,13 @@ describe('serializeBoard', () => {
     expect(out).not.toContain('done');
   });
 
+  it('never mentions reactions — they are the one mark the model does not see', () => {
+    const b = board(['pricing', 'onboarding']);
+    const plain = serializeBoard(b, []);
+    b.nodes[0] = { ...b.nodes[0], reactions: ['love', 'fire', 'down'] };
+    expect(serializeBoard(b, [])).toBe(plain);
+  });
+
   it('lists dismissed suggestions for the model to avoid', () => {
     const out = serializeBoard(board(['a', 'b', 'c']), ['pricing tier']);
     expect(out).toContain('- pricing tier');

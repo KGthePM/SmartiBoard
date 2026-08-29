@@ -8,6 +8,11 @@ slice is built (hand-rolled canvas, SQLite, zustand). `smarti-board-project-brie
 the authoritative product spec; `CLAUDE.md` has the stack table and file map; `README.md`
 explains the trigger policy and layer model.
 
+`landing/` is the separately hosted Netlify marketing site — a self-contained static
+`index.html` plus `support.html` (FAQ / troubleshooting / feedback). It is not part of the
+Next.js app: nothing in `app/`, `components/`, or `lib/` builds it, and its styles are its
+own inline copy of the landing's tokens, so the app's `globals.css` themes do not reach it.
+
 ## Commands
 
 ```bash
