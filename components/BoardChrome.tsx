@@ -10,7 +10,8 @@ import { SettingsPanel } from './SettingsPanel';
 import { IdeasPanel } from './IdeasPanel';
 
 /**
- * Board identity, in the one corner the canvas wasn't already using.
+ * Board identity, top-left: the name leads the board. The buttons stay
+ * top-right, with the canvas directions behind the ? at the row's end.
  *
  * Renaming is inline and optional: the field's value is the stored title and
  * its placeholder is the derived one, so clearing the field hands the name back
@@ -81,13 +82,17 @@ export function BoardChrome() {
   // predicate and refuses absolutely — this ships the board upstream.
   const canGenerate = loaded && canGenerateIdeas(board);
 
+  // A name the board gave itself (or no name at all) is provisional; one that
+  // was typed is the author's. The muted style draws that line.
+  const named = board.title.trim().length > 0;
+
   return (
     <>
-      <div className="chrome">
+      <div className="board-name">
         {editing ? (
           <input
             ref={inputRef}
-            className="chrome-input"
+            className="board-name-input"
             value={board.title}
             placeholder={boardTitle(board)}
             maxLength={120}
@@ -104,7 +109,7 @@ export function BoardChrome() {
           />
         ) : (
           <button
-            className="chrome-title"
+            className={`board-name-button${named ? '' : ' derived'}`}
             title="Rename this board"
             onClick={startEditing}
             disabled={!loaded}
@@ -112,7 +117,9 @@ export function BoardChrome() {
             {loaded ? boardTitle(board) : ' '}
           </button>
         )}
+      </div>
 
+      <div className="chrome">
         <button
           className="chrome-undo"
           title={canUndo ? 'Undo (⌘Z)' : 'Nothing to undo'}
@@ -183,6 +190,23 @@ export function BoardChrome() {
         >
           ⚙
         </button>
+
+        {/* Hover or keyboard focus reveals the directions; click just focuses
+            the button, which holds the tip open until focus moves on. */}
+        <div className="chrome-help-wrap">
+          <button className="chrome-help" aria-label="Canvas controls">
+            ?
+          </button>
+          <div className="chrome-help-tip">
+            <span>Double-click to add an idea</span>
+            <span>Drag the dot to connect</span>
+            <span>Drag a corner to resize</span>
+            <span>A− / A+ for text size</span>
+            <span>D marks it done</span>
+            <span>Click a line to select it</span>
+            <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
+          </div>
+        </div>
       </div>
 
       {open ? <BoardSwitcher onClose={() => setOpen(false)} currentId={board.id} /> : null}

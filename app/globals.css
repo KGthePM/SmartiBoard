@@ -423,13 +423,6 @@ html, body {
   gap: 10px;
   align-items: center;
 }
-.hint {
-  position: fixed;
-  top: 14px;
-  left: 16px;
-  font-size: 12px;
-  color: var(--muted);
-}
 .legend {
   position: fixed;
   bottom: 14px;
@@ -451,7 +444,45 @@ html, body {
 .legend .l-ghost { background: var(--ghost-bg); border: 1px dashed var(--ghost-border); }
 .legend .l-accepted { background: var(--accepted-bg); border: 1px solid var(--accepted-border); }
 
-/* ---------- board chrome: identity, top-right ---------- */
+/* ---------- board name, top-left ---------- */
+
+.board-name {
+  position: fixed;
+  top: 10px;
+  left: 16px;
+  z-index: 5;
+}
+.board-name-button,
+.board-name-input {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+}
+.board-name-button {
+  max-width: min(46vw, 480px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+/* A derived or "Untitled" name is provisional — muted until someone types one. */
+.board-name-button.derived { color: var(--muted); }
+.board-name-button:hover { border-color: var(--user-border); background: #fff; }
+.board-name-input {
+  width: min(46vw, 480px);
+  border-color: var(--ink);
+  background: #fff;
+  outline: 0;
+}
+
+/* ---------- board chrome: controls, top-right ---------- */
 
 .chrome {
   position: fixed;
@@ -462,15 +493,14 @@ html, body {
   align-items: center;
   z-index: 5;
 }
-.chrome-title,
 .chrome-switch,
 .chrome-settings,
+.chrome-help,
 .chrome-ideas,
 .chrome-objective,
 .chrome-privacy,
 .chrome-undo,
-.chrome-redo,
-.chrome-input {
+.chrome-redo {
   font: inherit;
   font-size: 12px;
   line-height: 1;
@@ -480,20 +510,6 @@ html, body {
   border: 1px solid transparent;
   background: transparent;
   color: var(--ink);
-}
-.chrome-title {
-  max-width: 280px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  cursor: text;
-}
-.chrome-title:hover { border-color: var(--user-border); background: #fff; }
-.chrome-input {
-  width: 240px;
-  border-color: var(--ink);
-  background: #fff;
-  outline: 0;
 }
 .chrome-switch {
   color: var(--muted);
@@ -559,6 +575,44 @@ html, body {
 }
 .chrome-redo:hover:not(:disabled) { color: var(--ink); }
 .chrome-redo:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- help: canvas directions behind the ?, not over the canvas ---------- */
+
+/* The tip is prose over a canvas, not a control surface: pointer-events none,
+   so double-clicks under it still create nodes. White card, not the ghost's
+   dark tooltip — dark is the AI voice in this app, and this is chrome. */
+.chrome-help-wrap {
+  position: relative;
+}
+.chrome-help {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-help:hover,
+.chrome-help:focus-visible { color: var(--ink); }
+.chrome-help-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  padding: 9px 11px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  font-size: 12px;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+  z-index: 6;
+}
+.chrome-help-wrap:hover .chrome-help-tip,
+.chrome-help-wrap:focus-within .chrome-help-tip { opacity: 1; }
 
 /* ---------- ideas panel: staged AI output, off-canvas ---------- */
 
