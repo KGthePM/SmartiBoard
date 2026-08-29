@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { summarize, type BoardSummary } from './boards';
 import { emptyBoard, newId, parseBoard, type Board } from './graph';
 import type { ProviderId, StoredSettings } from './ai/providers';
+import { normalizeGhostDelay } from './ai/trigger';
 
 /**
  * One SQLite file, one table. Self-hosting should be `docker run`, not a
@@ -40,7 +41,8 @@ function conn(): Database.Database {
       provider TEXT NOT NULL,
       api_key  TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
-      model    TEXT NOT NULL DEFAULT ''
+      model    TEXT NOT NULL DEFAULT '',
+      ghost_delay_ms INTEGER NOT NULL DEFAULT 4000
     );
   `);
   migrate(db);
@@ -62,6 +64,13 @@ function migrate(d: Database.Database): void {
   }
   if (!cols.has('archived_at')) {
     d.exec(`ALTER TABLE boards ADD COLUMN archived_at INTEGER`);
+  }
+
+  const settingsCols = new Set(
+    (d.pragma('table_info(settings)') as { name: string }[]).map((c) => c.name),
+  );
+  if (!settingsCols.has('ghost_delay_ms')) {
+    d.exec(`ALTER TABLE settings ADD COLUMN ghost_delay_ms INTEGER NOT NULL DEFAULT 4000`);
   }
 }
 
@@ -172,10 +181,20 @@ export function boardExists(id: string): boolean {
  */
 export function loadSettings(): StoredSettings | null {
   const row = conn()
-    .prepare('SELECT provider, api_key, base_url, model FROM settings WHERE id = 1')
-    .get() as { provider: string; api_key: string; base_url: string; model: string } | undefined;
+    .prepare(
+      'SELECT provider, api_key, base_url, model, ghost_delay_ms FROM settings WHERE id = 1',
+    )
+    .get() as { provider: string; api_key: string; base_url: string; model: string; ghost_delay_ms: number } | undefined;
   if (!row) return null;
-  return { provider: row.provider as ProviderId, apiKey: row.api_key, baseUrl: row.base_url, model: row.model };
+  return {
+    provider: row.provider as ProviderId,
+    apiKey: row.api_key,
+    baseUrl: row.base_url,
+    model: row.model,
+    // Normalized on read: a hand-edited or migrated value off the ladder must
+    // not wedge the ghost at a strange interval — it lands on the default.
+    ghostDelayMs: normalizeGhostDelay(row.ghost_delay_ms),
+  };
 }
 
 /**
@@ -187,16 +206,18 @@ export function saveSettings(next: {
   apiKey?: string;
   baseUrl: string;
   model: string;
+  ghostDelayMs: number;
 }): void {
   conn()
     .prepare(
-      `INSERT INTO settings (id, provider, api_key, base_url, model)
-       VALUES (1, @provider, @apiKey, @baseUrl, @model)
+      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms)
+       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs)
        ON CONFLICT(id) DO UPDATE SET
          provider = @provider,
          api_key = CASE WHEN @keepKey THEN settings.api_key ELSE @apiKey END,
          base_url = @baseUrl,
-         model = @model`,
+         model = @model,
+         ghost_delay_ms = @ghostDelayMs`,
     )
     .run({
       provider: next.provider,
@@ -205,6 +226,7 @@ export function saveSettings(next: {
       keepKey: next.apiKey === undefined ? 1 : 0,
       baseUrl: next.baseUrl,
       model: next.model,
+      ghostDelayMs: next.ghostDelayMs,
     });
 }
 

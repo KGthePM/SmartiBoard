@@ -169,6 +169,9 @@ layer.
   click it, and adding is undoable. Select a card first and it branches off that idea instead
 - **⌘⇧P / Ctrl+Shift+P** (or the **Private** button) turns Privacy Mode on for this board:
   no suggestions, no ideas, nothing sent to a model. Per-board, so the rest keep working
+- **⌘⇧F / Ctrl+Shift+F** (or the **Present** button) puts the board on a screen for a room:
+  fullscreen, read-only, everything fitted to view. Pan and zoom still work; **Esc** exits
+  and you come back exactly where you were
 
 ## What the board is for
 

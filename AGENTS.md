@@ -73,6 +73,20 @@ the user's to make — say what needs looking at and stop there.
 - **Trigger policy** (`lib/ai/trigger.ts`): the AI never fires per keystroke. Debounce, a
   position-independent fingerprint (dragging must not spend a token), a 3-idea floor, one
   live ghost at a time, session memory of dismissals.
+- **Ghost frequency** (v2.1): the debounce window is user-settable, globally, in the Settings
+  panel — 4s (default, `DEBOUNCE_MS`) / 10s / 30s / 1 min / Off — stored in the settings row
+  (`ghost_delay_ms`; `normalizeGhostDelay` snaps junk to the default and is shared by the
+  route's PUT and `loadSettings` so read and write cannot disagree). It is the only knob: the
+  ghost still fires once per material change once the board settles, never on a wall clock,
+  so the fingerprint and every other guard stands untouched. `Off` (`GHOST_DELAY_OFF = 0`)
+  returns `{fire:false, reason:'disabled'}` from `shouldRequest`, ranked right after
+  `privacy` — privacy answers a different question and Off must not be able to mask it — and
+  it is *not* Privacy Mode: the Ideas button still works, the board still ships when asked.
+  Delivery is the store: `store.ghostDelayMs` is install-level state (spends no undo step,
+  no token, deliberately not reset by `beginLoad`), seeded by one `/api/settings` GET on
+  canvas mount and written live by the panel's save; the loop reads it off `getState()` each
+  tick, so a change applies within a second without re-arming any effect. A PUT that omits
+  the field keeps the stored rung — the apiKey precedent.
 - **Undo**: a suggestion *appearing* is never undoable; *accepting* one is.
 - **Redo** (v1.7): ⌘⇧Z / ⌘Y or the chrome button walks an undone edit back in. Any change to
   the board spends the redo stack — moves and resizes included, because a redo snapshot is
@@ -228,6 +242,37 @@ the user's to make — say what needs looking at and stop there.
   does not need. `sole` on `NodeCard` gates the empty-card auto-edit to a lone selection, so
   shift-clicking an empty card into a set does not jump it into editing, and double-click
   collapses the selection to the card being edited.
+
+- **Presentation mode** (v1.13, functional not flourish): the board on a screen, for a room —
+  a fullscreen, read-only, fit-to-board view. Entered with the Present button or ⌘⇧F; exited
+  with Escape, ⌘⇧F, the Exit button, a board switch, or unmount. Pure view, exactly like the
+  selection: `presenting` is store UI state that spends no undo snapshot, no redo stack, no
+  `lastMutationAt` bump, never a token, and is absent from `fingerprint` by construction —
+  no schema change, no `savePayload` change, autosave untouched underneath. Entering clears
+  the selection (like undo does — no ring on the projector) and saves the viewport into
+  `prePresentViewport` for the exit to restore; a viewport is not content, so restoring is
+  politeness, not an edit. `setPresenting` is guarded against re-asking, so the fitted camera
+  can never quietly become the restore point. The opening camera is `fitViewport` in
+  `lib/graph.ts` (pure geometry, `FIT_PAD` breathing room, scale clamped to the wheel's
+  `VIEW_MIN_SCALE`/`VIEW_MAX_SCALE` so what fit gives, the wheel can keep), and the Board's
+  fit effect also refits on a surface resize — the browser-fullscreen transition resizes the
+  surface *after* the first fit. Read-only is one CSS gate, not a prop: under `.presenting`,
+  cards (and their textareas) and the edge furniture are `pointer-events: none`, so editing
+  logic is unreachable and hover affordances cannot even reveal; the pan and the wheel zoom
+  are the gestures that remain, and the marquee and double-click-create are gated in Board.
+  The node wrapper key gains a `:p` suffix in presentation, remounting every card on the flip
+  — the only way to guarantee a card caught mid-edit re-renders in its read view, since
+  editing state lives inside `NodeCard`. `BoardChrome`, the legend, the status row, and any
+  ghost are simply not rendered (BoardChrome unmounting also retires ⌘K/⌘./⌘,/⌘J/⌘⇧P for the
+  room), and `PresentOverlay` replaces them as the only interface: the board's name
+  (`boardTitle`, derived included) and an Exit button. The overlay owns the Fullscreen API —
+  requested on `documentElement` from the entry gesture, `.catch(() => {})` so refusal or an
+  old browser degrades to in-page presentation — and the exit keys, including the
+  `fullscreenchange` listener that ends presentation when the browser leaves fullscreen
+  (Chrome consumes the Escape keydown there, so the event never reaches the page; the exit
+  itself does). The suggest loop skips its ticks while presenting: the board is read-only, so
+  an edit's debounce from just before entry cannot spend a token on a ghost that renders
+  nowhere; on exit the loop resumes with nothing about the board having changed.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

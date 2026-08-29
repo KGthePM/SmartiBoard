@@ -3,6 +3,7 @@ import {
   clampSize,
   createNode,
   emptyBoard,
+  fitViewport,
   NODE_FONT_DEFAULT,
   NODE_MIN_H,
   NODE_MIN_W,
@@ -13,6 +14,8 @@ import {
   removeNodes,
   snapFontSize,
   stepFontSize,
+  VIEW_MAX_SCALE,
+  VIEW_MIN_SCALE,
   type Edge,
 } from './graph';
 
@@ -131,6 +134,45 @@ describe('objective', () => {
     expect(parseBoard('b', { objective: long, nodes: [] }).objective).toHaveLength(
       OBJECTIVE_MAX,
     );
+  });
+});
+
+describe('fitViewport', () => {
+  it('gives an empty board the origin at rest — presenting nothing must not crash', () => {
+    expect(fitViewport([], { w: 1200, h: 800 })).toEqual({ x: 0, y: 0, scale: 1 });
+  });
+
+  it('caps how far a fit will zoom in, and centers within the padding', () => {
+    // One lone card: fitting it honestly would demand scale 5+, which the
+    // wheel could never keep company with, so the cap holds and the card
+    // centers inside the padded frame instead.
+    const v = fitViewport([createNode({ x: 0, y: 0 })], { w: 1200, h: 800 });
+    expect(v.scale).toBe(VIEW_MAX_SCALE);
+    // Card center lands at the surface center: 600, 400.
+    expect(v.x + (200 * v.scale) / 2).toBe(600);
+    expect(v.y + (96 * v.scale) / 2).toBe(400);
+  });
+
+  it('fits a spread board and centers it', () => {
+    // A 2000-wide pair of cards in a 1000-wide window with no padding: scale
+    // 0.5 exactly, x pinned so the span starts at the left edge, y centered.
+    const nodes = [createNode({ x: 0, y: 0 }), createNode({ x: 1800, y: 0 })];
+    const v = fitViewport(nodes, { w: 1000, h: 1000 }, 0);
+    expect(v).toEqual({ x: 0, y: 476, scale: 0.5 });
+  });
+
+  it('floors how far a fit will zoom out, like the wheel does', () => {
+    const nodes = [createNode({ x: 0, y: 0 }), createNode({ x: 100000, y: 0 })];
+    expect(fitViewport(nodes, { w: 1000, h: 1000 }, 0).scale).toBe(VIEW_MIN_SCALE);
+  });
+
+  it('centers boards that live far from the origin, not just small ones', () => {
+    // A board at (1000, 2000) should land mid-screen, not mid-desert: the
+    // translate accounts for where the bounds actually are.
+    const v = fitViewport([createNode({ x: 1000, y: 2000 })], { w: 1000, h: 800 }, 0);
+    // The card's center in screen terms: its own center, through the camera.
+    expect(v.x + (1000 + 200 / 2) * v.scale).toBe(500);
+    expect(v.y + (2000 + 96 / 2) * v.scale).toBe(400);
   });
 });
 

@@ -4,10 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
 import {
   emptyBoard,
+  fitViewport,
   NODE_H,
   NODE_W,
   nodesInRect,
   parseBoard,
+  VIEW_MAX_SCALE,
+  VIEW_MIN_SCALE,
   type Board,
   type NodeId,
   type Rect,
@@ -17,6 +20,7 @@ import { BoardChrome } from '../BoardChrome';
 import { EdgeLayer } from './EdgeLayer';
 import { GhostCard } from './GhostCard';
 import { NodeCard } from './NodeCard';
+import { PresentOverlay } from './PresentOverlay';
 
 const AUTOSAVE_MS = 700;
 /** How often a failed save retries itself while the indicator shows error. */
@@ -56,6 +60,8 @@ export function Board({ boardId }: { boardId: string }) {
     proposal,
     suggesting,
     viewport,
+    surface,
+    presenting,
     selectedIds,
     selectedEdgeId,
     loaded,
@@ -103,6 +109,29 @@ export function Board({ boardId }: { boardId: string }) {
     const ro = new ResizeObserver(sync);
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  /* ---------- the ghost's frequency: install-level, seeded once ---------- */
+
+  // The suggest loop reads ghostDelayMs off the store every tick; this is how
+  // it first learns the saved value. Mount-only on purpose — it is global, so
+  // a board switch re-arming this would only churn identical answers. A GET
+  // with nothing riding on failure: no row means the default stands.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((d: { settings: { ghostDelayMs?: unknown } | null }) => {
+        if (cancelled) return;
+        const ms = d.settings?.ghostDelayMs;
+        if (typeof ms === 'number') useBoard.getState().setGhostDelay(ms);
+      })
+      .catch(() => {
+        /* Unset stays the default — see above. */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /* ---------- leaving a board: its pending edits leave as a write ---------- */
@@ -240,6 +269,12 @@ export function Board({ boardId }: { boardId: string }) {
 
     const tick = () => {
       const s = useBoard.getState();
+      // The room is watching: while presenting, the board is read-only and so
+      // by construction nothing new to ask about — but an edit's debounce from
+      // just before entering could still cross the threshold mid-presentation,
+      // spending a token on a ghost that renders nowhere. Hold the loop until
+      // the mode ends; nothing about the board changed in the meantime.
+      if (s.presenting) return;
       const state: TriggerState = {
         lastMutationAt: s.lastMutationAt,
         lastRequestedFingerprint: s.lastRequestedFingerprint,
@@ -248,7 +283,12 @@ export function Board({ boardId }: { boardId: string }) {
         failedAt: s.suggestFailedAt,
       };
 
-      const decision = shouldRequest(s.board, state, Date.now());
+      // Read at tick time, not from the render: the Settings panel writes the
+      // store directly, so a saved window (or Off) applies within one tick
+      // without this effect ever re-arming.
+      const decision = shouldRequest(s.board, state, Date.now(), {
+        ghostDelayMs: s.ghostDelayMs,
+      });
       if (!decision.fire) return;
 
       s.markRequested(decision.fingerprint);
@@ -281,6 +321,17 @@ export function Board({ boardId }: { boardId: string }) {
     return () => clearInterval(id);
     // boardId is a dependency so the timer is torn down across a switch.
   }, [loaded, boardId]);
+
+  /* ---------- presentation: the opening camera ---------- */
+
+  useEffect(() => {
+    if (!presenting) return;
+    useBoard.getState().setViewport(fitViewport(board.nodes, surface));
+    // The surface is a dependency on purpose: the browser-fullscreen
+    // transition resizes it *after* the first fit, and a room TV resized
+    // mid-session deserves the same refit. Pan and zoom in between never
+    // retrigger this — they change the viewport, not the surface or the nodes.
+  }, [presenting, surface, board.nodes]);
 
   /* ---------- pointer handling ---------- */
 
@@ -340,7 +391,7 @@ export function Board({ boardId }: { boardId: string }) {
     const rect = surfaceRef.current?.getBoundingClientRect();
     const cx = e.clientX - (rect?.left ?? 0);
     const cy = e.clientY - (rect?.top ?? 0);
-    const next = clamp(viewport.scale * (e.deltaY < 0 ? 1.08 : 1 / 1.08), 0.25, 2.5);
+    const next = clamp(viewport.scale * (e.deltaY < 0 ? 1.08 : 1 / 1.08), VIEW_MIN_SCALE, VIEW_MAX_SCALE);
     // Zoom toward the cursor, not the origin.
     store.setViewport({
       scale: next,
@@ -353,6 +404,10 @@ export function Board({ boardId }: { boardId: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Read-only means read-only: none of the editing keys answer while
+      // presenting. Escape and ⌘⇧F belong to the overlay instead.
+      if (presenting) return;
+
       const typing =
         e.target instanceof HTMLElement &&
         (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
@@ -402,7 +457,7 @@ export function Board({ boardId }: { boardId: string }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedIds, selectedEdgeId]);
+  }, [presenting, selectedIds, selectedEdgeId]);
 
   const pendingLine =
     drag?.kind === 'connect'
@@ -417,18 +472,20 @@ export function Board({ boardId }: { boardId: string }) {
     <>
       <div
         ref={surfaceRef}
-        className={`viewport ${drag?.kind === 'pan' ? 'panning' : ''}`}
+        className={`viewport ${drag?.kind === 'pan' ? 'panning' : ''} ${presenting ? 'presenting' : ''}`}
         onPointerDown={(e) => {
           if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('world'))
             return;
-          if (e.shiftKey) {
+          // Presenting keeps exactly one gesture: the pan. The marquee is an
+          // editing tool, and there is nothing to select.
+          if (!presenting && e.shiftKey) {
             // Shift+drag on empty canvas is the marquee; the plain drag still
             // pans, exactly as it always has.
             const p = toBoardCoords(e.clientX, e.clientY);
             setDrag({ kind: 'marquee', ax: p.x, ay: p.y, cx: p.x, cy: p.y });
             return;
           }
-          store.select(null);
+          if (!presenting) store.select(null);
           setDrag({
             kind: 'pan',
             startX: e.clientX,
@@ -442,6 +499,7 @@ export function Board({ boardId }: { boardId: string }) {
         onPointerLeave={() => setDrag(null)}
         onWheel={onWheel}
         onDoubleClick={(e) => {
+          if (presenting) return;
           if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('world'))
             return;
           if (Date.now() - lastDeleteAt.current < 400) return;
@@ -455,11 +513,13 @@ export function Board({ boardId }: { boardId: string }) {
             transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           }}
         >
+          {/* proposal/selection gated for the room the same way the GhostCard
+              is below: a suggestion is not on the board while presenting. */}
           <EdgeLayer
             board={board}
-            proposal={proposal}
+            proposal={presenting ? null : proposal}
             pending={pendingLine}
-            selectedEdgeId={selectedEdgeId}
+            selectedEdgeId={presenting ? null : selectedEdgeId}
             onSelectEdge={(id) => store.selectEdge(id)}
             onDeleteEdge={(id) => {
               // Same guard as the node ×: removing the line mid-click must not
@@ -470,7 +530,11 @@ export function Board({ boardId }: { boardId: string }) {
           />
 
           {board.nodes.map((n) => (
-            <div key={n.id} data-node-id={n.id} style={{ position: 'absolute' }}>
+            // The :p suffix remounts every card on the mode flip: editing
+            // state lives inside NodeCard with no other way in, so this is
+            // what guarantees a card caught mid-edit at entry re-renders in
+            // its read view — and blurs the textarea with it.
+            <div key={presenting ? `${n.id}:p` : n.id} data-node-id={n.id} style={{ position: 'absolute' }}>
               <NodeCard
                 node={n}
                 selected={selectedIds.includes(n.id)}
@@ -544,7 +608,10 @@ export function Board({ boardId }: { boardId: string }) {
             })()
           ) : null}
 
-          {proposal ? (
+          {/* Not rendered while presenting: a ghost is an editing-time
+              collaborator, and the suggest loop is paused for the room. One
+              that slipped in just before entry waits off-screen for the exit. */}
+          {proposal && !presenting ? (
             <GhostCard
               proposal={proposal}
               onAccept={() => store.acceptProposal()}
@@ -554,32 +621,38 @@ export function Board({ boardId }: { boardId: string }) {
         </div>
       </div>
 
-      <BoardChrome />
+      {presenting ? (
+        <PresentOverlay />
+      ) : (
+        <>
+          <BoardChrome />
 
-      <div className="legend">
-        <span>
-          <i className="l-user" />
-          yours
-        </span>
-        <span>
-          <i className="l-ghost" />
-          suggested
-        </span>
-        <span>
-          <i className="l-accepted" />
-          accepted
-        </span>
-      </div>
+          <div className="legend">
+            <span>
+              <i className="l-user" />
+              yours
+            </span>
+            <span>
+              <i className="l-ghost" />
+              suggested
+            </span>
+            <span>
+              <i className="l-accepted" />
+              accepted
+            </span>
+          </div>
 
-      <div className="status">
-        {/* First in the row because save state outranks a suggestion: it is
-            the answer to "is my work safe?" */}
-        <span className={saveState === 'error' ? 'save-error' : undefined}>
-          {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved — retrying…' : 'Saved'}
-        </span>
-        {suggesting ? <span>thinking…</span> : null}
-        <span>{board.nodes.length} ideas</span>
-      </div>
+          <div className="status">
+            {/* First in the row because save state outranks a suggestion: it is
+                the answer to "is my work safe?" */}
+            <span className={saveState === 'error' ? 'save-error' : undefined}>
+              {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved — retrying…' : 'Saved'}
+            </span>
+            {suggesting ? <span>thinking…</span> : null}
+            <span>{board.nodes.length} ideas</span>
+          </div>
+        </>
+      )}
     </>
   );
 }

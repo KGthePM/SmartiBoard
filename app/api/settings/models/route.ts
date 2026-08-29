@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { OpenAiError, openaiListModels, type ModelInfo } from '@/lib/ai/openai';
 import { PRESETS, resolveEndpointFrom, type ProviderId } from '@/lib/ai/providers';
+import { DEBOUNCE_MS } from '@/lib/ai/trigger';
 import { classify, short, type UpstreamReason } from '@/lib/ai/upstream';
 import { loadSettings } from '@/lib/db';
 
@@ -64,7 +65,14 @@ export async function POST(req: Request) {
   const stored = loadSettings();
   const apiKey = typed || (stored?.provider === provider ? stored.apiKey : '');
 
-  const cfg = resolveEndpointFrom({ provider, apiKey, baseUrl: str(body.baseUrl), model: '' });
+  const cfg = resolveEndpointFrom({
+    provider,
+    apiKey,
+    baseUrl: str(body.baseUrl),
+    model: '',
+    // Resolution never reads it; the type carries the whole row.
+    ghostDelayMs: DEBOUNCE_MS,
+  });
   if (!cfg) {
     return NextResponse.json<ModelsResult>({ ok: false, reason: 'no_config' });
   }

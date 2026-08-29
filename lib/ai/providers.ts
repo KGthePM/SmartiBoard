@@ -84,6 +84,13 @@ export type StoredSettings = {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /**
+   * The ghost's settle window (v2.1) — a GHOST_DELAY_STEPS_MS rung or
+   * GHOST_DELAY_OFF. Install-level like the rest of the row: a preference
+   * about how the AI behaves, not content of any board. Not part of model
+   * resolution; the client-side suggest loop is the only reader.
+   */
+  ghostDelayMs: number;
 };
 
 /** A resolved, ready-to-call configuration — blanks filled from the preset. */

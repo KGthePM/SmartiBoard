@@ -59,6 +59,11 @@ export function BoardChrome() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         useBoard.getState().setPrivacy(!useBoard.getState().board.privacy);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        // Present. This handler is unmounted while presenting (the overlay
+        // replaces the chrome), so from here it is always the way in.
+        e.preventDefault();
+        useBoard.getState().setPresenting(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -176,6 +181,15 @@ export function BoardChrome() {
           onClick={() => setIdeasOpen(!ideasOpen)}
         >
           Ideas
+        </button>
+
+        <button
+          className="chrome-present"
+          title="Present this board (⌘⇧F)"
+          disabled={!loaded}
+          onClick={() => useBoard.getState().setPresenting(true)}
+        >
+          Present
         </button>
 
         <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>

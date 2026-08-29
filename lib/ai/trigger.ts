@@ -12,6 +12,30 @@ import { stripMarks } from '../richtext';
 
 export const DEBOUNCE_MS = 4000;
 /**
+ * The ghost's frequency setting (v2.1): how long the board must sit still
+ * before the ghost may speak, as the user chose it in Settings. The default is
+ * DEBOUNCE_MS, so an untouched install behaves exactly as it always did. The
+ * ghost is not on a wall-clock schedule — it fires once per material change,
+ * never "every N minutes" on an untouched board — so this window is the only
+ * honest meaning "how often" can have.
+ */
+export const GHOST_DELAY_STEPS_MS = [4000, 10000, 30000, 60000] as const;
+/** The Off rung: the ghost never appears unsolicited. The Ideas button is the
+ * user-invoked behavior and is untouched by it. */
+export const GHOST_DELAY_OFF = 0;
+/**
+ * Snap any value to a legal rung. Junk, absence, and off-ladder numbers all
+ * land on the default — a bad row in the database or a stale client's PUT must
+ * never turn the ghost off or wedge it at a strange interval. Shared by the
+ * route (write side) and loadSettings (read side) so the two cannot disagree.
+ */
+export function normalizeGhostDelay(v: unknown): number {
+  return typeof v === 'number' &&
+    (v === GHOST_DELAY_OFF || (GHOST_DELAY_STEPS_MS as readonly number[]).includes(v))
+    ? v
+    : DEBOUNCE_MS;
+}
+/**
  * How long to wait after a request that never came back with an answer.
  *
  * A failed request says nothing about the board, so the fingerprint is released
@@ -45,12 +69,20 @@ export type TriggerDecision =
 
 export type TriggerBlockReason =
   | 'privacy'
+  | 'disabled'
   | 'in_flight'
   | 'cooling_down'
   | 'proposal_limit'
   | 'too_few_nodes'
   | 'debouncing'
   | 'no_material_change';
+
+/** The user-facing knobs for shouldRequest. Absent means installed defaults. */
+export type TriggerOptions = {
+  /** The Settings row's ghost window: a GHOST_DELAY_STEPS_MS rung, or
+   * GHOST_DELAY_OFF. Absent defaults to DEBOUNCE_MS. */
+  ghostDelayMs?: number;
+};
 
 /**
  * Semantic fingerprint of the board.
@@ -111,6 +143,7 @@ export function shouldRequest(
   board: Board,
   state: TriggerState,
   now: number,
+  opts: TriggerOptions = {},
 ): TriggerDecision {
   // Absolute, and therefore first: no state, no timing, and no fingerprint can
   // get past it. A private board is not one the AI is quiet on — it is one the
@@ -118,6 +151,14 @@ export function shouldRequest(
   // guarantee: the routes refuse on their own, because a client that stops
   // asking is only a client.
   if (board.privacy) return { fire: false, reason: 'privacy' };
+
+  // The Off rung, second only to privacy: privacy is the answer to a different
+  // question ("is this board's content egress allowed at all?"), while Off is
+  // the user saying the unsolicited ghost specifically is not wanted — the
+  // Ideas button still works, and a private board's reason must not read as a
+  // mere preference. Everything below is mechanical and ranked under it.
+  const delay = opts.ghostDelayMs ?? DEBOUNCE_MS;
+  if (delay === GHOST_DELAY_OFF) return { fire: false, reason: 'disabled' };
 
   if (state.inFlight) return { fire: false, reason: 'in_flight' };
 
@@ -133,7 +174,7 @@ export function shouldRequest(
     return { fire: false, reason: 'too_few_nodes' };
   }
 
-  if (now - state.lastMutationAt < DEBOUNCE_MS) {
+  if (now - state.lastMutationAt < delay) {
     return { fire: false, reason: 'debouncing' };
   }
 

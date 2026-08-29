@@ -885,6 +885,84 @@ describe('toggleNodeDone', () => {
   });
 });
 
+describe('setPresenting', () => {
+  it('saves the viewport on the way in and restores it on the way out', () => {
+    open('present-a');
+    s().setViewport({ x: 11, y: 22, scale: 0.5 });
+    s().setPresenting(true);
+    expect(s().presenting).toBe(true);
+    expect(s().prePresentViewport).toEqual({ x: 11, y: 22, scale: 0.5 });
+
+    // The fitted camera the canvas sets while presenting must not leak back
+    // into the editing view — the presenter comes back where they left.
+    s().setViewport({ x: 350, y: 280, scale: 2.5 });
+    s().setPresenting(false);
+    expect(s().presenting).toBe(false);
+    expect(s().viewport).toEqual({ x: 11, y: 22, scale: 0.5 });
+    expect(s().prePresentViewport).toBeNull();
+  });
+
+  it('clears the selection like undo does — no ring on the projector', () => {
+    open('present-b');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+
+    s().selectMany([a, b]);
+    s().setPresenting(true);
+    expect(s().selectedIds).toEqual([]);
+
+    s().setPresenting(false);
+    s().selectEdge('e_x');
+    s().setPresenting(true);
+    expect(s().selectedEdgeId).toBeNull();
+  });
+
+  it('spends nothing: no undo step, no redo spend, no token', () => {
+    // A view of the board is not a change to it — the whole mode is as cheap
+    // as the selection it clears.
+    open('present-c');
+    s().addNode(0, 0);
+    s().undo();
+    expect(s().redoStack).toHaveLength(1);
+    const undoDepth = s().undoStack.length;
+    const before = s().lastMutationAt;
+    const fp = fingerprint(s().board);
+
+    s().setPresenting(true);
+    s().setPresenting(false);
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().redoStack).toHaveLength(1);
+    expect(s().lastMutationAt).toBe(before);
+    expect(fingerprint(s().board)).toBe(fp);
+  });
+
+  it('does not survive a board switch', () => {
+    open('present-d');
+    s().setPresenting(true);
+    open('present-e');
+    expect(s().presenting).toBe(false);
+    expect(s().prePresentViewport).toBeNull();
+  });
+
+  it('is a no-op when already in the state asked for — the fitted camera never becomes the restore point', () => {
+    open('present-f');
+    s().setViewport({ x: 5, y: 6, scale: 1 });
+    s().setPresenting(true);
+    // The fit lands, then a stray second ask arrives.
+    s().setViewport({ x: 999, y: 999, scale: 0.25 });
+    s().setPresenting(true);
+    expect(s().prePresentViewport).toEqual({ x: 5, y: 6, scale: 1 });
+
+    s().setPresenting(false);
+    expect(s().viewport).toEqual({ x: 5, y: 6, scale: 1 });
+
+    // And the mirror: asking to stop when already stopped touches nothing.
+    const stayed = s().viewport;
+    s().setPresenting(false);
+    expect(s().viewport).toBe(stayed);
+  });
+});
+
 describe('failRequest', () => {
   // A request that never reached the model says nothing about this board, so
   // the board must not be treated as already asked about — otherwise one

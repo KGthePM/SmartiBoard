@@ -15,14 +15,13 @@ import {
   type Board,
   type Layer,
   type NodeId,
+  type Viewport,
 } from './graph';
-import { fingerprint } from './ai/trigger';
+import { DEBOUNCE_MS, fingerprint } from './ai/trigger';
 import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import type { Rect } from './graph';
 import type { Proposal, ProposalDraft } from './proposal';
-
-type Viewport = { x: number; y: number; scale: number };
 
 /** Screen size of the canvas surface, needed to know what's actually visible. */
 type Surface = { w: number; h: number };
@@ -109,6 +108,21 @@ export type State = {
   viewport: Viewport;
   surface: Surface;
   /**
+   * Presentation mode (v1.13): the board on a screen, for a room. Pure view,
+   * exactly like the selection — no undo snapshot, no redo spend, no
+   * lastMutationAt bump, never a token, absent from the fingerprint by
+   * construction. The canvas is read-only under it; the only interactions
+   * left are pan and wheel-zoom.
+   */
+  presenting: boolean;
+  /**
+   * The viewport the presenter left, saved on the way in and restored on the
+   * way out — a viewport is not content, so restoring is politeness, not an
+   * edit. The fitted camera itself is set by the canvas, which owns the
+   * surface geometry.
+   */
+  prePresentViewport: Viewport | null;
+  /**
    * The selection — one card or many. Pure UI state: it spends no undo step,
    * no token, and never survives a board switch, an undo, or a redo.
    */
@@ -125,6 +139,15 @@ export type State = {
   redoStack: Board[];
   lastMutationAt: number;
   lastRequestedFingerprint: string | null;
+  /**
+   * The ghost's settle window (v2.1), as the Settings row holds it. Install-
+   * level UI state, like settingsOpen: no undo snapshot, no redo spend, no
+   * lastMutationAt bump, never a token, and deliberately absent from beginLoad
+   * — it belongs to the install, not to any board, so a switch must not reset
+   * it. The suggest loop reads it fresh off getState() every tick, which is
+   * the whole delivery mechanism: a Settings save lands within a second.
+   */
+  ghostDelayMs: number;
   /**
    * When the last suggest request failed to come back with an answer. A failure
    * says nothing about the board, so the fingerprint is released and this
@@ -161,8 +184,11 @@ export type State = {
   selectEdge: (id: string | null) => void;
   setViewport: (v: Viewport) => void;
   setSurface: (s: Surface) => void;
+  setPresenting: (v: boolean) => void;
 
   setSuggesting: (v: boolean) => void;
+  /** Install-level: the Settings panel writes it, the suggest loop reads it. */
+  setGhostDelay: (ms: number) => void;
   markRequested: (fingerprint: string) => void;
   failRequest: () => void;
   receiveProposal: (draft: ProposalDraft) => void;
@@ -212,12 +238,15 @@ export const useBoard = create<State>((set, get) => ({
   objectiveOpen: false,
   viewport: { x: 0, y: 0, scale: 1 },
   surface: { w: 1200, h: 800 },
+  presenting: false,
+  prePresentViewport: null,
   selectedIds: [],
   selectedEdgeId: null,
   undoStack: [],
   redoStack: [],
   lastMutationAt: 0,
   lastRequestedFingerprint: null,
+  ghostDelayMs: DEBOUNCE_MS,
   suggestFailedAt: null,
   lastTextEditId: null,
   loaded: false,
@@ -253,6 +282,11 @@ export const useBoard = create<State>((set, get) => ({
       suggestFailedAt: null,
       lastTextEditId: null,
       viewport: { x: 0, y: 0, scale: 1 },
+      // A board switch lands you out of presentation, like it closes the
+      // panels — and, through the overlay unmounting, out of browser
+      // fullscreen. Presenting board A over board B is not a thing.
+      presenting: false,
+      prePresentViewport: null,
     }),
 
   hydrate: (board) =>
@@ -461,7 +495,35 @@ export const useBoard = create<State>((set, get) => ({
   setViewport: (v) => set({ viewport: v }),
   setSurface: (surface) => set({ surface }),
 
+  /**
+   * Presentation mode. The mode flag plus the viewport bookkeeping and nothing
+   * else — entering clears the selection the way undo does (no ring on the
+   * projector) and saves the viewport to restore on exit. Spending nothing is
+   * the point: a view of the board is not a change to it, so the undo stack,
+   * the redo stack, and the trigger clock all stand exactly as they were.
+   */
+  setPresenting: (v) =>
+    set((s) => {
+      // Already there: re-asking must not re-save the viewport, or the fitted
+      // camera would quietly become the restore point.
+      if (v === s.presenting) return s;
+      if (!v) {
+        return {
+          presenting: false,
+          viewport: s.prePresentViewport ?? s.viewport,
+          prePresentViewport: null,
+        };
+      }
+      return {
+        presenting: true,
+        prePresentViewport: s.viewport,
+        selectedIds: [],
+        selectedEdgeId: null,
+      };
+    }),
+
   setSuggesting: (v) => set({ suggesting: v }),
+  setGhostDelay: (ms) => set({ ghostDelayMs: ms }),
   // A request that got through ends any cooldown, whatever it came back with.
   markRequested: (fingerprint) =>
     set({ lastRequestedFingerprint: fingerprint, suggestFailedAt: null }),

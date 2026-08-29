@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import type { ModelInfo } from '@/lib/ai/openai';
 import { PRESETS, PROVIDERS, type ProviderId } from '@/lib/ai/providers';
+import { DEBOUNCE_MS, GHOST_DELAY_OFF, GHOST_DELAY_STEPS_MS } from '@/lib/ai/trigger';
+import { useBoard } from '@/lib/store';
 
 /**
  * Where the user says which model co-authors their boards.
@@ -21,8 +23,23 @@ type Masked = {
   provider: ProviderId;
   baseUrl: string;
   model: string;
+  ghostDelayMs: number;
   hasKey: boolean;
   keyHint: string | null;
+};
+
+/**
+ * The ghost frequency rungs, as the dropdown shows them. The ghost fires once
+ * per material change — never on a wall clock — so each rung names the window
+ * of stillness that precedes it, which is the only honest phrasing of "how
+ * often" this design permits.
+ */
+const GHOST_DELAY_LABELS: Record<number, string> = {
+  [DEBOUNCE_MS]: 'After 4s of stillness (default)',
+  10000: 'After 10s of stillness',
+  30000: 'After 30s of stillness',
+  60000: 'After 1 min of stillness',
+  [GHOST_DELAY_OFF]: 'Off — never on its own',
 };
 
 type TestState =
@@ -53,6 +70,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [baseUrl, setBaseUrl] = useState(PRESETS.anthropic.defaultBaseUrl);
   const [model, setModel] = useState(PRESETS.anthropic.defaultModel);
   const [stored, setStored] = useState<Masked | null>(null);
+  const [ghostDelay, setGhostDelay] = useState<number>(DEBOUNCE_MS);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
@@ -78,6 +96,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           // so the panel never presents an empty box as if nothing were set.
           setBaseUrl(d.settings.baseUrl || p.defaultBaseUrl);
           setModel(d.settings.model || p.defaultModel);
+          // Already normalized on read by the server, so it is a legal rung.
+          setGhostDelay(d.settings.ghostDelayMs);
         }
         setReady(true);
       })
@@ -118,6 +138,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
     baseUrl: baseUrl.trim(),
     model: model.trim(),
+    ghostDelayMs: ghostDelay,
   });
 
   /**
@@ -190,11 +211,19 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const save = async () => {
     setSaving(true);
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload()),
       });
+      const d = (await res.json()) as { settings: Masked | null };
+      if (d.settings) setStored(d.settings);
+      // The store is the suggest loop's only channel to this setting — write
+      // the server's (normalized) value so the new window applies live,
+      // without a reload. Off, too: the loop re-reads it every tick.
+      if (typeof d.settings?.ghostDelayMs === 'number') {
+        useBoard.getState().setGhostDelay(d.settings.ghostDelayMs);
+      }
       onClose();
     } catch {
       setSaving(false);
@@ -360,9 +389,30 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
+          <label className="settings-field">
+            <span className="settings-label">Ghost suggestions</span>
+            <select
+              className="settings-select"
+              value={String(ghostDelay)}
+              onChange={(e) => setGhostDelay(Number(e.target.value))}
+            >
+              {[DEBOUNCE_MS, ...GHOST_DELAY_STEPS_MS.filter((ms) => ms !== DEBOUNCE_MS), GHOST_DELAY_OFF].map(
+                (ms) => (
+                  <option key={ms} value={String(ms)}>
+                    {GHOST_DELAY_LABELS[ms]}
+                  </option>
+                ),
+              )}
+            </select>
+            <span className="settings-hint">
+              How long the board sits still after an edit before the ghost may offer one suggestion. Off
+              turns the unsolicited ghost off everywhere — the Ideas button (⌘.) still works.
+            </span>
+          </label>
+
           <p className="settings-note">
-            Stored on this machine, in the same file as your boards. The key is never sent to
-            the browser and never leaves for anywhere but the provider you picked.
+            Stored on this machine, in the same file as your boards. The key is never sent to the browser and
+            never leaves for anywhere but the provider you picked.
           </p>
 
           {test.phase === 'ok' ? (

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { clearSettingsApiKey, loadSettings, saveSettings } from '@/lib/db';
 import { keyHint, PRESETS, type ProviderId } from '@/lib/ai/providers';
+import { DEBOUNCE_MS, normalizeGhostDelay } from '@/lib/ai/trigger';
 
 export const runtime = 'nodejs';
 
@@ -20,6 +21,7 @@ function masked() {
     provider: s.provider,
     baseUrl: s.baseUrl,
     model: s.model,
+    ghostDelayMs: s.ghostDelayMs,
     hasKey: Boolean(s.apiKey.trim()),
     keyHint: keyHint(s.apiKey),
   };
@@ -30,7 +32,13 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  let body: { provider?: unknown; apiKey?: unknown; baseUrl?: unknown; model?: unknown };
+  let body: {
+    provider?: unknown;
+    apiKey?: unknown;
+    baseUrl?: unknown;
+    model?: unknown;
+    ghostDelayMs?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -53,11 +61,20 @@ export async function PUT(req: Request) {
 
   const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
+  // Off-ladder junk lands on the default rather than rejecting the save: the
+  // window is a preference, and a stale client's odd number must not wedge the
+  // ghost or block the provider fields it rode in with. An absent value keeps
+  // the stored one — same doctrine as the key: the form sends what it holds.
+  const storedDelay = loadSettings()?.ghostDelayMs;
+  const ghostDelayMs =
+    body.ghostDelayMs === undefined ? (storedDelay ?? DEBOUNCE_MS) : normalizeGhostDelay(body.ghostDelayMs);
+
   saveSettings({
     provider: body.provider as ProviderId,
     ...(apiKey !== undefined ? { apiKey } : {}),
     baseUrl: str(body.baseUrl, 2048),
     model: str(body.model, 200),
+    ghostDelayMs,
   });
 
   return NextResponse.json({ settings: masked() });

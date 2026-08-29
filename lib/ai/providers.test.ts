@@ -12,6 +12,7 @@ const row = (over: Partial<StoredSettings> = {}): StoredSettings => ({
   apiKey: '',
   baseUrl: '',
   model: '',
+  ghostDelayMs: 4000,
   ...over,
 });
 

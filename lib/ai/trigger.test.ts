@@ -5,6 +5,8 @@ import {
   DEBOUNCE_MS,
   FAILURE_COOLDOWN_MS,
   fingerprint,
+  GHOST_DELAY_OFF,
+  normalizeGhostDelay,
   shouldRequest,
   type TriggerState,
 } from './trigger';
@@ -179,6 +181,70 @@ describe('privacy mode', () => {
     // buy the ghost a free question about a board nobody had touched.
     const a = board(['pricing', 'onboarding', 'churn']);
     expect(fingerprint({ ...a, privacy: true })).toBe(fingerprint(a));
+  });
+});
+
+describe('the ghost delay setting', () => {
+  it('holds a window the user widened, past where the default would fire', () => {
+    const b = board(['a', 'b', 'c']);
+    const settledForDefault = { ...idle, lastMutationAt: NOW - DEBOUNCE_MS - 1 };
+    expect(shouldRequest(b, settledForDefault, NOW).fire).toBe(true);
+    expect(shouldRequest(b, settledForDefault, NOW, { ghostDelayMs: 10_000 })).toEqual({
+      fire: false,
+      reason: 'debouncing',
+    });
+  });
+
+  it('fires once the wider window is past', () => {
+    const state = { ...idle, lastMutationAt: NOW - 10_001 };
+    expect(shouldRequest(board(['a', 'b', 'c']), state, NOW, { ghostDelayMs: 10_000 }).fire).toBe(true);
+  });
+
+  it('never fires on Off, however ready the board is', () => {
+    expect(shouldRequest(board(['a', 'b', 'c']), idle, NOW, { ghostDelayMs: GHOST_DELAY_OFF })).toEqual({
+      fire: false,
+      reason: 'disabled',
+    });
+  });
+
+  it('outranks the mechanical reasons, as a preference should', () => {
+    // Whichever check ran first would block anyway, but the reason is the
+    // point: Off is the user's answer, not the board being busy.
+    const busy: TriggerState = {
+      ...idle,
+      inFlight: true,
+      liveProposals: 1,
+      failedAt: NOW - 1,
+      lastMutationAt: NOW,
+    };
+    expect(shouldRequest(board(['a', 'b', 'c']), busy, NOW, { ghostDelayMs: GHOST_DELAY_OFF })).toEqual({
+      fire: false,
+      reason: 'disabled',
+    });
+  });
+
+  it('still loses to privacy — privacy is the answer, not a preference', () => {
+    const b = { ...board(['a', 'b', 'c']), privacy: true };
+    expect(shouldRequest(b, idle, NOW, { ghostDelayMs: GHOST_DELAY_OFF })).toEqual({
+      fire: false,
+      reason: 'privacy',
+    });
+  });
+});
+
+describe('normalizeGhostDelay', () => {
+  it('keeps every rung, Off included', () => {
+    for (const ms of [0, 4000, 10_000, 30_000, 60_000]) {
+      expect(normalizeGhostDelay(ms)).toBe(ms);
+    }
+  });
+
+  it('snaps junk and off-ladder numbers to the default', () => {
+    expect(normalizeGhostDelay(7000)).toBe(DEBOUNCE_MS);
+    expect(normalizeGhostDelay(-1)).toBe(DEBOUNCE_MS);
+    expect(normalizeGhostDelay('4000')).toBe(DEBOUNCE_MS);
+    expect(normalizeGhostDelay(undefined)).toBe(DEBOUNCE_MS);
+    expect(normalizeGhostDelay(Number.NaN)).toBe(DEBOUNCE_MS);
   });
 });
 

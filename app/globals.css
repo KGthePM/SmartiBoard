@@ -588,6 +588,68 @@ html, body {
 }
 .chrome-redo:hover:not(:disabled) { color: var(--ink); }
 .chrome-redo:disabled { opacity: 0.45; cursor: default; }
+.chrome-present {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: #fff;
+  cursor: pointer;
+}
+.chrome-present:hover:not(:disabled) { color: var(--ink); }
+.chrome-present:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- presentation mode ---------- */
+
+/* Read-only by one gate, not a prop: under .presenting the cards and the edge
+   furniture never receive pointers at all, so editing logic is unreachable and
+   hover affordances cannot even reveal (:hover cannot fire on pointer-events
+   none). The empty-canvas pan and the wheel zoom are the gestures that remain,
+   and both live on the viewport itself. */
+.presenting .card,
+.presenting .card textarea,
+.presenting .edge-hit,
+.presenting .edge-x {
+  pointer-events: none;
+}
+
+/* The whole interface while presenting: the board's name, and a way out. The
+   bar itself stays pointer-transparent except for its button, so dragging the
+   title area still pans the board underneath it. */
+.present-bar {
+  position: fixed;
+  top: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+  pointer-events: none;
+}
+.present-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+  max-width: min(50vw, 480px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Quiet but never hidden: a presenter must find the exit without hunting. */
+.present-exit {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.present-exit:hover { color: var(--ink); }
 
 /* ---------- help: canvas directions behind the ?, not over the canvas ---------- */
 

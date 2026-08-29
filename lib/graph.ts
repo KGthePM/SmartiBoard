@@ -202,6 +202,49 @@ export function nodesInRect(board: Board, rect: Rect): NodeId[] {
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
+/* ---------- presentation ---------- */
+
+/** The canvas camera: where the world sits on screen. */
+export type Viewport = { x: number; y: number; scale: number };
+
+/** The wheel's zoom range — what a fit gives, the wheel must be able to keep. */
+export const VIEW_MIN_SCALE = 0.25;
+export const VIEW_MAX_SCALE = 2.5;
+
+/** Screen breathing room around a fitted board, so cards don't kiss the edge. */
+export const FIT_PAD = 80;
+
+/**
+ * The camera that fits every card on screen, centered — presentation mode's
+ * opening frame. Pure geometry over the union of node rects; an empty board
+ * has nothing to frame, so it gets the origin at rest. The scale is clamped
+ * to the wheel's range so the fitted view is one the presenter can still
+ * adjust, not a zoom level the canvas would immediately fight.
+ */
+export function fitViewport(
+  nodes: IdeaNode[],
+  surface: { w: number; h: number },
+  pad = FIT_PAD,
+): Viewport {
+  if (nodes.length === 0) return { x: 0, y: 0, scale: 1 };
+
+  const minX = Math.min(...nodes.map((n) => n.x));
+  const minY = Math.min(...nodes.map((n) => n.y));
+  const maxX = Math.max(...nodes.map((n) => n.x + n.w));
+  const maxY = Math.max(...nodes.map((n) => n.y + n.h));
+
+  const availW = Math.max(1, surface.w - pad * 2);
+  const availH = Math.max(1, surface.h - pad * 2);
+  const raw = Math.min(availW / (maxX - minX), availH / (maxY - minY));
+  const scale = Math.min(VIEW_MAX_SCALE, Math.max(VIEW_MIN_SCALE, raw));
+
+  return {
+    scale,
+    x: (surface.w - (maxX - minX) * scale) / 2 - minX * scale,
+    y: (surface.h - (maxY - minY) * scale) / 2 - minY * scale,
+  };
+}
+
 export function rectOf(n: Pick<IdeaNode, 'x' | 'y' | 'w' | 'h'>): Rect {
   return { x: n.x, y: n.y, w: n.w, h: n.h };
 }

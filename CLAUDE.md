@@ -79,7 +79,7 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
 - `lib/placement.ts` — where a ghost lands. Pure.
-- `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`.
+- `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
 - `app/api/boards/route.ts` — the collection: list and create.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
@@ -122,6 +122,12 @@ like a collaborator or a paperclip. Both are now settled:
 - **Trigger policy** — the AI does not fire per keystroke. Debounce, a position-independent
   semantic fingerprint, a 3-idea floor, one live ghost at a time, and session memory of
   dismissals. All in `lib/ai/trigger.ts`.
+- **Ghost frequency** (v2.1) — the debounce window is user-settable in Settings (4s default /
+  10s / 30s / 1 min / Off), globally, stored as `ghost_delay_ms` in the settings row and
+  delivered through `store.ghostDelayMs` (install-level: survives `beginLoad`, spends
+  nothing). `Off` blocks with `reason: 'disabled'`, ranked after `privacy` in
+  `shouldRequest`; it is not Privacy Mode — Ideas still works. Junk snaps to the default via
+  `normalizeGhostDelay`, shared by the PUT route and `loadSettings`.
 - **Undo semantics** — a suggestion *appearing* is never in the user's undo stack;
   *accepting* one is. Reversed, the board feels haunted.
 - **Redo** (v1.7) — the mirror of undo, on ⌘⇧Z / ⌘Y. Any board mutation spends the redo
