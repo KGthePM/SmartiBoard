@@ -6,6 +6,12 @@ import { emptyBoard, newId, parseBoard, type Board } from './graph';
 import type { ProviderId, StoredSettings } from './ai/providers';
 import { normalizeGhostDelay } from './ai/trigger';
 import { DEFAULT_THEME, normalizeTheme, type ThemeId } from './theme';
+import {
+  DEFAULT_COLLAPSE_MODE,
+  modeFromRow,
+  modeToRow,
+  type CollapseMode,
+} from './collapse';
 import { tutorialBoard } from './tutorial';
 
 /**
@@ -45,7 +51,8 @@ function conn(): Database.Database {
       base_url TEXT NOT NULL DEFAULT '',
       model    TEXT NOT NULL DEFAULT '',
       ghost_delay_ms INTEGER NOT NULL DEFAULT 4000,
-      theme    TEXT NOT NULL DEFAULT 'light'
+      theme    TEXT NOT NULL DEFAULT 'light',
+      collapse_done INTEGER NOT NULL DEFAULT 0
     );
   `);
   migrate(db);
@@ -78,6 +85,15 @@ function migrate(d: Database.Database): void {
   if (!settingsCols.has('theme')) {
     // An install that predates themes was looking at Light, and stays there.
     d.exec(`ALTER TABLE settings ADD COLUMN theme TEXT NOT NULL DEFAULT '${DEFAULT_THEME}'`);
+  }
+  if (!settingsCols.has('collapse_done')) {
+    // An install that predates this was looking at full-size done cards, and
+    // stays there. The column held a 0/1 boolean in v2.8 and holds a mode from
+    // v2.9 on — same INTEGER, one more value, so no second migration; the
+    // encoding is `modeToRow`/`modeFromRow` in lib/collapse.ts.
+    d.exec(
+      `ALTER TABLE settings ADD COLUMN collapse_done INTEGER NOT NULL DEFAULT ${modeToRow(DEFAULT_COLLAPSE_MODE)}`,
+    );
   }
 }
 
@@ -203,7 +219,7 @@ export function boardExists(id: string): boolean {
 export function loadSettings(): StoredSettings | null {
   const row = conn()
     .prepare(
-      'SELECT provider, api_key, base_url, model, ghost_delay_ms, theme FROM settings WHERE id = 1',
+      'SELECT provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done FROM settings WHERE id = 1',
     )
     .get() as
     | {
@@ -213,6 +229,7 @@ export function loadSettings(): StoredSettings | null {
         model: string;
         ghost_delay_ms: number;
         theme: string;
+        collapse_done: number;
       }
     | undefined;
   if (!row) return null;
@@ -227,6 +244,10 @@ export function loadSettings(): StoredSettings | null {
     // Same reason, sharper consequence: an unknown theme is a data-theme no
     // stylesheet answers to, which paints an unstyled board.
     theme: normalizeTheme(row.theme),
+    // SQLite hands back the integer the mode was stored as; the codec's job is
+    // the same as the two normalizers above, and a v2.8 row reads as the fold
+    // it already had.
+    collapseMode: modeFromRow(row.collapse_done),
   };
 }
 
@@ -241,18 +262,20 @@ export function saveSettings(next: {
   model: string;
   ghostDelayMs: number;
   theme: ThemeId;
+  collapseMode: CollapseMode;
 }): void {
   conn()
     .prepare(
-      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms, theme)
-       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs, @theme)
+      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done)
+       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs, @theme, @collapseDone)
        ON CONFLICT(id) DO UPDATE SET
          provider = @provider,
          api_key = CASE WHEN @keepKey THEN settings.api_key ELSE @apiKey END,
          base_url = @baseUrl,
          model = @model,
          ghost_delay_ms = @ghostDelayMs,
-         theme = @theme`,
+         theme = @theme,
+         collapse_done = @collapseDone`,
     )
     .run({
       provider: next.provider,
@@ -263,6 +286,7 @@ export function saveSettings(next: {
       model: next.model,
       ghostDelayMs: next.ghostDelayMs,
       theme: next.theme,
+      collapseDone: modeToRow(next.collapseMode),
     });
 }
 

@@ -13,6 +13,7 @@
  */
 
 import type { ThemeId } from '../theme';
+import type { CollapseMode } from '../collapse';
 
 export type ProviderId = 'anthropic' | 'zai' | 'zai-coding' | 'ollama' | 'custom';
 
@@ -99,6 +100,13 @@ export type StoredSettings = {
    * not the fingerprint, not any prompt, and no part of model resolution.
    */
   theme: ThemeId;
+  /**
+   * What a done card does with its space (v2.8, three-way since v2.9).
+   * Install-level like the theme and just as inert: it reaches the canvas and
+   * nothing else — not the graph, not the fingerprint, not any prompt, and no
+   * part of model resolution.
+   */
+  collapseMode: CollapseMode;
 };
 
 /** A resolved, ready-to-call configuration — blanks filled from the preset. */

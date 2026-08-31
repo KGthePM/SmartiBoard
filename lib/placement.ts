@@ -1,4 +1,13 @@
-import { NODE_H, NODE_W, intersects, rectOf, type Board, type NodeId, type Rect } from './graph';
+import {
+  NODE_H,
+  NODE_W,
+  intersects,
+  rectOf,
+  type Board,
+  type IdeaNode,
+  type NodeId,
+  type Rect,
+} from './graph';
 
 const PAD = 16;
 const STEP = 40;
@@ -27,9 +36,16 @@ export function placeProposal(
   size: { w: number; h: number } = { w: NODE_W, h: NODE_H },
   /** Visible region in board coordinates. Omit to ignore the viewport. */
   visible?: Rect,
+  /**
+   * What each card actually occupies. Defaults to the node's own box; the
+   * canvas passes `viewRect` so a folded done card (v2.8) is avoided at its
+   * stub height instead of at the full box it is not currently drawing — the
+   * ghost must not detour around space that is plainly empty on screen.
+   */
+  rectFor: (n: IdeaNode) => Rect = rectOf,
 ): { x: number; y: number } {
-  const obstacles = board.nodes.map(rectOf);
-  const origin = centroid(board, anchors);
+  const obstacles = board.nodes.map(rectFor);
+  const origin = centroid(board, anchors, rectFor);
   const start = { x: origin.x - size.w / 2, y: origin.y - size.h / 2 };
 
   const found =
@@ -84,7 +100,11 @@ function isClear(candidate: Rect, obstacles: Rect[]): boolean {
   return !obstacles.some((o) => intersects(candidate, o, PAD));
 }
 
-function centroid(board: Board, anchors: NodeId[]): { x: number; y: number } {
+function centroid(
+  board: Board,
+  anchors: NodeId[],
+  rectFor: (n: IdeaNode) => Rect,
+): { x: number; y: number } {
   const anchored = board.nodes.filter((n) => anchors.includes(n.id));
   const pool = anchored.length > 0 ? anchored : board.nodes;
   if (pool.length === 0) return { x: 0, y: 0 };
@@ -92,8 +112,9 @@ function centroid(board: Board, anchors: NodeId[]): { x: number; y: number } {
   let sx = 0;
   let sy = 0;
   for (const n of pool) {
-    sx += n.x + n.w / 2;
-    sy += n.y + n.h / 2;
+    const r = rectFor(n);
+    sx += r.x + r.w / 2;
+    sy += r.y + r.h / 2;
   }
   return { x: sx / pool.length, y: sy / pool.length };
 }

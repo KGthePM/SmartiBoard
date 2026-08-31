@@ -1359,3 +1359,104 @@ describe('find and replace, end to end', () => {
     expect(s().board.privacy).toBe(true);
   });
 });
+
+describe('folding done cards', () => {
+  it('keeps the setting across a board switch and drops the peeks', () => {
+    // The two halves of the feature sit on opposite sides of beginLoad, and
+    // deliberately: the setting belongs to the install, a peek belongs to the
+    // board you took it on.
+    open('fold-a');
+    const a = s().addNode(0, 0);
+    s().setCollapseMode('dot');
+    s().toggleExpanded(a);
+    expect(s().expandedIds).toEqual([a]);
+
+    open('fold-b');
+    expect(s().collapseMode).toBe('dot');
+    expect(s().expandedIds).toEqual([]);
+
+    s().setCollapseMode('full');
+  });
+
+  it('costs nothing: no undo step, no redo spend, no mutation stamp', () => {
+    // The selection's tier, below even a reaction. Looking at a card you
+    // already wrote says nothing new about the board.
+    open('fold-c');
+    const a = s().addNode(0, 0);
+    s().toggleNodeDone(a);
+    const undoDepth = s().undoStack.length;
+    const at = s().lastMutationAt;
+    s().undo();
+    s().redo();
+    const redoDepth = s().redoStack.length;
+    const after = s().lastMutationAt;
+
+    s().setCollapseMode('dot');
+    s().toggleExpanded(a);
+    s().toggleExpanded(a);
+
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().redoStack).toHaveLength(redoDepth);
+    expect(s().lastMutationAt).toBe(after);
+    expect(at).toBeLessThanOrEqual(after);
+
+    s().setCollapseMode('full');
+  });
+
+  it('toggles one card at a time, and only the one named', () => {
+    open('fold-d');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    s().toggleExpanded(a);
+    s().toggleExpanded(b);
+    expect(s().expandedIds).toEqual([a, b]);
+    s().toggleExpanded(a);
+    expect(s().expandedIds).toEqual([b]);
+  });
+
+  it('retires a peek when the card is un-crossed, so ✓ folds it again', () => {
+    // Otherwise crossing it off a second time silently reuses a look the
+    // person took at some earlier version of the idea.
+    open('fold-e');
+    const a = s().addNode(0, 0);
+    s().toggleNodeDone(a);
+    s().toggleExpanded(a);
+    expect(s().expandedIds).toEqual([a]);
+
+    s().toggleNodeDone(a);
+    expect(s().expandedIds).toEqual([]);
+
+    s().toggleNodeDone(a);
+    expect(s().expandedIds).toEqual([]);
+  });
+
+  it('leaves the node untouched — there is no field to migrate', () => {
+    open('fold-f');
+    const a = s().addNode(0, 0);
+    s().toggleNodeDone(a);
+    s().setCollapseMode('dot');
+    const before = JSON.stringify(s().board);
+
+    s().toggleExpanded(a);
+    expect(JSON.stringify(s().board)).toBe(before);
+    s().toggleExpanded(a);
+    expect(JSON.stringify(s().board)).toBe(before);
+
+    s().setCollapseMode('full');
+  });
+
+  it('cannot wake the ghost: the fingerprint is identical folded and open', () => {
+    open('fold-g');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'Ship the migration guide');
+    s().toggleNodeDone(a);
+    s().setCollapseMode('dot');
+    const fp = fingerprint(s().board);
+
+    s().toggleExpanded(a);
+    expect(fingerprint(s().board)).toBe(fp);
+
+    s().setCollapseMode('full');
+    expect(fingerprint(s().board)).toBe(fp);
+  });
+});

@@ -543,6 +543,98 @@ html, body {
   text-decoration-skip-ink: none;
 }
 
+/* Folding a done card (v2.8): the stub, and the control that opens it.
+
+   Top-centre is the one edge of the card with nothing on it — ✓ top-left,
+   × top-right, port right, resize bottom-right, A± bottom-left — so it sits
+   the same on a full card and on a 28px stub, where the left and right edges
+   have run out of room. Like the ✓ it stays visible once the card is folded:
+   the one control that undoes the fold cannot itself be hidden by it. */
+.fold {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--user-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .fold, .card.selected .fold { opacity: 1; }
+.card.collapsed .fold { opacity: 1; }
+
+/* The stub itself. One line, clipped with an ellipsis — the text is all still
+   in the card, and the ▸ is how you read the rest of it. The strike-through
+   and the faded ink come from .card.done above, unchanged: a folded card is
+   still a crossed-off card, said more briefly. */
+.card.collapsed {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  /* Deliberately not overflow: hidden — the ✓, the ×, and the ▸ all overhang
+     the card's own box, and the reactions strip sits below it. The clipping
+     belongs to the one line of text, below. */
+}
+.card.collapsed .rt {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The dot (v2.9): the fold for people who wanted the space back in earnest.
+   28px square, rounded to a circle, no text at all — the card's identity is
+   its place on the board plus the browser's own tooltip, which NodeCard puts
+   on the readable text.
+
+   The ✓, the ×, the A± pair and the resize bracket are all off a dot: three
+   18px circles cannot share a 28px edge, and there is no height to resize.
+   The port stays (a folded card is still connectable) and so do the chosen
+   reactions (a mark the person placed is content). Everything else comes back
+   the instant the ▸ opens the card. */
+.card.dot {
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+}
+/* The accepted pip is drawn at 7px from a corner the circle does not have.
+   The border color already carries the layer, so the pip simply goes. */
+.card.dot.accepted::after { display: none; }
+
+/* Here the ▸ is not a pip on the card's edge — it is the card's face, so it
+   fills the circle and drops the ring the circle already draws. It is also
+   the one control on a card that does not swallow the press (see NodeCard):
+   a dot has no surface left over to be dragged by. */
+.card.dot .fold {
+  position: absolute;
+  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border: 0;
+  background: transparent;
+  font-size: 10px;
+}
+
+/* A search hit inside a dot has nowhere to be drawn, and a match the bar
+   counts but the board never shows reads as a bug — the same reasoning that
+   makes the find bar say when it skipped one. So the dot itself takes the
+   highlight. */
+.card.dot.dot-hit { background: var(--find-bg); }
+
 /* Resize affordance: a corner bracket, shown like the port and the ×. */
 .resize {
   position: absolute;
@@ -1808,6 +1900,13 @@ html, body {
   .bcard-x { opacity: 1; }
 }
 
+/* Same rule as the × on a card and on a board tile: with no hover, the control
+   that folds a done card back down is simply shown, or a phone could open a
+   stub and never close it. */
+@media (hover: none) {
+  .fold { opacity: 1; }
+}
+
 .bcard-new {
   display: flex;
   flex-direction: column;
@@ -1918,12 +2017,16 @@ html, body {
   .port::after,
   .del::after,
   .tick::after,
+  .fold::after,
   .resize::after,
   .fs button::after {
     content: "";
     position: absolute;
     inset: -13px;
   }
+  /* A dot is already 28px of target and its ▸ fills it, so it needs a smaller
+     halo than a pip does — and a -13px one would reach a neighbouring dot. */
+  .card.dot .fold::after { inset: -8px; }
   .fs button { position: relative; }
 
   /* The reactions are the one control that cannot take the -13px treatment:

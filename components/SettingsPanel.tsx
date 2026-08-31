@@ -6,6 +6,13 @@ import { PRESETS, PROVIDERS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, GHOST_DELAY_OFF, GHOST_DELAY_STEPS_MS } from '@/lib/ai/trigger';
 import { useBoard } from '@/lib/store';
 import { DEFAULT_THEME, THEME_LABELS, THEMES, type ThemeId } from '@/lib/theme';
+import {
+  COLLAPSE_LABELS,
+  COLLAPSE_MODES,
+  DEFAULT_COLLAPSE_MODE,
+  normalizeCollapseMode,
+  type CollapseMode,
+} from '@/lib/collapse';
 
 /**
  * Where the user says which model co-authors their boards.
@@ -26,6 +33,7 @@ type Masked = {
   model: string;
   ghostDelayMs: number;
   theme: ThemeId;
+  collapseMode: CollapseMode;
   hasKey: boolean;
   keyHint: string | null;
 };
@@ -74,6 +82,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [stored, setStored] = useState<Masked | null>(null);
   const [ghostDelay, setGhostDelay] = useState<number>(DEBOUNCE_MS);
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
+  const [collapseMode, setCollapseMode] = useState<CollapseMode>(DEFAULT_COLLAPSE_MODE);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
@@ -102,6 +111,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           // Already normalized on read by the server, so it is a legal rung.
           setGhostDelay(d.settings.ghostDelayMs);
           setTheme(d.settings.theme);
+          setCollapseMode(d.settings.collapseMode);
         }
         setReady(true);
       })
@@ -144,6 +154,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     model: model.trim(),
     ghostDelayMs: ghostDelay,
     theme,
+    collapseMode,
   });
 
   /**
@@ -234,6 +245,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       // JS reads it. Writing it here is what makes the change land without a
       // reload; the next request will render with it already set.
       if (d.settings?.theme) document.documentElement.dataset.theme = d.settings.theme;
+      // Folding goes through the store like the ghost's window, not through an
+      // attribute like the theme: the canvas reads it in JS to decide the
+      // geometry the cards and the edges between them are drawn at.
+      if (typeof d.settings?.collapseMode === 'string') {
+        useBoard.getState().setCollapseMode(normalizeCollapseMode(d.settings.collapseMode));
+      }
       onClose();
     } catch {
       setSaving(false);
@@ -436,6 +453,27 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             <span className="settings-hint">
               How the board looks, on this machine — every board, not just this one. It changes nothing the
               AI sees.
+            </span>
+          </label>
+
+          <label className="settings-field">
+            <span className="settings-label">Completed cards</span>
+            <select
+              className="settings-select"
+              value={collapseMode}
+              onChange={(e) => setCollapseMode(normalizeCollapseMode(e.target.value))}
+            >
+              {COLLAPSE_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {COLLAPSE_LABELS[m]}
+                </option>
+              ))}
+            </select>
+            <span className="settings-hint">
+              What a card crossed off with ✓ does with the space it is taking — a single clipped line, or
+              a dot wearing just the ▸. Either way it is only a way of looking at the board: the card
+              keeps its text, its size, and its place, and the ▸ on it opens it again. Like the theme,
+              this is every board on this machine.
             </span>
           </label>
 

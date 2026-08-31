@@ -14,6 +14,7 @@ const row = (over: Partial<StoredSettings> = {}): StoredSettings => ({
   model: '',
   ghostDelayMs: 4000,
   theme: 'light',
+  collapseMode: 'full',
   ...over,
 });
 

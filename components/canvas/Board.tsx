@@ -15,6 +15,7 @@ import {
   type Rect,
 } from '@/lib/graph';
 import {
+  DRAG_SLOP,
   LONG_PRESS_MS,
   LONG_PRESS_SLOP,
   distance,
@@ -24,6 +25,12 @@ import {
   type PinchStart,
 } from '@/lib/gesture';
 import { REACTIONS } from '@/lib/reactions';
+import {
+  cardView,
+  normalizeCollapseMode,
+  viewRect,
+  type CollapseView,
+} from '@/lib/collapse';
 import type { Match } from '@/lib/search';
 import { rejectedFor, useBoard } from '@/lib/store';
 import { activeIndex, useSearchMatches } from '../SearchPanel';
@@ -41,13 +48,6 @@ const TRIGGER_TICK_MS = 1000;
 
 /** One shared empty list, so a card with no matches gets a stable prop. */
 const EMPTY_MATCHES: Match[] = [];
-
-/**
- * How far a pointer must travel before the press counts as a gesture rather
- * than a click. It decides two things that are really the same thing: whether
- * a card drag was a drag, and whether the surface takes the pointer capture.
- */
-const DRAG_SLOP = 3;
 
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; originX: number; originY: number }
@@ -97,7 +97,34 @@ export function Board({ boardId }: { boardId: string }) {
     loaded,
     lastMutationAt,
     lastRequestedFingerprint,
+    collapseMode,
+    expandedIds,
   } = store;
+
+  /**
+   * How each folded card is drawn right now (v2.8; a stub or a dot since
+   * v2.9), by id — absent means an ordinary card. Derived, never stored: the
+   * install setting, the `done` the node already carried, and the peeks taken
+   * this session. Computed once here so the card, the edges that meet it, and
+   * the rubber band that catches it all read the same geometry — anything
+   * drawing at the node's own box while this says otherwise is a line pointing
+   * at empty canvas.
+   */
+  const views = useMemo(() => {
+    const expanded = new Set(expandedIds);
+    const m = new Map<NodeId, CollapseView>();
+    for (const n of board.nodes) {
+      const v = cardView(n, collapseMode, expanded);
+      if (v) m.set(n.id, v);
+    }
+    return m;
+  }, [board.nodes, collapseMode, expandedIds]);
+
+  const rectFor = useCallback(
+    (n: { id: NodeId; x: number; y: number; w: number; h: number }) =>
+      viewRect(n, views.get(n.id)),
+    [views],
+  );
 
   const searchMatches = useSearchMatches();
 
@@ -253,10 +280,17 @@ export function Board({ boardId }: { boardId: string }) {
     let cancelled = false;
     fetch('/api/settings')
       .then((r) => r.json())
-      .then((d: { settings: { ghostDelayMs?: unknown } | null }) => {
+      .then((d: { settings: { ghostDelayMs?: unknown; collapseMode?: unknown } | null }) => {
         if (cancelled) return;
         const ms = d.settings?.ghostDelayMs;
         if (typeof ms === 'number') useBoard.getState().setGhostDelay(ms);
+        // The same GET carries what done cards do with their space —
+        // install-level too, so it rides along rather than opening a second
+        // request.
+        const fold = d.settings?.collapseMode;
+        if (typeof fold === 'string') {
+          useBoard.getState().setCollapseMode(normalizeCollapseMode(fold));
+        }
       })
       .catch(() => {
         /* Unset stays the default — see above. */
@@ -581,7 +615,7 @@ export function Board({ boardId }: { boardId: string }) {
     } else if (drag?.kind === 'marquee') {
       // What the sweep touched is the selection; an empty sweep clears it —
       // the same thing a plain click on empty canvas has always done.
-      store.selectMany(nodesInRect(board, marqueeRect(drag)));
+      store.selectMany(nodesInRect(board, marqueeRect(drag), rectFor));
     } else if (drag?.kind === 'nodes' && !drag.moved && drag.collapseTo) {
       // A click on a card inside a multi-selection collapses to it; a drag
       // carried the set, and the selection stands.
@@ -680,7 +714,8 @@ export function Board({ boardId }: { boardId: string }) {
       ? (() => {
           const n = board.nodes.find((x) => x.id === drag.from);
           if (!n) return null;
-          return { from: { x: n.x + n.w / 2, y: n.y + n.h / 2 }, to: drag.to };
+          const r = rectFor(n);
+          return { from: { x: r.x + r.w / 2, y: r.y + r.h / 2 }, to: drag.to };
         })()
       : null;
 
@@ -806,6 +841,7 @@ export function Board({ boardId }: { boardId: string }) {
               is below: a suggestion is not on the board while presenting. */}
           <EdgeLayer
             board={board}
+            views={views}
             proposal={presenting ? null : proposal}
             pending={pendingLine}
             selectedEdgeId={presenting ? null : selectedEdgeId}
@@ -823,13 +859,23 @@ export function Board({ boardId }: { boardId: string }) {
             // state lives inside NodeCard with no other way in, so this is
             // what guarantees a card caught mid-edit at entry re-renders in
             // its read view — and blurs the textarea with it.
-            <div key={presenting ? `${n.id}:p` : n.id} data-node-id={n.id} style={{ position: 'absolute' }}>
+            // Folding joins the suffix for the same reason presenting does: a
+            // card crossed off mid-edit must come back as a stub in its read
+            // view, not as an open textarea with nowhere to put itself.
+            <div
+              key={`${n.id}${presenting ? ':p' : ''}${views.get(n.id) ? `:${views.get(n.id)}` : ''}`}
+              data-node-id={n.id}
+              style={{ position: 'absolute' }}
+            >
               <NodeCard
                 node={n}
                 matches={hits.get(n.id)?.list ?? EMPTY_MATCHES}
                 activeMatch={hits.get(n.id)?.active ?? null}
                 selected={selectedIds.includes(n.id)}
                 sole={selectedIds.length === 1 && selectedIds[0] === n.id}
+                view={views.get(n.id) ?? null}
+                foldable={collapseMode !== 'full' && n.done}
+                onToggleFold={() => store.toggleExpanded(n.id)}
                 onCardDown={(e) => {
                   // Shift+click is a membership toggle, not a drag: the
                   // selection is being built, and a stray move must not carry

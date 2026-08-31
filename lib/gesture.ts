@@ -16,6 +16,14 @@ export type Point = { x: number; y: number };
 export const LONG_PRESS_MS = 450;
 
 /**
+ * How far a pointer must travel before a press counts as a gesture rather than
+ * a click. It decides three things that are really the same thing: whether a
+ * card drag was a drag, whether the surface takes the pointer capture, and
+ * whether the click that ends a press on a folded dot opens it.
+ */
+export const DRAG_SLOP = 3;
+
+/**
  * How far a pointer may wander and still count as a press rather than a drag.
  * Deliberately larger than the canvas's 3px click-vs-drag threshold: a finger
  * resting on glass drifts in a way a mouse on a desk does not, and holding

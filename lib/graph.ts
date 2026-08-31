@@ -205,8 +205,17 @@ export function removeNodes(board: Board, ids: Iterable<NodeId>): Board {
  * Which cards a marquee sweep touches. Intersection, not containment: a band
  * across the middle of a board should take the cards it crosses.
  */
-export function nodesInRect(board: Board, rect: Rect): NodeId[] {
-  return board.nodes.filter((n) => intersects(rectOf(n), rect)).map((n) => n.id);
+export function nodesInRect(
+  board: Board,
+  rect: Rect,
+  /**
+   * What each card actually occupies. Defaults to the node's own box; the
+   * canvas passes `viewRect` so a sweep over the blank space below a folded
+   * done card (v2.8) does not catch it by its full-size ghost.
+   */
+  rectFor: (n: IdeaNode) => Rect = rectOf,
+): NodeId[] {
+  return board.nodes.filter((n) => intersects(rectFor(n), rect)).map((n) => n.id);
 }
 
 export type Rect = { x: number; y: number; w: number; h: number };

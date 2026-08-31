@@ -1,10 +1,13 @@
 'use client';
 
 import type { Board } from '@/lib/graph';
+import { viewRect, type CollapseView } from '@/lib/collapse';
 import type { Proposal } from '@/lib/proposal';
 
 type Props = {
   board: Board;
+  /** How each folded card is drawn right now (v2.8). Derived in Board. */
+  views: ReadonlyMap<string, CollapseView>;
   proposal: Proposal | null;
   /** In-progress connection drag, in board coordinates. */
   pending: { from: { x: number; y: number }; to: { x: number; y: number } } | null;
@@ -24,6 +27,7 @@ type Props = {
  */
 export function EdgeLayer({
   board,
+  views,
   proposal,
   pending,
   selectedEdgeId,
@@ -32,7 +36,12 @@ export function EdgeLayer({
 }: Props) {
   const center = (id: string) => {
     const n = board.nodes.find((x) => x.id === id);
-    return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null;
+    if (!n) return null;
+    // What the card occupies, not what the node stores: a line into the middle
+    // of a folded card's former height points at bare canvas, and the × rides
+    // that same midpoint.
+    const r = viewRect(n, views.get(n.id));
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   };
 
   return (

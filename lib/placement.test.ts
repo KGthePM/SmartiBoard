@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NODE_H, NODE_W, createNode, emptyBoard, intersects, rectOf, type Board } from './graph';
 import { placeProposal } from './placement';
+import { viewRect } from './collapse';
 
 function boardWith(nodes: { id: string; x: number; y: number }[]): Board {
   const b = emptyBoard('t');
@@ -93,5 +94,30 @@ describe('placeProposal', () => {
     const board = boardWith([{ id: 'a', x: 500, y: 500 }]);
     const p = placeProposal(board, ['deleted-node']);
     expect(intersects(ghost(p), rectOf(board.nodes[0]))).toBe(false);
+  });
+});
+
+describe('placeProposal with folded cards', () => {
+  it('treats a folded card as the stub it draws, not the box it stores', () => {
+    // A ghost that detoured around space the person can plainly see is empty
+    // would read as a bug in the placement, not as a policy about `done`.
+    const board = boardWith([
+      { id: 'a', x: 0, y: 0 },
+      { id: 'b', x: 0, y: 120 },
+    ]);
+    // Both folds, since a dot gives up its width as well as its height and the
+    // placement has to believe that too.
+    for (const view of ['line', 'dot'] as const) {
+      const folded = (n: { x: number; y: number; w: number; h: number }) => viewRect(n, view);
+      const p = placeProposal(board, ['a'], undefined, undefined, folded);
+      for (const n of board.nodes) {
+        expect(intersects(ghost(p), folded(n))).toBe(false);
+      }
+    }
+  });
+
+  it('defaults to the node’s own box, so every existing caller is unchanged', () => {
+    const board = boardWith([{ id: 'a', x: 0, y: 0 }]);
+    expect(placeProposal(board, ['a'])).toEqual(placeProposal(board, ['a'], undefined, undefined, rectOf));
   });
 });

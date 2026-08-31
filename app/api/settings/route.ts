@@ -3,6 +3,7 @@ import { clearSettingsApiKey, loadSettings, saveSettings } from '@/lib/db';
 import { keyHint, PRESETS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, normalizeGhostDelay } from '@/lib/ai/trigger';
 import { DEFAULT_THEME, normalizeTheme } from '@/lib/theme';
+import { DEFAULT_COLLAPSE_MODE, normalizeCollapseMode } from '@/lib/collapse';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +25,7 @@ function masked() {
     model: s.model,
     ghostDelayMs: s.ghostDelayMs,
     theme: s.theme,
+    collapseMode: s.collapseMode,
     hasKey: Boolean(s.apiKey.trim()),
     keyHint: keyHint(s.apiKey),
   };
@@ -41,6 +43,7 @@ export async function PUT(req: Request) {
     model?: unknown;
     ghostDelayMs?: unknown;
     theme?: unknown;
+    collapseMode?: unknown;
   };
   try {
     body = await req.json();
@@ -78,6 +81,13 @@ export async function PUT(req: Request) {
   // answers to.
   const theme = body.theme === undefined ? (stored?.theme ?? DEFAULT_THEME) : normalizeTheme(body.theme);
 
+  // And once more for what a done card does with its space. Nothing about it
+  // can fail a save: it is a view of content the board already carries.
+  const collapseMode =
+    body.collapseMode === undefined
+      ? (stored?.collapseMode ?? DEFAULT_COLLAPSE_MODE)
+      : normalizeCollapseMode(body.collapseMode);
+
   saveSettings({
     provider: body.provider as ProviderId,
     ...(apiKey !== undefined ? { apiKey } : {}),
@@ -85,6 +95,7 @@ export async function PUT(req: Request) {
     model: str(body.model, 200),
     ghostDelayMs,
     theme,
+    collapseMode,
   });
 
   return NextResponse.json({ settings: masked() });

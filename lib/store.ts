@@ -14,14 +14,17 @@ import {
   TITLE_MAX,
   visibleRect,
   type Board,
+  type IdeaNode,
   type Layer,
   type NodeId,
+  type Rect,
   type Viewport,
 } from './graph';
 import { DEBOUNCE_MS, fingerprint } from './ai/trigger';
 import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import { toggleReaction as toggleIn, type ReactionKey } from './reactions';
+import { cardView, DEFAULT_COLLAPSE_MODE, viewRect, type CollapseMode } from './collapse';
 import type { Proposal, ProposalDraft } from './proposal';
 
 /** Screen size of the canvas surface, needed to know what's actually visible. */
@@ -168,6 +171,21 @@ export type State = {
    */
   ghostDelayMs: number;
   /**
+   * What a done card does with its space (v2.8; a stub, a dot or nothing since
+   * v2.9), as the Settings row holds it. Install-level exactly like
+   * ghostDelayMs, and deliberately absent from beginLoad for the same reason:
+   * it belongs to the install, not to any board. It spends nothing — a fold is
+   * a view of `done`, not a second fact.
+   */
+  collapseMode: CollapseMode;
+  /**
+   * Which collapsed cards the person has peeked at, this session. The mirror
+   * of the selection and it lives beside it: never persisted, never in the
+   * board JSON, cleared by beginLoad, and a reload re-folds them — `done` is
+   * the truth on the board and an expansion is only a look at it.
+   */
+  expandedIds: NodeId[];
+  /**
    * When the last suggest request failed to come back with an answer. A failure
    * says nothing about the board, so the fingerprint is released and this
    * stands in its place — see FAILURE_COOLDOWN_MS in lib/ai/trigger.ts.
@@ -209,6 +227,10 @@ export type State = {
   setSuggesting: (v: boolean) => void;
   /** Install-level: the Settings panel writes it, the suggest loop reads it. */
   setGhostDelay: (ms: number) => void;
+  /** Install-level: the Settings panel writes it, the canvas reads it. */
+  setCollapseMode: (v: CollapseMode) => void;
+  /** Session-only: unfold one collapsed card, or fold it back. */
+  toggleExpanded: (id: NodeId) => void;
   markRequested: (fingerprint: string) => void;
   failRequest: () => void;
   receiveProposal: (draft: ProposalDraft) => void;
@@ -280,6 +302,8 @@ export const useBoard = create<State>((set, get) => ({
   lastMutationAt: 0,
   lastRequestedFingerprint: null,
   ghostDelayMs: DEBOUNCE_MS,
+  collapseMode: DEFAULT_COLLAPSE_MODE,
+  expandedIds: [],
   suggestFailedAt: null,
   lastTextEditId: null,
   loaded: false,
@@ -303,6 +327,10 @@ export const useBoard = create<State>((set, get) => ({
       redoStack: [],
       selectedIds: [],
       selectedEdgeId: null,
+      // Beside the selection, and for the same reason: a peek at one board's
+      // folded card means nothing on the next one. collapseMode is absent from
+      // this list on purpose — that one belongs to the install.
+      expandedIds: [],
       suggesting: false,
       ideasOpen: false,
       ideas: [],
@@ -463,6 +491,12 @@ export const useBoard = create<State>((set, get) => ({
         ...s.board,
         nodes: s.board.nodes.map((n) => (n.id === id ? { ...n, done: !n.done } : n)),
       },
+      // Un-crossing a card retires the peek that was holding it open, so
+      // crossing it off again folds it rather than silently reusing a look
+      // the person took at some earlier version of the idea.
+      expandedIds: s.board.nodes.some((n) => n.id === id && n.done)
+        ? s.expandedIds.filter((x) => x !== id)
+        : s.expandedIds,
       lastMutationAt: Date.now(),
     })),
 
@@ -589,6 +623,19 @@ export const useBoard = create<State>((set, get) => ({
 
   setSuggesting: (v) => set({ suggesting: v }),
   setGhostDelay: (ms) => set({ ghostDelayMs: ms }),
+  setCollapseMode: (v) => set({ collapseMode: v }),
+  /**
+   * The cheapest action in the store, below even a reaction: no undo snapshot,
+   * no redo spend, no lastMutationAt bump, and nothing the model could see. It
+   * is the selection's tier — looking at a card you already wrote says nothing
+   * new about the board.
+   */
+  toggleExpanded: (id) =>
+    set((s) => ({
+      expandedIds: s.expandedIds.includes(id)
+        ? s.expandedIds.filter((x) => x !== id)
+        : [...s.expandedIds, id],
+    })),
   // A request that got through ends any cooldown, whatever it came back with.
   markRequested: (fingerprint) =>
     set({ lastRequestedFingerprint: fingerprint, suggestFailedAt: null }),
@@ -603,13 +650,20 @@ export const useBoard = create<State>((set, get) => ({
 
   receiveProposal: (draft) => {
     const { board, deletedEdgesByBoard, viewport, surface } = get();
+    const rectFor = viewRectFor(get());
     // A connection the user deleted by hand must not come back as a ghost.
     if (draft.kind === 'connection' && draft.connectTo && draft.anchors[0]) {
       const pair = edgePair(draft.anchors[0], draft.connectTo);
       const dead = deletedEdgesByBoard[board.id] ?? [];
       if (dead.some((p) => p[0] === pair[0] && p[1] === pair[1])) return;
     }
-    const { x, y } = placeProposal(board, draft.anchors, undefined, visibleRect(viewport, surface));
+    const { x, y } = placeProposal(
+      board,
+      draft.anchors,
+      undefined,
+      visibleRect(viewport, surface),
+      rectFor,
+    );
     // No pushUndo: a suggestion arriving is not something the user did, so it
     // must never be undoable. Otherwise the board feels haunted.
     set({ proposal: { ...draft, id: newId('p'), x, y } });
@@ -801,6 +855,7 @@ export const useBoard = create<State>((set, get) => ({
         idea.anchors,
         undefined,
         visibleRect(s.viewport, s.surface),
+        viewRectFor(s),
       );
       const node = createNode({ x, y, text: idea.text, layer: 'accepted' });
       // Anchors the model named may have been deleted since it was asked.
@@ -875,6 +930,18 @@ export const useBoard = create<State>((set, get) => ({
 /** What the user has turned down on the board they are looking at. */
 export function rejectedFor(s: State): string[] {
   return s.rejectedByBoard[s.board.id] ?? [];
+}
+
+/**
+ * What each card occupies on the board right now, for the geometry that has to
+ * agree with what is drawn. The ghost is placed against this rather than
+ * against the nodes' own boxes: a folded done card (v2.8) leaves real empty
+ * space, and a proposal that detoured around space the person can plainly see
+ * is free would read as a bug in the placement, not as a policy about `done`.
+ */
+function viewRectFor(s: State): (n: IdeaNode) => Rect {
+  const expanded = new Set(s.expandedIds);
+  return (n) => viewRect(n, cardView(n, s.collapseMode, expanded));
 }
 
 function pushUndo(s: State): { undoStack: Board[]; redoStack: Board[] } {

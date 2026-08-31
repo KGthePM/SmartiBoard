@@ -1,6 +1,7 @@
 'use client';
 
 import { boardTitle } from '@/lib/boards';
+import type { CollapseView } from '@/lib/collapse';
 import type { Board, IdeaNode } from '@/lib/graph';
 import { PRINT_HEADER_H, PRINT_PAGE_H, PRINT_PAGE_W, printPlan } from '@/lib/print';
 import { REACTION_GLYPH } from '@/lib/reactions';
@@ -9,6 +10,8 @@ import { RichTextView } from './RichTextView';
 
 /** One shared empty list, so every card's memo sees a stable prop. */
 const NO_MATCHES: never[] = [];
+/** Paper never folds a done card — see the EdgeLayer prop below. */
+const NEVER_COLLAPSED: ReadonlyMap<string, CollapseView> = new Map();
 
 /**
  * A card as paper sees it: the read view and nothing else. No handlers, no
@@ -79,6 +82,9 @@ export function PrintSheets({ board }: { board: Board }) {
             >
               <EdgeLayer
                 board={board}
+                // Paper never folds: a stub loses text that nothing on the
+                // page can recover, and a printed board is a document.
+                views={NEVER_COLLAPSED}
                 proposal={null}
                 pending={null}
                 selectedEdgeId={null}

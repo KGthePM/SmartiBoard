@@ -455,6 +455,72 @@ like a collaborator or a paperclip. Both are now settled:
   the ghost (a proposal is never a node) and not in the minimap (which carries no `done`
   either).
 
+- **Folding done cards** (v2.8; the dot in v2.9): behind a setting, a card crossed off with ✓
+  minimizes — to a one-line stub, or to a 28px dot wearing nothing but the ▸ that opens it
+  again. **It is a view of `done`, not a second piece of state**, and that rule decides
+  everything else: there is no `collapsed` field on `IdeaNode`, no board-JSON change, and no
+  migration. How a card is drawn is `cardView(node, collapseMode, expandedIds)` (`lib/collapse.ts`)
+  — an install setting, a fact the node already carried, and a session-only peek — returning
+  `'line' | 'dot' | null`. So it spends nothing: no undo snapshot, no redo spend, no
+  `lastMutationAt` bump, not in the fingerprint, not in `serializeBoardContent`, never a token.
+  `toggleNodeDone` keeps its own doctrine untouched, because `done` *is* content the model
+  reads. Still exactly one unsolicited AI behavior and one user-invoked one.
+  **The two halves sit on opposite sides of `beginLoad`**: `collapseMode` is install-level and
+  deliberately absent from it, exactly like `ghostDelayMs`; `expandedIds` is cleared by it,
+  beside the selection, because a peek at one board's folded card means nothing on the next —
+  and a reload re-folds, since `done` is the truth and an expansion is only a look at it.
+  Un-crossing a card retires its peek, so ✓ folds it again rather than reusing a look taken at
+  an earlier version of the idea. The default is `full`, for the same reason Light is the default
+  theme; `normalizeCollapseMode` is shared by the PUT route and `loadSettings` exactly as
+  `normalizeTheme` is. Unlike the theme it takes the *store* channel rather than the
+  `data-theme` attribute one, because JS reads it: the canvas needs it to decide geometry.
+  **The third mode cost no migration**: `settings.collapse_done` stays one INTEGER column and
+  gains a third value (`0 = full, 1 = line, 2 = dot`), so every v2.8 row already reads as the
+  fold it had. The encoding is `modeToRow`/`modeFromRow`, beside the rule rather than spelled
+  out in `lib/db.ts`.
+  **`viewRect` is the load-bearing piece** — the node's `w`/`h` are never written (so expanding
+  restores the exact size, and `clampSize` is untouched; the 28px stub is below `NODE_MIN_H`
+  because that floor guards a manual *resize*, which this is not), so everything that draws
+  board geometry must read `viewRect` or it points at bare canvas: the card, `EdgeLayer`'s
+  center-to-center endpoints and the `.edge-x` that rides their midpoint, the connect-drag
+  start, `nodesInRect` for the rubber band, and `placeProposal` — the last two gained an
+  optional `rectFor` defaulting to `rectOf`. `fitViewport` is deliberately left on the true
+  rects (⌘0 fits a little loose) and the index minimap is untouched, since `ThumbNode` carries
+  no `done` at all.
+  **A stub keeps its width; the dot gives it up, and that reversal is the whole of v2.9.** The
+  v2.8 ruling was that narrowing would shuffle the columns the person arranged — but reclaiming
+  that width turned out to be exactly what people who turned folding on were asking for, and it
+  costs less than the ruling assumed: a card is anchored at its top-left, so every column keeps
+  its left edge and only the right edge pulls in, and `node.w` is still never written. So the
+  setting is three-way rather than a boolean, because the stub is not wrong for the people who
+  chose it.
+  **Presentation folds; print never does.** Present is the same board on a projector, but paper
+  is a document and a fold loses text nothing on the page can recover — `PrintSheets` passes an
+  empty map. The fold control sits top-centre, the one card edge with no affordance on it (✓
+  top-left, × top-right, port right, resize bottom-right, A± bottom-left), so it lands the same
+  on a full card and on a stub; it stays visible while folded (the one control that undoes the
+  fold cannot be hidden by it) and takes the v2.6 touch treatment — always shown under
+  `@media (hover: none)`, coarse-pointer hit area via `::after`. Double-clicking a stub expands
+  it instead of opening a textarea it has no room for, and the card's React key carries the
+  fold state so a card crossed off mid-edit comes back in its read view.
+  **On a dot the ▸ is not a pip on the edge — it is the card's face**, and therefore the one
+  control on a card that does *not* swallow its own `pointerdown`: a 28px circle has no surface
+  left over to be dragged by, so the press falls through to the card and select, drag, the
+  marquee and the v2.6 long-press all work unchanged. The click it ends with is guarded by
+  `DRAG_SLOP` (now exported from `lib/gesture.ts`, since it decides the same question three
+  times), because a browser fires `click` after a press and release on one element however far
+  it travelled — without the guard every dot the person merely moved would open. **Clicking a
+  dot opens it; dragging it moves it.** The ✓, the ×, the A± pair and the resize bracket are
+  all off a dot — three 18px circles cannot share a 28px edge, and there is no height to resize
+  — so a dot's identity is its place plus the card's own `title`, the readable text via
+  `stripMarks`. The port stays and so do the reactions, chosen-marks-only on either fold — the
+  print sheet's rule, since "all five slots always" is about aiming at a hover target. **A
+  search hit inside a dot takes the highlight on the dot itself** (`.dot-hit`), because a match
+  the bar counts but the board never shows reads as a bug, which is the find bar's own ruling
+  about a skipped match. No new color tokens: a fold is the same surface, the same border, the
+  same strike, and the three-layer invariant is untouched because a proposal is never done and
+  the ghost never folds.
+
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
 trust-breaking action available, and outside the one-unsolicited-behavior rule.
