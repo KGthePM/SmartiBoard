@@ -444,6 +444,24 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             never leaves for anywhere but the provider you picked.
           </p>
 
+          <p className="settings-credit">
+            <a
+              href="https://smartiboard.netlify.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Website
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              href="https://smartiboard.netlify.app/support.html"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Support &amp; FAQ
+            </a>
+          </p>
+
           {test.phase === 'ok' ? (
             <p className="settings-result ok">Connected · {test.model}</p>
           ) : null}
