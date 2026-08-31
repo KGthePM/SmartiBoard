@@ -315,6 +315,10 @@ unaddressed segments, unstated assumptions, absent success metrics, hidden depen
 Netlify, not part of the Next.js app. Each page carries its own inline styles;
 changes there ship with the Netlify deploy, not with `npm run build`.
 
+It is **git-ignored and local-only**: the folder is uploaded to Netlify directly, so
+a clone of this repo will not contain it and nothing in `landing/` is version
+controlled. Nothing in the app reads it, and no build step looks for it.
+
 ## License
 
 AGPL-3.0-only. Self-host it freely; if you run a modified version as a network service,
