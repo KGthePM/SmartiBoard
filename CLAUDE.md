@@ -96,6 +96,10 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   Pure, node-free; `lib/db.ts` (the seed) and the boards route (the restore link) import it.
 - `lib/kanban.ts` — the Kanban template's content: `kanbanBoard(id)`, `KANBAN_TITLE`. Pure,
   node-free, the mirror of `lib/tutorial.ts`.
+- `lib/swot.ts` — the SWOT template's content: `swotBoard(id)`, `SWOT_TITLE`. Pure, node-free,
+  the mirror of `lib/kanban.ts` with quadrants in place of columns.
+- `lib/mindmap.ts` — the Mind map template's content: `mindMapBoard(id)`, `MINDMAP_TITLE`.
+  Pure, node-free; one hub, branches, one second-level branch.
 - `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES`, `buildTemplate`
   (null, never a throw). Adding a template is one entry here plus its own pure module.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
@@ -607,6 +611,21 @@ like a collaborator or a paperclip. Both are now settled:
   starter; the tutorial link stays a quiet line in the header, because it is a door. ⌘K's
   create is deliberately left blank-only. No AI behavior, no new state, no token: still exactly
   one unsolicited and one user-invoked.
+
+- **The SWOT and Mind map templates** (v3.2): the third and fourth boards you can start from,
+  both `lib/kanban.ts`'s doctrine exactly — pure `(id) => Board` modules registered in
+  `lib/templates.ts`, ordinary content, no schema, no db, and nothing snapped or enforced.
+  **The SWOT's quadrants are positions, same as the Kanban's columns**: internal row on top
+  (Strengths · Weaknesses), external below (Opportunities · Threats), header → card edges within
+  each quadrant, and *no done card ships* because nothing in a SWOT is finished — the ✓ already
+  has two demos and a crossed-off strength would imply a rule the board does not have. **The
+  Mind map is the tree demo**: one hub (top font rung, dead center), four branches, and one
+  branch with a child of its own, because a mind map that stops at one ring is a list — the
+  child is the connect-dot lesson made visible, the whole board is a single tree (one root,
+  every node parented once, so the minimap renders a star and the model reads a hierarchy), and
+  the hub is not special: delete it and the spokes survive, like any card. Neither ships a done
+  card; both ship a non-empty objective like the others, so ⌘. is live from the first second.
+  In the library they are tiles beside the Kanban's, because templates are project starters.
 
 - **The desktop app** (v3.1): the same install in a different room. `desktop/` wraps the Next
   server in Electron and CI publishes Windows and Linux installers to GitHub Releases, so the

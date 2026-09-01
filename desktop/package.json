@@ -14,6 +14,7 @@
     "dist:win": "node stage.js --platform=win32 && electron-builder --publish never --win",
     "dist:linux": "node stage.js --platform=linux && electron-builder --publish never --linux",
     "dist:mac": "node stage.js --platform=darwin --arch=arm64 && electron-builder --publish never --mac --arm64",
+    "dist:mac:notarized": "node stage.js --platform=darwin --arch=arm64 && electron-builder --publish never --mac --arm64 --config.mac.notarize=true",
     "dist:mac:intel": "node stage.js --platform=darwin --arch=x64 && electron-builder --publish never --mac --x64"
   },
   "devDependencies": {

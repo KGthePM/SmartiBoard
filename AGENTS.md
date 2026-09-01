@@ -443,13 +443,19 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   absent, malformed or unknown name falls through to a blank board: **creating a board must
   never be refusable.** `createBoard(board?)` already accepted a prebuilt board, so a template
   is a pure `(id) => Board` module and nothing else — no db change, no schema, no migration.
-  Two exist: `lib/tutorial.ts` and `lib/kanban.ts`. **The Kanban template's columns are
-  positions, not a concept** — four header cards at four x coordinates, nothing snaps, and
-  dropping a card under "Done" deliberately does not set `done` (that field is in the
-  fingerprint and the prompt, so a position rule would make a drag spend tokens). Edges run
-  header → card, which is the only structure a Kanban has and what keeps the minimap and the
-  model able to read it. Both templates ship a non-empty objective, so ⌘. is live before the
-  ghost's 3-idea floor is met.
+  Four exist: `lib/tutorial.ts`, `lib/kanban.ts`, `lib/swot.ts` (v3.2), `lib/mindmap.ts` (v3.2).
+  **The Kanban template's columns are positions, not a concept** — four header cards at four x
+  coordinates, nothing snaps, and dropping a card under "Done" deliberately does not set `done`
+  (that field is in the fingerprint and the prompt, so a position rule would make a drag spend
+  tokens). Edges run header → card, which is the only structure a Kanban has and what keeps the
+  minimap and the model able to read it. **The SWOT template's quadrants are positions by the
+  same rule** — internal row on top (Strengths, Weaknesses), external below (Opportunities,
+  Threats), edges header → card within each quadrant, and no done card ships because nothing in
+  a SWOT is finished (the ✓ already has two demos). **The Mind map template is the tree demo** —
+  one hub, four branches, one branch with a child of its own, because a mind map that stops at
+  one ring is a list; the child *is* the connect-dot lesson, and the hub is not special (delete
+  it and the spokes survive, like any card). All templates ship a non-empty objective, so ⌘. is
+  live before the ghost's 3-idea floor is met.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

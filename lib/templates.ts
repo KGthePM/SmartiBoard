@@ -17,14 +17,19 @@
 
 import type { Board } from './graph';
 import { kanbanBoard, KANBAN_TITLE } from './kanban';
+import { mindMapBoard, MINDMAP_TITLE } from './mindmap';
+import { swotBoard, SWOT_TITLE } from './swot';
 import { tutorialBoard, TUTORIAL_TITLE } from './tutorial';
 
-export const TEMPLATE_IDS = ['tutorial', 'kanban'] as const;
+// Append-only: each id is the wire name a POST body may carry.
+export const TEMPLATE_IDS = ['tutorial', 'kanban', 'swot', 'mindmap'] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
 export const TEMPLATES: Record<TemplateId, { label: string; build: (id: string) => Board }> = {
   tutorial: { label: TUTORIAL_TITLE, build: tutorialBoard },
   kanban: { label: KANBAN_TITLE, build: kanbanBoard },
+  swot: { label: SWOT_TITLE, build: swotBoard },
+  mindmap: { label: MINDMAP_TITLE, build: mindMapBoard },
 };
 
 export function isTemplateId(v: unknown): v is TemplateId {

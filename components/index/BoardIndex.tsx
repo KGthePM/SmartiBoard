@@ -111,8 +111,9 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
 
         {/* A template is a project starter, so it sits in the grid beside the
             blank one — unlike the tutorial, which is a door and stays a quiet
-            line in the header. The columns it ships are positions, not a mode:
-            nothing about the board that comes out is special. */}
+            line in the header. The Kanban's columns, the SWOT's quadrants and
+            the Mind map's hub are all positions, not modes: nothing about the
+            boards that come out is special. */}
         <button
           className="bcard bcard-new bcard-template"
           onClick={() => create('kanban')}
@@ -123,6 +124,30 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
             ▥
           </span>
           <span>Kanban board</span>
+        </button>
+
+        <button
+          className="bcard bcard-new bcard-template"
+          onClick={() => create('swot')}
+          disabled={busy}
+          title="Strengths · Weaknesses · Opportunities · Threats, as four quadrants of ordinary cards"
+        >
+          <span className="plus" aria-hidden="true">
+            ⊞
+          </span>
+          <span>SWOT analysis</span>
+        </button>
+
+        <button
+          className="bcard bcard-new bcard-template"
+          onClick={() => create('mindmap')}
+          disabled={busy}
+          title="A central topic with branching themes — grow it by dragging from a card’s dot"
+        >
+          <span className="plus" aria-hidden="true">
+            ✳
+          </span>
+          <span>Mind map</span>
         </button>
 
         {active.map((b) => (
