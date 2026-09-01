@@ -1,6 +1,13 @@
 {
   "name": "smarti-board",
-  "version": "0.1.0",
+  "version": "3.0.0",
+  "description": "A web idea board with a built-in AI collaborator that proposes gap-fills and connections as you work.",
+  "author": "KGthePM",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KGthePM/SmartiBoard.git"
+  },
+  "homepage": "https://smartiboard.netlify.app/",
   "private": true,
   "license": "AGPL-3.0-only",
   "engines": {

@@ -23,6 +23,42 @@ proposed. Three visually distinct layers coexist on the board at all times:
 Accepting a proposal constructs a *new* node; the proposal object itself is discarded.
 There is no code path that merges a suggestion into your content implicitly.
 
+## Download it
+
+**[Releases →](https://github.com/KGthePM/SmartiBoard/releases)** — Windows, macOS and Linux.
+Download, install, open. No terminal, no Node, no clone.
+
+| | |
+|---|---|
+| Windows | `SmartiBoard-<version>-win-x64-setup.exe` (installer) or `…-portable.exe` (runs from anywhere) |
+| macOS | `SmartiBoard-<version>-mac-arm64.dmg` (Apple Silicon) |
+| Linux | `SmartiBoard-<version>-linux-x64.AppImage` (`chmod +x` it first) or `.deb` |
+
+**The Windows and Linux builds are not code-signed**, and the operating system will say so.
+That is a fact about a certificate, not about the app, and the honest thing is to tell you
+what you will see rather than let it look like a warning you should heed:
+
+- **Windows** shows *"Windows protected your PC"*. Click **More info**, then **Run anyway**.
+- **Linux** does not care, but the AppImage needs `chmod +x` before it will run.
+- **macOS** is signed with a Developer ID. If a build is not yet notarized, the first launch
+  says Apple could not check it — right-click the app and choose **Open**, once.
+
+If you would rather not take that on trust, the clone-and-run path below builds from source
+in one command, and the desktop installers are built from exactly this repository by
+[the release workflow](.github/workflows/release.yml) — nothing is added at packaging time.
+
+**Your boards live outside the app**, so uninstalling or replacing it does not touch them:
+
+| | |
+|---|---|
+| Windows | `%APPDATA%\Smarti Board\data\smarti.db` |
+| macOS | `~/Library/Application Support/Smarti Board/data/smarti.db` |
+| Linux | `~/.config/Smarti Board/data/smarti.db` |
+
+The desktop app runs on `127.0.0.1` and nothing else — there is no `--lan` equivalent, because
+that flag is a decision an operator makes each run and a double-clicked icon has no such moment.
+If you want the board on your phone, use the clone-and-run path below with `./start.sh --lan`.
+
 ## Running it
 
 ```bash
@@ -321,6 +357,60 @@ model choice, any further AI behaviors. The AI also never moves or edits a node 
 
 Tuned for early-stage **product and strategy ideation**: gap-fills are missing risks,
 unaddressed segments, unstated assumptions, absent success metrics, hidden dependencies.
+
+## Building the desktop app
+
+`desktop/` is a **separate npm package** and deliberately not a workspace of this one:
+`./start.sh` runs `npm install`, and putting Electron in the root would make every
+clone-and-run user download 150 MB of it to launch a web server. A root install is
+unaffected by anything in that folder.
+
+```bash
+cd desktop
+npm install
+npm run dev            # stage + launch the shell
+npm run dist:win       # installers into desktop/dist/
+npm run dist:linux
+npm run dist:mac       # Apple Silicon; dist:mac:intel for x64
+```
+
+**macOS is built locally, not in CI, and on purpose.** GitHub's macOS runners bill at ten times
+the rate of Linux ones, and the Developer ID certificate that signs the app already lives in a
+keychain on the machine that has it — putting a `.p12` into CI secrets would buy nothing but a
+second place for it to expire. `npm run dist:mac` picks the identity up automatically. To
+notarize as well (which is what removes the first-launch warning entirely), store credentials
+once and flip the flag:
+
+```bash
+xcrun notarytool store-credentials smarti \
+  --apple-id <your-apple-id> --team-id 4CC8W8RW2F --password <app-specific-password>
+
+npm run dist:mac -- --config.mac.notarize=true
+```
+
+**Each `dist:*` stages for exactly one platform and architecture**, because the native
+better-sqlite3 binary is specific to both. Mixing them — staging arm64 and packaging x64 — is
+caught by `desktop/verify-arch.js` at pack time rather than by the user at their first database
+call.
+
+`desktop/stage.js` does everything electron-builder then packs: it builds the Next app in
+standalone mode (`output: 'standalone'`, gated on `SMARTI_DESKTOP` in `next.config.ts` so the
+ordinary build is untouched), copies the server plus `.next/static` — which standalone omits —
+and swaps the `better-sqlite3` binary for one built against **Electron's ABI**. The Node build
+that ships in `node_modules` is the wrong ABI for Electron and fails at the first database
+call, which is to say after the window is already open.
+
+**The Electron version is pinned, and the pin is load-bearing.** better-sqlite3 publishes
+prebuilds only up to a particular Electron ABI (42 → ABI 146, as of 12.11.x). Bumping past it
+turns every build into a `node-gyp` compile and needs a C++ toolchain on every runner — the same
+trade `scripts/check-node.js` refuses for the Node floor. Check the
+[better-sqlite3 releases](https://github.com/WiseLibs/better-sqlite3/releases) before raising it.
+
+Windows and Linux releases are built by CI: push a `v*` tag and
+[the workflow](.github/workflows/release.yml) builds on a Windows and a Linux runner and opens
+a **draft** release with the artifacts attached. Nothing goes public until someone presses
+publish — CI proves the installers build, not that they launch. The macOS `.dmg` is built
+locally and added to the same draft.
 
 ## Landing page
 

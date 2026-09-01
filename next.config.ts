@@ -3,6 +3,16 @@ import type { NextConfig } from 'next';
 const config: NextConfig = {
   serverExternalPackages: ['better-sqlite3'],
 
+  // The desktop build (see desktop/) ships the Next server inside Electron, which means it
+  // needs a self-contained server bundle rather than a node_modules tree — that is what
+  // `standalone` emits. It is gated on an env var rather than set outright so that the
+  // clone-and-run path stays exactly what it was: `npm run build` produces the same output
+  // it always has, and only `SMARTI_DESKTOP=1 npm run build` produces the extra bundle.
+  // `serverExternalPackages` above is what keeps better-sqlite3 out of the trace as a
+  // require rather than a bundled module, which is what makes the standalone copy loadable
+  // at all — do not remove it.
+  ...(process.env.SMARTI_DESKTOP ? { output: 'standalone' as const } : {}),
+
   // `./start.sh --lan` binds the dev server to every interface so a phone or tablet on the
   // same network can open the board. Next 15 refuses cross-origin dev requests unless the
   // origin is listed here, so without this the LAN flag serves a page that cannot talk to

@@ -23,6 +23,10 @@ npm run dev       # http://localhost:3000
 npm test          # vitest: lib/**/*.test.ts
 npm run typecheck # tsc --noEmit
 npm run build     # next build
+
+cd desktop && npm install   # the Electron shell — a SEPARATE package, not a workspace
+cd desktop && npm run dev   # stage the Next bundle, then launch the desktop shell
+cd desktop && npm run dist:win     # / dist:linux — installers into desktop/dist/
 ```
 
 **Node 22-26 only.** `.npmrc` sets `engine-strict=true`, so `npm install` on anything else
@@ -603,6 +607,56 @@ like a collaborator or a paperclip. Both are now settled:
   starter; the tutorial link stays a quiet line in the header, because it is a door. ⌘K's
   create is deliberately left blank-only. No AI behavior, no new state, no token: still exactly
   one unsolicited and one user-invoked.
+
+- **The desktop app** (v3.1): the same install in a different room. `desktop/` wraps the Next
+  server in Electron and CI publishes Windows and Linux installers to GitHub Releases, so the
+  answer to "how do I get this" stops being "clone it". **It adds nothing.** No feature, no
+  state, no field on `Board`, no store entry, no undo snapshot, no `lastMutationAt` bump, not in
+  the fingerprint, never a token, and no AI behavior: still exactly one unsolicited and one
+  user-invoked. Nothing in `lib/` or `app/` knows it exists — the entire surface is `desktop/`
+  plus one env-gated line in `next.config.ts`.
+  **`desktop/` is a separate package on purpose, not a workspace.** `./start.sh` runs
+  `npm install`, so Electron in the root `package.json` would make every clone-and-run user
+  download 150 MB to launch a web server. Taxing the flagship install path to serve a second one
+  is the wrong direction, so a root install is untouched by anything in that folder.
+  **`output: 'standalone'` is gated on `SMARTI_DESKTOP`** for the same reason: `npm run build`
+  produces exactly what it always did, and only the desktop staging asks for the extra bundle.
+  `serverExternalPackages: ['better-sqlite3']` was already there and is what keeps the native
+  module a `require` rather than a bundled module — removing it breaks the desktop build silently.
+  **The database moves to `app.getPath('userData')`, and only in the packaged app.** A
+  double-clicked icon has no meaningful cwd, so the default relative `./data/smarti.db` would
+  create a fresh empty database wherever the OS started us — which reads as "my boards vanished",
+  the exact failure `lib/db.ts` already logs its absolute path to guard against. `main.js` sets
+  `SMARTI_DB_PATH` before forking and **`lib/db.ts` is untouched**: it already read that variable,
+  and that seam is the whole reason packaging needed no application change.
+  **Loopback only, and there is no `--lan` here.** The shell takes an OS-assigned free port on
+  `127.0.0.1`. The v2.5 ruling is that binding wider is a decision an operator makes each run,
+  and a double-clicked icon has no such moment — a desktop app that quietly served every board
+  to the café network would be that ruling inverted. The clone-and-run path still has the flag.
+  **The menu must not claim ⌘Z / ⌘Y / ⌘A.** `components/canvas/Board.tsx` owns undo and redo
+  itself, and a menu accelerator is handled before the page ever sees the key — Electron's
+  default `editMenu` would silently break the board's undo stack, the one reversibility
+  guarantee the brief names outright. `main.js` therefore ships a minimal menu with cut/copy/
+  paste and no undo, redo or select-all; the browser still handles all three natively inside a
+  focused text field, which is the only place they mean something else.
+  **The Electron version is pinned, and the pin is load-bearing.** better-sqlite3 publishes
+  prebuilds only up to a particular Electron ABI (42 → ABI 146 as of 12.11.x), and
+  `desktop/stage.js` fetches the matching one and swaps it over the Node-ABI binary the standalone
+  trace copied in. Bumping Electron past that turns every build into a `node-gyp` compile on
+  every runner — the same trade `scripts/check-node.js` refuses for the Node floor. The version
+  is read out of `desktop/package.json` so there is one number, not two.
+  **macOS is signed locally and never in CI.** GitHub's macOS runners bill at ten times a Linux
+  one and the Developer ID lives in a keychain on the machine that has it, so a `.p12` in CI
+  secrets would buy only a second place for it to expire — `npm run dist:mac` picks the identity
+  up on its own and the `.dmg` joins the same draft release. Notarization is a flag
+  (`--config.mac.notarize=true`) over stored `notarytool` credentials, not a code path.
+  **Each `dist:*` stages for exactly one platform-arch pair**, because the native binary is
+  specific to both; `desktop/verify-arch.js` is an `afterPack` hook that refuses a mismatch at
+  pack time rather than letting it surface as a failed database call in a window that already
+  opened.
+  **The Windows and Linux builds are unsigned, and the README says so in words rather than
+  leaving the OS to.** Signing is a fact about a certificate, not about the app. Auto-update is deliberately absent: an
+  unsigned self-updater is a worse story than a Releases page.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

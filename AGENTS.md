@@ -24,6 +24,10 @@ npm test          # vitest run (node env, only lib/**/*.test.ts)
 npx vitest run lib/ai/trigger.test.ts   # single test file
 npm run typecheck # tsc --noEmit
 npm run build     # next build
+
+cd desktop && npm install       # the Electron shell — a SEPARATE package, not a workspace
+cd desktop && npm run dev       # stage the Next bundle, then launch the desktop shell
+cd desktop && npm run dist:win  # / dist:linux — installers into desktop/dist/
 ```
 
 **Node 22-26 only.** `.npmrc` sets `engine-strict=true`, so `npm install` on anything else
@@ -42,6 +46,41 @@ There is **no lint script or lint config** — verify changes with `npm run type
 not "just to see how it looks." Verification is `npm test`, `npm run typecheck`,
 `npm run build`, curl against `npm run dev`, and `sqlite3 data/smarti.db`. Visual checks are
 the user's to make — say what needs looking at and stop there.
+
+## Desktop build (v3.1)
+
+`desktop/` wraps the Next server in Electron; CI publishes Windows and Linux installers on a
+`v*` tag. Rules, all of them load-bearing:
+
+- **It adds nothing.** No feature, no state, no `Board` field, no store entry, no undo snapshot,
+  no `lastMutationAt` bump, not in the fingerprint, never a token, no AI behavior. Nothing in
+  `lib/` or `app/` knows it exists — the surface is `desktop/` plus one gated line in
+  `next.config.ts`. If a desktop change wants to touch `lib/` or `app/`, that is the signal to
+  stop and reconsider.
+- **`desktop/` is a separate package, not a workspace.** `./start.sh` runs `npm install`, so
+  Electron in the root `package.json` would put 150 MB on every clone-and-run user. Do not
+  merge it in.
+- **`output: 'standalone'` is gated on `SMARTI_DESKTOP`** so the ordinary build is unchanged.
+  `serverExternalPackages: ['better-sqlite3']` is what keeps the native module a `require`;
+  removing it breaks packaging silently.
+- **The packaged app sets `SMARTI_DB_PATH` to `app.getPath('userData')`.** `lib/db.ts` is
+  untouched — it already read that variable. A double-clicked app has no meaningful cwd, and
+  the relative default would create an empty database wherever the OS started it.
+- **Loopback only. There is no `--lan` here** — that flag is a per-run operator decision and a
+  double-clicked icon has no such moment.
+- **The Electron menu must never claim ⌘Z / ⌘Y / ⌘A.** A menu accelerator beats the page, and
+  `components/canvas/Board.tsx` owns undo and redo. The default `editMenu` breaks the board's
+  undo stack.
+- **The Electron version is pinned to what better-sqlite3 has prebuilds for** (42 → ABI 146 as
+  of 12.11.x). `desktop/stage.js` fetches that prebuild and swaps it over the Node-ABI binary
+  the trace copied in. Bumping past it means a `node-gyp` compile on every runner — check
+  better-sqlite3's releases first.
+- **macOS is built and signed locally, never in CI** — the runners bill at 10x and the Developer
+  ID is already in a keychain. `npm run dist:mac`; the `.dmg` joins the same draft release.
+- **Each `dist:*` stages one platform-arch pair.** The native binary is specific to both, and
+  `desktop/verify-arch.js` (an `afterPack` hook) refuses a mismatch at pack time.
+- **Windows and Linux are unsigned, and there is no auto-update anywhere.** Both are stated
+  plainly in the README rather than left to the OS to explain.
 
 ## Environment
 
