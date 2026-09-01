@@ -645,12 +645,17 @@ like a collaborator or a paperclip. Both are now settled:
   trace copied in. Bumping Electron past that turns every build into a `node-gyp` compile on
   every runner — the same trade `scripts/check-node.js` refuses for the Node floor. The version
   is read out of `desktop/package.json` so there is one number, not two.
-  **Every `dist:*` passes `--publish never`.** electron-builder enables publishing implicitly the
-  moment a git tag exists and then fails resolving where to publish, so the scripts pass on an
-  untagged checkout and break on the exact commit being released — which is how this first went
-  out. The workflow uploads artifacts itself and electron-builder must never publish. There is
-  deliberately no `repository` in `desktop/package.json`: it would satisfy the resolver and let a
-  tagged build quietly upload a release rather than erroring, the worse of the two failures.
+  **`"publish": null` is in the build config, and no `GH_TOKEN` goes into a build's
+  environment.** electron-builder reads that variable as intent to publish: it resolves a publish
+  target in order to write an `app-update.yml` during `afterPack`, and fails the build outright
+  when it cannot work out the repository. **`--publish never` does not prevent this** — the flag
+  governs the upload, not the resolution — which is why the first release failed on CI while the
+  identical command passed locally, where no token is set. `"publish": null` states the truth
+  instead: there is no publish target, because there is no auto-update and the workflow uploads
+  the artifacts itself. There is deliberately no `repository` field in `desktop/package.json`
+  either — it would satisfy the resolver and let a tagged build quietly upload a release rather
+  than erroring, the worse of the two failures. The `.deb` target additionally needs `homepage`
+  and a `Name <email>` `linux.maintainer`; both are packaging metadata, not app configuration.
   **macOS is signed locally and never in CI.** GitHub's macOS runners bill at ten times a Linux
   one and the Developer ID lives in a keychain on the machine that has it, so a `.p12` in CI
   secrets would buy only a second place for it to expire — `npm run dist:mac` picks the identity

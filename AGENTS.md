@@ -75,10 +75,12 @@ the user's to make — say what needs looking at and stop there.
   of 12.11.x). `desktop/stage.js` fetches that prebuild and swaps it over the Node-ABI binary
   the trace copied in. Bumping past it means a `node-gyp` compile on every runner — check
   better-sqlite3's releases first.
-- **Every `dist:*` passes `--publish never`.** electron-builder enables publishing implicitly
-  when a git tag is present and then fails resolving the target — so the scripts pass untagged
-  and break on the release commit. Do not "fix" it by adding `repository` to
-  `desktop/package.json`: that would let a tagged build silently upload instead of erroring.
+- **`"publish": null` in the build config, and no `GH_TOKEN` in a build's environment.**
+  electron-builder reads `GH_TOKEN` as intent to publish, resolves a target to write
+  `app-update.yml` during `afterPack`, and fails the build when it cannot. `--publish never`
+  does *not* prevent this — it governs the upload, not the resolution. Do not "fix" it by adding
+  `repository` to `desktop/package.json`: that would let a build silently upload a release
+  instead of erroring. There is no auto-update; the workflow uploads artifacts itself.
 - **macOS is built and signed locally, never in CI** — the runners bill at 10x and the Developer
   ID is already in a keychain. `npm run dist:mac`; the `.dmg` joins the same draft release.
 - **Each `dist:*` stages one platform-arch pair.** The native binary is specific to both, and

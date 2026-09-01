@@ -4,6 +4,7 @@
   "description": "Desktop shell for Smarti Board",
   "author": "KGthePM",
   "license": "AGPL-3.0-only",
+  "homepage": "https://smartiboard.netlify.app/",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -23,6 +24,7 @@
     "appId": "app.smartiboard.desktop",
     "productName": "Smarti Board",
     "copyright": "Copyright \u00a9 2026 KGthePM. AGPL-3.0-only.",
+    "publish": null,
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -84,7 +86,8 @@
       "icon": "build/icon.png",
       "category": "Office",
       "synopsis": "A web idea board with a built-in AI collaborator",
-      "artifactName": "SmartiBoard-${version}-linux-${arch}.${ext}"
+      "artifactName": "SmartiBoard-${version}-linux-${arch}.${ext}",
+      "maintainer": "KGthePM <kgomez2k19@gmail.com>"
     },
     "mac": {
       "target": [

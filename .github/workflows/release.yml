@@ -54,9 +54,14 @@ jobs:
         working-directory: desktop
         run: npm run dist:${{ matrix.target }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Nothing is signed. This keeps electron-builder from hunting for certificates it
-          # will not find and failing on the search rather than on the build.
+          # Deliberately NO GH_TOKEN. electron-builder treats that variable as "you want to
+          # publish": it resolves a publish target to write app-update.yml during afterPack,
+          # and fails the build when it cannot work out the repository — regardless of
+          # `--publish never`, which only governs the upload itself. This job builds
+          # artifacts; the release job uploads them. Nothing here should touch GitHub.
+          #
+          # Nothing is signed either. This keeps electron-builder from hunting for
+          # certificates it will not find and failing on the search rather than on the build.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload artifacts

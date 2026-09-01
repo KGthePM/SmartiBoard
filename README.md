@@ -32,7 +32,7 @@ Download, install, open. No terminal, no Node, no clone.
 |---|---|
 | Windows | `SmartiBoard-<version>-win-x64-setup.exe` (installer) or `…-portable.exe` (runs from anywhere) |
 | macOS | `SmartiBoard-<version>-mac-arm64.dmg` (Apple Silicon) |
-| Linux | `SmartiBoard-<version>-linux-x64.AppImage` (`chmod +x` it first) or `.deb` |
+| Linux | `SmartiBoard-<version>-linux-x86_64.AppImage` (`chmod +x` it first) or `…-linux-amd64.deb` |
 
 **The Windows and Linux builds are not code-signed**, and the operating system will say so.
 That is a fact about a certificate, not about the app, and the honest thing is to tell you
@@ -388,13 +388,16 @@ xcrun notarytool store-credentials smarti \
 npm run dist:mac -- --config.mac.notarize=true
 ```
 
-**Every `dist:*` passes `--publish never`, and that is not decoration.** electron-builder turns
-publishing on *implicitly* when it sees a git tag, then fails resolving where to publish — which
-means the scripts work on an untagged checkout and break on the exact commit you are trying to
-release. The workflow uploads artifacts itself, so electron-builder should never publish
-anything. There is deliberately no `repository` field in `desktop/package.json` either: adding
-one would satisfy the resolver and let a tagged build quietly upload a release instead of
-erroring, which is the worse failure of the two.
+**`GH_TOKEN` must not be in the environment of a build, and `"publish": null` is in the config
+for the same reason.** electron-builder reads that variable as "you intend to publish": it then
+resolves a publish target in order to write an `app-update.yml` during `afterPack`, and fails the
+whole build if it cannot work out the repository. **`--publish never` does not prevent this** —
+that flag governs the upload, not the resolution — which is why the first release failed on CI
+while the same command passed locally, where no token is set. `"publish": null` says there is no
+publish target at all, which is the honest statement: there is no auto-update here, and the
+release workflow uploads the artifacts itself. There is deliberately no `repository` field in
+`desktop/package.json` either — it would satisfy the resolver and let a tagged build quietly
+upload a release instead of erroring, the worse of the two failures.
 
 **Each `dist:*` stages for exactly one platform and architecture**, because the native
 better-sqlite3 binary is specific to both. Mixing them — staging arm64 and packaging x64 — is
