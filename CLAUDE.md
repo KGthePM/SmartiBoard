@@ -86,8 +86,14 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   `toggleReaction`. Pure, node-free. The one per-node mark the model never sees.
 - `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
   settings UI, `lib/db.ts`, and the tests all import it.
+- `lib/collapse.ts` — how a done card is drawn: `cardView`, `viewRect`, `isBinned`,
+  `binnedNodes`, and the `collapse_done` row codec. Pure, node-free.
 - `lib/tutorial.ts` — the tutorial board's content: `tutorialBoard(id)`, `TUTORIAL_TITLE`.
   Pure, node-free; `lib/db.ts` (the seed) and the boards route (the restore link) import it.
+- `lib/kanban.ts` — the Kanban template's content: `kanbanBoard(id)`, `KANBAN_TITLE`. Pure,
+  node-free, the mirror of `lib/tutorial.ts`.
+- `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES`, `buildTemplate`
+  (null, never a throw). Adding a template is one entry here plus its own pure module.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
 - `app/api/boards/route.ts` — the collection: list and create.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
@@ -100,6 +106,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
 - `components/SearchPanel.tsx` — the find bar (⌘F), plus `useSearchMatches`, which the canvas
   also reads to tint the hits.
+- `components/DoneBinPanel.tsx` — the Done bin drawer: the derived list of binned cards, with
+  the peek and the un-cross. No actions of its own.
 
 ## Product in one line
 
@@ -520,6 +528,81 @@ like a collaborator or a paperclip. Both are now settled:
   about a skipped match. No new color tokens: a fold is the same surface, the same border, the
   same strike, and the three-layer invariant is untouched because a proposal is never done and
   the ghost never folds.
+
+- **The Done bin** (v3.0): a fourth `CollapseMode`, and the last one — a done card leaves the
+  canvas entirely and is listed in a drawer instead. It is the same ruling as v2.8/v2.9 taken
+  to its end: **a view of `done`, not a second piece of state**, so there is no `binned` field,
+  no board-JSON change, and — because `modeToRow`/`modeFromRow` are index-based —
+  `bin = 3` in the existing `settings.collapse_done` INTEGER, so no migration and no new
+  column. (The codec's one demand on the future: append to `COLLAPSE_MODES`, never reorder
+  it — the array *is* the wire format.) It spends nothing: no undo snapshot, no redo spend,
+  no `lastMutationAt` bump, not in the fingerprint, not in `serializeBoardContent`, never a
+  token. Still exactly one unsolicited AI behavior and one user-invoked one.
+  **Hiding is not moving, and that distinction is the whole feature.** A binned card keeps
+  its `x`/`y`, its size, its edges and its reactions; turning the setting back to `full` puts
+  every one of them back untouched. Moving cards the user placed is the one action the brief
+  rules out, and an archive that emptied the canvas into a second store would be that action
+  wearing a drawer. So the bin is *derived*: `binnedNodes(nodes, mode, expanded)` in
+  `lib/collapse.ts`, newest first, computed wherever it is needed the way search matches are —
+  a card that changes underneath it has nothing to invalidate, and the chrome's count and the
+  panel's rows cannot disagree.
+  **`viewRect(node, 'bin')` is a zero-size rect at the node's own position**, which is the
+  honest answer for something the canvas is not drawing and also the useful one: `placeProposal`
+  sees no obstacle there (a ghost may have the reclaimed space) and `nodesInRect` cannot catch
+  it in the rubber band, both with no edit. The two places that *do* need to know ask `isBinned`:
+  `Board.tsx` filters the card out of the render, and `EdgeLayer`'s `center()` returns null for
+  a binned endpoint — the same answer it already gave for a missing node. The edge is not
+  deleted; peek the card back and its lines come with it.
+  **The panel adds no way to change a board that the board did not already have.** Its two
+  controls are the two that existed: `▸` is `toggleExpanded`, the same session-only peek that
+  opens a folded dot (a reload re-bins it, because `done` is the truth and a peek is only a
+  look), and `✓` is `toggleNodeDone`, which is how a card leaves for good and keeps its own
+  doctrine — an undo snapshot and a `lastMutationAt` bump, exactly as pressing D on the card.
+  `binOpen` is session UI on the find bar's tier: cleared by `beginLoad` (a look at one board's
+  finished work means nothing on the next) and closed by `setPresenting(true)` (a room is shown
+  the board, not the drawer). `collapseMode` stays install-level and absent from `beginLoad`,
+  beside `ghostDelayMs`. **The chrome button exists only in `bin` mode** — the other three folds
+  leave the card on the canvas, where it is its own way back.
+  **A hit inside a binned card is shown in the panel**, via the shared `RichTextView`, because
+  a match the find bar counts but the board never shows reads as a bug — the same ruling that
+  puts the highlight on a folded dot. Print still never folds (`NEVER_COLLAPSED`), so a binned
+  card prints in place: paper is a document. **`lib/db.ts`, the settings route and
+  `SettingsPanel` needed no change at all** — the select maps over `COLLAPSE_MODES` and
+  `normalizeCollapseMode` already guards both sides of the wire, which is the v2.8 seams
+  proving they were cut in the right place. The panel takes the *card's* palette (`--surface`,
+  `--user-border`, `--ink`), not the ideas drawer's ghost tokens: nothing in it is a proposal,
+  and the three-layer invariant is untouched, since a proposal is never `done` and the ghost
+  never bins.
+
+- **The Kanban template, and templates as a registry** (v3.0): a second board you can start
+  from, and the thing that turned the `=== 'tutorial'` ternary in `POST /api/boards` into a
+  lookup. `lib/templates.ts` is the registry — `TEMPLATE_IDS`, `TEMPLATES`, and
+  `buildTemplate(v, id): Board | null`, which **returns null rather than throwing** so that an
+  absent, malformed or unknown name still falls through to a blank board: **creating a board
+  must never be refusable.** `createBoard(board?)` already took a prebuilt board, so there is
+  no db change, no second write path and no migration; `lib/kanban.ts` is pure and node-free
+  like `lib/tutorial.ts`, generating fresh ids per call so two copies may coexist.
+  **A column is a position and nothing else.** Smarti has no column concept and is not getting
+  one: the template ships four header cards (Backlog · Doing · Blocked · Done) at four x
+  coordinates with ordinary cards beneath them, and nothing snaps, nothing is enforced.
+  **Dropping a card under "Done" deliberately does not cross it off** — `done` is content the
+  model reads (it is in the fingerprint and in the prompt), so a rule that set it from an x
+  coordinate would make a *drag* start spending tokens and would quietly turn moving a card
+  into an edit. The ✓ stays the person's to press; the template demonstrates the mark on one
+  card and implies no rule.
+  **Edges run header → card**, which is the one piece of structure a Kanban actually has: an
+  edgeless board renders as a blank minimap and reads to the model as a pile of unrelated
+  sentences, whereas this way the graph says which column each item is in — the point of
+  keeping a typed graph rather than a pixel canvas. Its objective is load-bearing exactly as
+  the tutorial's is: non-empty, so `canGenerateIdeas` is satisfied and ⌘. is live before the
+  board has enough cards for the ghost's 3-idea floor.
+  **It is an ordinary board in every other way** — every node in the `user` layer, no accepted
+  card and no ghost (a proposal is never a node), editable, archivable, deletable, autosaving,
+  counted in the index, and nothing in the schema knows it exists. It is not a mode and not a
+  board type. In the library it is a tile beside "New board", because a template is a project
+  starter; the tutorial link stays a quiet line in the header, because it is a door. ⌘K's
+  create is deliberately left blank-only. No AI behavior, no new state, no token: still exactly
+  one unsolicited and one user-invoked.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

@@ -27,6 +27,7 @@ import {
 import { REACTIONS } from '@/lib/reactions';
 import {
   cardView,
+  isBinned,
   normalizeCollapseMode,
   viewRect,
   type CollapseView,
@@ -854,99 +855,105 @@ export function Board({ boardId }: { boardId: string }) {
             }}
           />
 
-          {board.nodes.map((n) => (
-            // The :p suffix remounts every card on the mode flip: editing
-            // state lives inside NodeCard with no other way in, so this is
-            // what guarantees a card caught mid-edit at entry re-renders in
-            // its read view — and blurs the textarea with it.
-            // Folding joins the suffix for the same reason presenting does: a
-            // card crossed off mid-edit must come back as a stub in its read
-            // view, not as an open textarea with nowhere to put itself.
-            <div
-              key={`${n.id}${presenting ? ':p' : ''}${views.get(n.id) ? `:${views.get(n.id)}` : ''}`}
-              data-node-id={n.id}
-              style={{ position: 'absolute' }}
-            >
-              <NodeCard
-                node={n}
-                matches={hits.get(n.id)?.list ?? EMPTY_MATCHES}
-                activeMatch={hits.get(n.id)?.active ?? null}
-                selected={selectedIds.includes(n.id)}
-                sole={selectedIds.length === 1 && selectedIds[0] === n.id}
-                view={views.get(n.id) ?? null}
-                foldable={collapseMode !== 'full' && n.done}
-                onToggleFold={() => store.toggleExpanded(n.id)}
-                onCardDown={(e) => {
-                  // Shift+click is a membership toggle, not a drag: the
-                  // selection is being built, and a stray move must not carry
-                  // cards with it.
-                  if (e.shiftKey) {
-                    store.toggleSelect(n.id);
-                    return;
-                  }
-                  const inSelection = selectedIds.includes(n.id);
-                  // A plain click on a card outside the selection collapses to
-                  // it, exactly as selection has always worked; inside one, the
-                  // drag carries the whole set.
-                  if (!inSelection) store.select(n.id);
-                  const carry = inSelection
-                    ? board.nodes.filter((x) => selectedIds.includes(x.id))
-                    : [n];
-                  const p = toBoardCoords(e.clientX, e.clientY);
-                  setDrag({
-                    kind: 'nodes',
-                    items: carry.map((x) => ({ id: x.id, ox: x.x, oy: x.y })),
-                    dx: p.x - n.x,
-                    dy: p.y - n.y,
-                    gx: n.x,
-                    gy: n.y,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    moved: false,
-                    // Only a multi-selection needs the click-vs-drag rule; a
-                    // lone card already collapsed above.
-                    collapseTo: inSelection && carry.length > 1 ? n.id : null,
-                  });
-                  // Held still, this press means what Shift+click above means:
-                  // toggle membership. It is computed against the selection as
-                  // it stood at press time, not the one the plain-click branch
-                  // has just collapsed to — otherwise holding on an unselected
-                  // card would toggle off the selection it had itself created.
-                  const before = selectedIds;
-                  armLongPress({ x: e.clientX, y: e.clientY }, () => {
-                    store.selectMany(
-                      before.includes(n.id)
-                        ? before.filter((x) => x !== n.id)
-                        : [...before, n.id],
-                    );
-                    setDrag(null);
-                  });
-                }}
-                onEdit={() => store.select(n.id)}
-                onChange={(text, format) => store.setNodeText(n.id, text, format)}
-                onPortDown={(e) => {
-                  setDrag({ kind: 'connect', from: n.id, to: toBoardCoords(e.clientX, e.clientY) });
-                }}
-                onResizeStart={(e) => {
-                  setDrag({
-                    kind: 'resize',
-                    id: n.id,
-                    startW: n.w,
-                    startH: n.h,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                  });
-                }}
-                onAdjustFont={(dir) => store.adjustNodeFontSize(n.id, dir)}
-                onToggleDone={() => store.toggleNodeDone(n.id)}
-                onToggleReaction={(k) => store.toggleReaction(n.id, k)}
-                onDelete={() => {
-                  lastDeleteAt.current = Date.now();
-                  store.deleteNode(n.id);
-                }}
-              />
-            </div>
-          ))}
+          {/* A binned card is drawn nowhere on the canvas — it is listed in
+              the Done bin instead. Nothing is moved or deleted: the node keeps
+              its position and its edges, and a peek, or turning the setting
+              off, puts it straight back. */}
+          {board.nodes
+            .filter((n) => !isBinned(views.get(n.id)))
+            .map((n) => (
+              // The :p suffix remounts every card on the mode flip: editing
+              // state lives inside NodeCard with no other way in, so this is
+              // what guarantees a card caught mid-edit at entry re-renders in
+              // its read view — and blurs the textarea with it.
+              // Folding joins the suffix for the same reason presenting does: a
+              // card crossed off mid-edit must come back as a stub in its read
+              // view, not as an open textarea with nowhere to put itself.
+              <div
+                key={`${n.id}${presenting ? ':p' : ''}${views.get(n.id) ? `:${views.get(n.id)}` : ''}`}
+                data-node-id={n.id}
+                style={{ position: 'absolute' }}
+              >
+                <NodeCard
+                  node={n}
+                  matches={hits.get(n.id)?.list ?? EMPTY_MATCHES}
+                  activeMatch={hits.get(n.id)?.active ?? null}
+                  selected={selectedIds.includes(n.id)}
+                  sole={selectedIds.length === 1 && selectedIds[0] === n.id}
+                  view={views.get(n.id) ?? null}
+                  foldable={collapseMode !== 'full' && n.done}
+                  onToggleFold={() => store.toggleExpanded(n.id)}
+                  onCardDown={(e) => {
+                    // Shift+click is a membership toggle, not a drag: the
+                    // selection is being built, and a stray move must not carry
+                    // cards with it.
+                    if (e.shiftKey) {
+                      store.toggleSelect(n.id);
+                      return;
+                    }
+                    const inSelection = selectedIds.includes(n.id);
+                    // A plain click on a card outside the selection collapses to
+                    // it, exactly as selection has always worked; inside one, the
+                    // drag carries the whole set.
+                    if (!inSelection) store.select(n.id);
+                    const carry = inSelection
+                      ? board.nodes.filter((x) => selectedIds.includes(x.id))
+                      : [n];
+                    const p = toBoardCoords(e.clientX, e.clientY);
+                    setDrag({
+                      kind: 'nodes',
+                      items: carry.map((x) => ({ id: x.id, ox: x.x, oy: x.y })),
+                      dx: p.x - n.x,
+                      dy: p.y - n.y,
+                      gx: n.x,
+                      gy: n.y,
+                      startX: e.clientX,
+                      startY: e.clientY,
+                      moved: false,
+                      // Only a multi-selection needs the click-vs-drag rule; a
+                      // lone card already collapsed above.
+                      collapseTo: inSelection && carry.length > 1 ? n.id : null,
+                    });
+                    // Held still, this press means what Shift+click above means:
+                    // toggle membership. It is computed against the selection as
+                    // it stood at press time, not the one the plain-click branch
+                    // has just collapsed to — otherwise holding on an unselected
+                    // card would toggle off the selection it had itself created.
+                    const before = selectedIds;
+                    armLongPress({ x: e.clientX, y: e.clientY }, () => {
+                      store.selectMany(
+                        before.includes(n.id)
+                          ? before.filter((x) => x !== n.id)
+                          : [...before, n.id],
+                      );
+                      setDrag(null);
+                    });
+                  }}
+                  onEdit={() => store.select(n.id)}
+                  onChange={(text, format) => store.setNodeText(n.id, text, format)}
+                  onPortDown={(e) => {
+                    setDrag({ kind: 'connect', from: n.id, to: toBoardCoords(e.clientX, e.clientY) });
+                  }}
+                  onResizeStart={(e) => {
+                    setDrag({
+                      kind: 'resize',
+                      id: n.id,
+                      startW: n.w,
+                      startH: n.h,
+                      startX: e.clientX,
+                      startY: e.clientY,
+                    });
+                  }}
+                  onAdjustFont={(dir) => store.adjustNodeFontSize(n.id, dir)}
+                  onToggleDone={() => store.toggleNodeDone(n.id)}
+                  onToggleReaction={(k) => store.toggleReaction(n.id, k)}
+                  onDelete={() => {
+                    lastDeleteAt.current = Date.now();
+                    store.deleteNode(n.id);
+                  }}
+                />
+              </div>
+            ))}
 
           {drag?.kind === 'marquee' ? (
             (() => {

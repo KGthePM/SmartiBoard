@@ -12,6 +12,7 @@ import type { ProposalDraft } from './proposal';
 import type { IdeaDraft } from './ai/ideas';
 import { fingerprint } from './ai/trigger';
 import { findMatches, planReplaceAll } from './search';
+import { binnedNodes } from './collapse';
 import { stripMarks } from './richtext';
 
 /**
@@ -1458,5 +1459,90 @@ describe('folding done cards', () => {
 
     s().setCollapseMode('full');
     expect(fingerprint(s().board)).toBe(fp);
+  });
+});
+
+describe('the Done bin', () => {
+  it('holds the crossed-off cards and hands one back on a peek', () => {
+    open('bin-a');
+    const a = s().addNode(0, 0);
+    const b = s().addNode(300, 0);
+    s().setCollapseMode('bin');
+    const inBin = () =>
+      binnedNodes(s().board.nodes, s().collapseMode, new Set(s().expandedIds)).map((n) => n.id);
+
+    expect(inBin()).toEqual([]);
+    s().toggleNodeDone(a);
+    expect(inBin()).toEqual([a]);
+
+    // The peek is the restore: the same action that opens a dot.
+    s().toggleExpanded(a);
+    expect(inBin()).toEqual([]);
+    expect(s().board.nodes.find((n) => n.id === a)?.done).toBe(true);
+
+    // Un-crossing is how a card leaves for good — and it retires the peek.
+    s().toggleNodeDone(a);
+    expect(inBin()).toEqual([]);
+    expect(s().expandedIds).toEqual([]);
+
+    expect(b).toBeTruthy();
+    s().setCollapseMode('full');
+  });
+
+  it('never moves the card it hides', () => {
+    // The whole reason the bin is a view and not an archive: x and y are
+    // untouched, so peeking one back puts it where its author left it.
+    open('bin-b');
+    const a = s().addNode(120, 340);
+    s().toggleNodeDone(a);
+    s().setCollapseMode('bin');
+    const before = JSON.stringify(s().board);
+
+    s().setBinOpen(true);
+    s().toggleExpanded(a);
+    expect(JSON.stringify(s().board)).toBe(before);
+
+    s().setCollapseMode('full');
+  });
+
+  it('costs nothing, and cannot wake the ghost', () => {
+    open('bin-c');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'Ship the beta landing page');
+    s().toggleNodeDone(a);
+    const fp = fingerprint(s().board);
+    const undoDepth = s().undoStack.length;
+    const at = s().lastMutationAt;
+
+    s().setCollapseMode('bin');
+    s().setBinOpen(true);
+    s().toggleExpanded(a);
+
+    expect(fingerprint(s().board)).toBe(fp);
+    expect(s().undoStack).toHaveLength(undoDepth);
+    expect(s().lastMutationAt).toBe(at);
+
+    s().setCollapseMode('full');
+  });
+
+  it('closes on a board switch, and on the way into presentation', () => {
+    // Session UI on the find bar's tier. A look at one board's finished work
+    // means nothing on the next, and a room is shown the board, not the drawer.
+    open('bin-d');
+    s().setCollapseMode('bin');
+    s().setBinOpen(true);
+    expect(s().binOpen).toBe(true);
+
+    s().setPresenting(true);
+    expect(s().binOpen).toBe(false);
+    s().setPresenting(false);
+
+    s().setBinOpen(true);
+    open('bin-e');
+    expect(s().binOpen).toBe(false);
+    // The setting is install-level and survives, like ghostDelayMs.
+    expect(s().collapseMode).toBe('bin');
+
+    s().setCollapseMode('full');
   });
 });

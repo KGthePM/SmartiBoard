@@ -167,10 +167,24 @@ next to the one card nothing is linked to. It is a real board, so edit it, wreck
 it, or delete it; *Open the tutorial board* under the header in the library brings a fresh
 copy back whenever you want one.
 
+**Or start from a Kanban board.** Beside *New board* in the library is a second tile that
+opens one already laid out — Backlog, Doing, Blocked, Done, with a couple of example cards
+under each. The columns are just positions: nothing snaps to them, and dragging a card under
+Done does not cross it off, because the ✓ is yours to press. Everything on it is an ordinary
+card you can move, rewrite or delete.
+
 **Boards name themselves.** There is no naming step, for the same reason there is no save
 button. A board is titled after its first idea, stripped of formatting; rename it from the
 top-right corner of the canvas and the override sticks. Clear the field and the name goes
 back to the content. Renaming never changes the URL.
+
+**Crossed-off cards can get out of the way.** Press **D** on a selected card to cross it off.
+By default it stays exactly where it is; under *Completed cards* in Settings (⚙) you can have
+done cards fold to a single line, shrink to a dot, or leave the canvas entirely for the
+**Done** drawer in the top-right. Nothing is moved or deleted whichever you pick — the card
+keeps its place, its size and its connections, and switching back to full size puts every one
+of them back. In the drawer, **▸** shows a card again until you reload and **✓** un-crosses it
+for good.
 
 **⌘K** switches boards from inside the canvas: type to filter, ↑/↓ and Enter to go, or make
 a new one. Switching is clean — the undo/redo stacks, the live ghost, and the AI's memory of

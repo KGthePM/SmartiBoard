@@ -941,6 +941,7 @@ html, body {
 .chrome-ideas,
 .chrome-objective,
 .chrome-privacy,
+.chrome-bin,
 .chrome-print,
 .chrome-search,
 .chrome-undo,
@@ -991,6 +992,23 @@ html, body {
   background: var(--wash-strong);
 }
 .chrome-search:disabled { opacity: 0.4; cursor: default; }
+/* The Done bin's door, and only in the mode that has one. Deliberately the
+   Find button's quiet treatment rather than Privacy's: the drawer it opens is
+   the readout, and the count on the face is the rest of it. */
+.chrome-bin {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.chrome-bin:hover { color: var(--ink); }
+.chrome-bin.on {
+  color: var(--ink);
+  background: var(--wash-strong);
+}
+.chrome-bin:disabled { opacity: 0.4; cursor: default; }
+
 /* The dot is the whole state readout: hollow means this board has no objective
    yet, filled means it has one and the AI is working against it. */
 .chrome-objective {
@@ -1925,6 +1943,9 @@ html, body {
    is the accent, not a darkened border. */
 .bcard.bcard-new:hover { color: var(--ink); border-color: var(--index-accent); }
 .bcard-new .plus { font-size: 20px; line-height: 1; color: var(--index-accent); }
+/* The template tile is the blank one's sibling, not a louder version of it:
+   same dashed frame, same accent, a mark instead of a plus. */
+.bcard-template .plus { font-size: 17px; }
 
 .archive { margin-top: 38px; }
 .archive h2 {
@@ -1981,6 +2002,19 @@ html, body {
   text-underline-offset: 3px;
 }
 .index-foot a:hover { color: var(--ink); }
+/* The settings link is a button only so it can summon the panel instead of
+   navigating; visually it is one of its neighbors. */
+.index-foot button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.index-foot button:hover { color: var(--ink); }
 
 /* ---------- graph minimap ---------- */
 
@@ -2228,4 +2262,146 @@ html, body {
 
   /* The empty-card placeholder is an invitation to type, not content. */
   .rt:empty::before { content: none; }
+}
+
+/* ---- The Done bin (v3.0) ----
+   A drawer of what the canvas is not drawing. Unlike the ideas panel beside it,
+   this is the user's own content, so it takes the *card's* palette — surface,
+   user border, ink — and not the ghost's. The distinction is the three-layer
+   invariant doing its job in a panel: nothing in here is a proposal. */
+.bin {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--user-border);
+  color: var(--ink);
+  z-index: 15;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-right: env(safe-area-inset-right);
+}
+.bin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--user-border);
+}
+.bin-title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bin-x {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--user-border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bin-x:hover { background: var(--wash-strong); }
+
+.bin-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+.bin-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bin-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+.bin-item:hover { background: var(--wash); border-color: var(--user-border); }
+/* The card is crossed off, and says so here too — the same faded ink and the
+   same rule the card wears on the board. */
+.bin-item-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--done-faded);
+  text-decoration: line-through;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bin-item-marks {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+.bin-undone,
+.bin-peek {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--user-border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bin-undone:hover,
+.bin-peek:hover { color: var(--ink); background: var(--wash-strong); }
+/* A hit inside a binned card is shown *here*, because the board cannot show
+   it — the same ruling that puts the highlight on a folded dot. The row takes
+   the wash, the word itself takes the find tokens through RichTextView. */
+.bin-item.hit { background: var(--wash); border-color: var(--user-border); }
+/* `.find` already carries the tint globally; the row only has to stop fading
+   the word it found, the way the search bar's own preview line does. */
+.bin-item .find { color: var(--find-ink); }
+
+.bin-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--user-border);
+}
+
+/* Reachability, not style: the two row controls are hover-revealed nowhere, so
+   there is nothing to do here but grow the targets for a fingertip. */
+@media (pointer: coarse) {
+  .bin-undone,
+  .bin-peek { position: relative; }
+  .bin-undone::after,
+  .bin-peek::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+  }
 }

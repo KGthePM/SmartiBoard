@@ -1,11 +1,18 @@
 /**
- * Folding done cards (v2.8, and the dot in v2.9): a view of `done`, not a
- * second piece of state.
+ * Folding done cards (v2.8, the dot in v2.9, the bin in v3.0): a view of
+ * `done`, not a second piece of state.
  *
  * A board that gets used fills up with crossed-off cards, and a done card costs
  * exactly as much canvas as a live one. So, behind a setting, a done card
  * minimizes — to a one-line stub, or, for people who wanted the space back in
- * earnest, to a 28px dot wearing nothing but the ▸ that opens it again.
+ * earnest, to a 28px dot wearing nothing but the ▸ that opens it again, or, in
+ * the last mode, off the canvas entirely and into the Done bin.
+ *
+ * The bin is that same view taken to its end. It is not an archive and not a
+ * second board: nothing is moved, copied or deleted, the node keeps its
+ * position and its edges, and the panel is a list of what the canvas is
+ * currently not drawing. Turn the setting back to `full` and every card is
+ * exactly where its author left it.
  *
  * The rule that decides everything else is that there is no `collapsed` field
  * on `IdeaNode`. A card is folded iff the install setting says to fold, the
@@ -29,13 +36,15 @@ import type { IdeaNode, Rect } from './graph';
 
 /**
  * What a done card does with the space it is taking. `full` is the setting
- * being off; the other two are the two folds.
+ * being off; the rest are folds, in increasing order of how much space they
+ * give back — a line, a dot, and finally the whole card, which leaves the
+ * canvas for the Done bin.
  */
-export const COLLAPSE_MODES = ['full', 'line', 'dot'] as const;
+export const COLLAPSE_MODES = ['full', 'line', 'dot', 'bin'] as const;
 export type CollapseMode = (typeof COLLAPSE_MODES)[number];
 
 /**
- * How a card that *is* folded gets drawn. The same two names as the modes that
+ * How a card that *is* folded gets drawn. The same names as the modes that
  * produce them, minus `full`, which is the absence of a fold rather than a kind
  * of one — so the canvas carries `CollapseView | null` and a null needs no
  * special case anywhere it is read.
@@ -46,6 +55,7 @@ export const COLLAPSE_LABELS: Record<CollapseMode, string> = {
   full: 'Stay full size (default)',
   line: 'Fold to a single line',
   dot: 'Fold to a dot',
+  bin: 'Move to a Done bin',
 };
 
 /**
@@ -90,12 +100,14 @@ export function normalizeCollapseMode(v: unknown): CollapseMode {
 /**
  * The settings row's `collapse_done` column, both ways.
  *
- * v2.8 stored a 0/1 boolean there. v2.9 needs three values, and puts them in
+ * v2.8 stored a 0/1 boolean there. v2.9 needed three values, and put them in
  * the same INTEGER column rather than adding one: `0 = full, 1 = line,
  * 2 = dot`, which reads every existing row correctly — an install that chose
- * folding is on 1, and 1 is the single line it already had. So there is still
- * no migration, and the encoding lives here beside the rule rather than being
- * spelled out in `lib/db.ts`.
+ * folding is on 1, and 1 is the single line it already had. v3.0 appends
+ * `3 = bin` on the same terms. So there is still no migration and no new
+ * column, and the encoding lives here beside the rule rather than being
+ * spelled out in `lib/db.ts`. The one thing this codec asks of the future:
+ * append to `COLLAPSE_MODES`, never reorder it — the array is the wire format.
  */
 export function modeFromRow(v: unknown): CollapseMode {
   return normalizeCollapseMode(COLLAPSE_MODES[typeof v === 'number' ? v : -1]);
@@ -120,16 +132,52 @@ export function cardView(
 }
 
 /**
+ * A binned card is not drawn on the board at all — it is listed in the Done bin
+ * instead. The predicate exists so the canvas asks the rule rather than
+ * spelling out a string compare at each of the places that have to know.
+ *
+ * Hiding, note, is not moving: `x` and `y` are untouched, so peeking a card
+ * back puts it exactly where its author left it. Moving cards the user placed
+ * is the one thing the brief rules out, and the bin does not do it.
+ */
+export function isBinned(view: CollapseView | null | undefined): boolean {
+  return view === 'bin';
+}
+
+/**
+ * What the Done bin holds right now: every card the canvas is not drawing,
+ * newest first, so the thing just crossed off is the thing at the top.
+ *
+ * Derived, never stored — there is no bin list in the store, for the same
+ * reason there is no match list: a card that changes underneath it has nothing
+ * to invalidate. Pure and shared, so the chrome's count and the panel's rows
+ * cannot disagree about what is in there.
+ */
+export function binnedNodes<T extends Pick<IdeaNode, 'id' | 'done' | 'createdAt'>>(
+  nodes: readonly T[],
+  mode: CollapseMode,
+  expanded: ReadonlySet<string>,
+): T[] {
+  return nodes
+    .filter((n) => isBinned(cardView(n, mode, expanded)))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
  * What the card actually occupies on the board right now — the one measure the
  * canvas draws from, so the card, the edges that meet it, and the rubber band
  * that catches it all agree. A stub keeps its width and gives up its height; a
- * dot gives up both. Neither writes the node, which is why expanding restores
- * the card exactly as it was.
+ * dot gives up both. A binned card occupies nothing, which is the honest answer
+ * and also the useful one: `placeProposal` sees no obstacle where it sits (a
+ * ghost may have the reclaimed space) and `nodesInRect` never catches it in the
+ * rubber band. None of the three writes the node, which is why expanding
+ * restores the card exactly as it was.
  */
 export function viewRect(
   node: Pick<IdeaNode, 'x' | 'y' | 'w' | 'h'>,
   view: CollapseView | null | undefined,
 ): Rect {
+  if (view === 'bin') return { x: node.x, y: node.y, w: 0, h: 0 };
   if (view === 'dot') return { x: node.x, y: node.y, w: DOT_SIZE, h: DOT_SIZE };
   if (view === 'line') return { x: node.x, y: node.y, w: node.w, h: COLLAPSED_H };
   return { x: node.x, y: node.y, w: node.w, h: node.h };

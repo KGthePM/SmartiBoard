@@ -1,7 +1,7 @@
 'use client';
 
 import type { Board } from '@/lib/graph';
-import { viewRect, type CollapseView } from '@/lib/collapse';
+import { isBinned, viewRect, type CollapseView } from '@/lib/collapse';
 import type { Proposal } from '@/lib/proposal';
 
 type Props = {
@@ -37,6 +37,11 @@ export function EdgeLayer({
   const center = (id: string) => {
     const n = board.nodes.find((x) => x.id === id);
     if (!n) return null;
+    // A binned card is not on the board, so neither is the line that meets it.
+    // The same answer as a missing node, and for the same reason: there is
+    // nothing here to draw to. The edge is not deleted — peek the card back and
+    // its lines come with it.
+    if (isBinned(views.get(n.id))) return null;
     // What the card occupies, not what the node stores: a line into the middle
     // of a folded card's former height points at bare canvas, and the × rides
     // that same midpoint.

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { canGenerateIdeas } from '@/lib/ai/trigger';
+import { binnedNodes } from '@/lib/collapse';
 import { boardTitle } from '@/lib/boards';
 import { useBoard } from '@/lib/store';
 import { BoardSwitcher } from './BoardSwitcher';
@@ -10,6 +11,7 @@ import { ObjectivePanel } from './ObjectivePanel';
 import { SettingsPanel } from './SettingsPanel';
 import { IdeasPanel } from './IdeasPanel';
 import { SearchPanel } from './SearchPanel';
+import { DoneBinPanel } from './DoneBinPanel';
 
 /**
  * Board identity, top-left: the name leads the board. The buttons stay
@@ -30,12 +32,23 @@ export function BoardChrome() {
   const setSettingsOpen = useBoard((s) => s.setSettingsOpen);
   const objectiveOpen = useBoard((s) => s.objectiveOpen);
   const searchOpen = useBoard((s) => s.searchOpen);
+  const binOpen = useBoard((s) => s.binOpen);
+  const collapseMode = useBoard((s) => s.collapseMode);
+  const nodes = useBoard((s) => s.board.nodes);
+  const expandedIds = useBoard((s) => s.expandedIds);
   const setObjectiveOpen = useBoard((s) => s.setObjectiveOpen);
   const hasObjective = useBoard((s) => s.board.objective.trim().length > 0);
   const privacy = useBoard((s) => s.board.privacy);
   const setPrivacy = useBoard((s) => s.setPrivacy);
   const canUndo = useBoard((s) => s.undoStack.length > 0);
   const canRedo = useBoard((s) => s.redoStack.length > 0);
+
+  /**
+   * What is in the bin right now. Derived, never stored — the same rule the
+   * search matches follow — and empty in every mode but `bin`, which is what
+   * keeps the button out of the row for an install that never asked for one.
+   */
+  const binned = binnedNodes(nodes, collapseMode, new Set(expandedIds));
 
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
@@ -171,6 +184,24 @@ export function BoardChrome() {
           Find
         </button>
 
+        {/* Only in the mode that has a bin. The other three folds leave the
+            card on the canvas, where it is its own way back. */}
+        {collapseMode === 'bin' ? (
+          <button
+            className={`chrome-bin${binOpen ? ' on' : ''}`}
+            title={
+              binned.length === 0
+                ? 'Nothing crossed off yet'
+                : `${binned.length} crossed off — still on the board, just not drawn`
+            }
+            aria-pressed={binOpen}
+            disabled={!loaded}
+            onClick={() => useBoard.getState().setBinOpen(!binOpen)}
+          >
+            Done {binned.length}
+          </button>
+        ) : null}
+
         <button
           className={`chrome-objective${hasObjective ? ' set' : ''}`}
           // No node floor here, unlike Summary: writing the objective before
@@ -283,6 +314,7 @@ export function BoardChrome() {
 
       {open ? <BoardSwitcher onClose={() => setOpen(false)} currentId={board.id} /> : null}
       {searchOpen ? <SearchPanel /> : null}
+      {binOpen && collapseMode === 'bin' ? <DoneBinPanel /> : null}
       {ideasOpen ? <IdeasPanel /> : null}
       {objectiveOpen ? <ObjectivePanel onClose={() => setObjectiveOpen(false)} /> : null}
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}

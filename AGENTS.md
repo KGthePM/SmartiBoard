@@ -371,5 +371,40 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   Printing from the index page is untouched browser behavior — the sheets and their CSS belong
   to the board page only.
 
+- **Folding done cards** (v2.8, the dot in v2.9, the bin in v3.0): behind the Settings
+  "Completed cards" select, a card crossed off with ✓ minimizes — to a one-line stub, to a
+  28px dot, or off the canvas entirely into the **Done bin** drawer. It is **a view of `done`,
+  not a second piece of state**: no `collapsed`/`binned` field on `IdeaNode`, no board-JSON
+  change, no migration. `cardView(node, collapseMode, expandedIds)` in `lib/collapse.ts` is
+  the whole rule, and `modeToRow`/`modeFromRow` are index-based, so each new mode appends to
+  `COLLAPSE_MODES` and reuses the same `settings.collapse_done` INTEGER (`0 full, 1 line,
+  2 dot, 3 bin`). **Never reorder that array — it is the wire format.** Spends nothing: no
+  undo snapshot, no redo spend, no `lastMutationAt`, not in the fingerprint, not in the
+  prompt, never a token. `toggleNodeDone` keeps its own doctrine, because `done` *is* content
+  the model reads.
+  `collapseMode` is install-level and absent from `beginLoad` (like `ghostDelayMs`);
+  `expandedIds` (the session-only peek) and `binOpen` are cleared by it, and `binOpen` also
+  closes on `setPresenting(true)`. Everything that draws board geometry must read `viewRect`
+  or it points at bare canvas — the card, `EdgeLayer`'s endpoints and `.edge-x`, the
+  connect-drag start, `nodesInRect`, `placeProposal`. **Hiding is not moving**: a binned card
+  keeps `x`/`y`, size and edges, `viewRect` gives it a zero-size rect, and `isBinned` is what
+  `Board.tsx` (skip the card) and `EdgeLayer` (null endpoint) ask. The bin list is derived
+  (`binnedNodes`), never stored. The panel's only controls are `toggleExpanded` and
+  `toggleNodeDone` — it adds no new way to change a board. Presentation folds; **print never
+  does** (`NEVER_COLLAPSED`).
+
+- **Templates are a registry** (v3.0): `lib/templates.ts` — `TEMPLATE_IDS`, `TEMPLATES`,
+  `buildTemplate(v, id): Board | null`. `buildTemplate` returns null instead of throwing so an
+  absent, malformed or unknown name falls through to a blank board: **creating a board must
+  never be refusable.** `createBoard(board?)` already accepted a prebuilt board, so a template
+  is a pure `(id) => Board` module and nothing else — no db change, no schema, no migration.
+  Two exist: `lib/tutorial.ts` and `lib/kanban.ts`. **The Kanban template's columns are
+  positions, not a concept** — four header cards at four x coordinates, nothing snaps, and
+  dropping a card under "Done" deliberately does not set `done` (that field is in the
+  fingerprint and the prompt, so a position rule would make a drag spend tokens). Edges run
+  header → card, which is the only structure a Kanban has and what keeps the minimap and the
+  model able to read it. Both templates ship a non-empty objective, so ⌘. is live before the
+  ghost's 3-idea floor is met.
+
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

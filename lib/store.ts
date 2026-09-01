@@ -127,6 +127,15 @@ export type State = {
   searchCase: boolean;
   searchWhole: boolean;
   searchIndex: number;
+  /**
+   * The Done bin (v3.0): the drawer listing what the canvas is not drawing
+   * while `collapseMode` is 'bin'. Session UI on the find bar's tier — it
+   * spends nothing, and its *contents* are not here, being derived from the
+   * board, the mode and the peeks wherever they are needed. Per-board like the
+   * find bar, so beginLoad closes it: a look at one board's finished work
+   * means nothing on the next.
+   */
+  binOpen: boolean;
   viewport: Viewport;
   surface: Surface;
   /**
@@ -222,6 +231,7 @@ export type State = {
   selectEdge: (id: string | null) => void;
   setViewport: (v: Viewport) => void;
   setSurface: (s: Surface) => void;
+  setBinOpen: (open: boolean) => void;
   setPresenting: (v: boolean) => void;
 
   setSuggesting: (v: boolean) => void;
@@ -291,6 +301,7 @@ export const useBoard = create<State>((set, get) => ({
   searchCase: false,
   searchWhole: false,
   searchIndex: 0,
+  binOpen: false,
   viewport: { x: 0, y: 0, scale: 1 },
   surface: { w: 1200, h: 800 },
   presenting: false,
@@ -349,6 +360,7 @@ export const useBoard = create<State>((set, get) => ({
       searchCase: false,
       searchWhole: false,
       searchIndex: 0,
+      binOpen: false,
       lastRequestedFingerprint: null,
       suggestFailedAt: null,
       lastTextEditId: null,
@@ -618,6 +630,10 @@ export const useBoard = create<State>((set, get) => ({
         // are painted on the cards themselves — no tinted words on a projector,
         // for the same reason there is no selection ring on one.
         searchOpen: false,
+        // Same ruling: a room is shown the board, not the drawer of what has
+        // been finished on it. The binned cards stay off the projected canvas,
+        // because presentation folds.
+        binOpen: false,
       };
     }),
 
@@ -738,6 +754,14 @@ export const useBoard = create<State>((set, get) => ({
    * nothing to spend by remembering it.
    */
   setSearchOpen: (open) => set({ searchOpen: open }),
+
+  /**
+   * The Done bin drawer. It has no action of its own beyond opening: restoring
+   * a card is `toggleExpanded` (the same peek that opens a dot) and un-crossing
+   * one is `toggleNodeDone`, so the bin adds no way to change a board that the
+   * board did not already have.
+   */
+  setBinOpen: (open) => set({ binOpen: open }),
 
   // A changed query or option makes the old ordinal meaningless — back to the
   // first match, the way the switcher's cursor resets as you type.

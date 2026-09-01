@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { relativeTime, type BoardSummary } from '@/lib/boards';
+import type { TemplateId } from '@/lib/templates';
+import { SettingsPanel } from '../SettingsPanel';
 import { IndexMark } from './IndexMark';
 import { BoardThumb } from './BoardThumb';
 
@@ -15,11 +17,37 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Settings are install-level, not board-level, so the index can summon the
+   * same panel the chrome does. Local state, like the chrome's switcher: the
+   * store's settingsOpen is board-session UI that beginLoad clears, and this
+   * panel belongs to no board. Leaving the page unmounts it, open or not.
+   */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // The chrome's ⌘,, answered here so the shortcut works before any board
+  // exists. First-run setup is exactly when that matters most.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const active = boards.filter((b) => b.archivedAt === null);
   const archived = boards.filter((b) => b.archivedAt !== null);
 
-  /** `template` is the tutorial's only entry point once it has been deleted. */
-  const create = async (template?: 'tutorial') => {
+  /**
+   * A new board, blank or from a template. `template` is also the tutorial's
+   * only entry point once it has been deleted. An unknown name would still
+   * make a blank board — the route never refuses — so nothing here has to
+   * guard it.
+   */
+  const create = async (template?: TemplateId) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -81,6 +109,22 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           <span>New board</span>
         </button>
 
+        {/* A template is a project starter, so it sits in the grid beside the
+            blank one — unlike the tutorial, which is a door and stays a quiet
+            line in the header. The columns it ships are positions, not a mode:
+            nothing about the board that comes out is special. */}
+        <button
+          className="bcard bcard-new bcard-template"
+          onClick={() => create('kanban')}
+          disabled={busy}
+          title="Backlog · Doing · Blocked · Done, as ordinary cards you can move or delete"
+        >
+          <span className="plus" aria-hidden="true">
+            ▥
+          </span>
+          <span>Kanban board</span>
+        </button>
+
         {active.map((b) => (
           <div className="bcard" key={b.id}>
             <Link className="bcard-hit" href={`/board/${b.id}`}>
@@ -139,6 +183,11 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
         <IndexMark size={18} />
         <p className="index-foot-line">Smarti Board © 2026</p>
         <nav className="index-foot-links">
+          {/* First among the meta-links: the install's settings are as much
+              furniture of this page as of a board's chrome — more so before
+              the first board exists. */}
+          <button onClick={() => setSettingsOpen(true)}>Settings</button>
+          <span aria-hidden="true">·</span>
           <a href="https://smartiboard.netlify.app/" target="_blank" rel="noopener noreferrer">
             Website
           </a>
@@ -152,6 +201,8 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           </a>
         </nav>
       </footer>
+
+      {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }
