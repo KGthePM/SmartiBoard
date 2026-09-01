@@ -320,9 +320,9 @@ export function intersects(a: Rect, b: Rect, pad = 0): boolean {
 }
 
 /**
- * Validates and normalizes untrusted board JSON coming off disk or the wire.
- * Anything malformed is dropped rather than thrown — a corrupt row should
- * degrade to an empty board, not a 500.
+ * Validates and normalizes untrusted board JSON coming off the wire. Anything
+ * malformed is dropped rather than thrown. Persisted rows use the stricter
+ * parsePersistedBoard contract so disk corruption cannot become data loss.
  */
 export function parseBoard(id: string, raw: unknown): Board {
   if (typeof raw !== 'object' || raw === null) return emptyBoard(id);

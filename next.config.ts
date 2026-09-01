@@ -1,12 +1,17 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
+  // The desktop build stages Next's minimal production server beside Electron.
+  // Ordinary clone-and-run builds keep using `next start`; making standalone
+  // conditional avoids changing that supported path for web/self-hosted users.
+  ...(process.env.SMARTI_BUILD_TARGET === 'desktop' ? { output: 'standalone' as const } : {}),
   serverExternalPackages: ['better-sqlite3'],
 
-  // `./start.sh --lan` binds the dev server to every interface so a phone or tablet on the
-  // same network can open the board. Next 15 refuses cross-origin dev requests unless the
-  // origin is listed here, so without this the LAN flag serves a page that cannot talk to
-  // its own API. Only private ranges are allowed — the three RFC 1918 blocks and .local —
+  // `./start.sh --lan` and `start.ps1 --lan` bind the dev server to every interface so a
+  // phone or tablet on the same network can open the board. Next 15 refuses cross-origin
+  // dev requests unless the origin is listed here, so without this the LAN flag serves a
+  // page that cannot talk to its own API. Only private ranges are allowed — the three RFC
+  // 1918 blocks and .local —
   // which is the same "a network you trust" the flag warns about, expressed in config.
   //
   // Unconditional on purpose: this affects `next dev` and nothing else, and a config that

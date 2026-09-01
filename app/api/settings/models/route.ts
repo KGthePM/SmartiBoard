@@ -48,6 +48,7 @@ function failed(status: number | undefined, detail: string): ModelsResult {
 }
 
 export async function POST(req: Request) {
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(60_000)]);
   let body: { provider?: unknown; apiKey?: unknown; baseUrl?: unknown };
   try {
     body = await req.json();
@@ -88,15 +89,18 @@ export async function POST(req: Request) {
       models = [];
       // The display name is the readable half ("Claude Opus 5"); the id is what
       // actually gets sent, so the picker shows both.
-      for await (const m of client.models.list({ limit: 100 })) {
+      for await (const m of client.models.list({ limit: 100 }, { signal })) {
         models.push({ id: m.id, label: m.display_name });
         if (models.length >= MAX_MODELS) break;
       }
     } else {
-      models = (await openaiListModels(cfg)).slice(0, MAX_MODELS);
+      models = (await openaiListModels(cfg, signal)).slice(0, MAX_MODELS);
     }
     return NextResponse.json<ModelsResult>({ ok: true, models });
   } catch (err) {
+    if (signal.aborted) {
+      return NextResponse.json<ModelsResult>({ ok: false, reason: 'error' }, { status: 499 });
+    }
     if (err instanceof OpenAiError) {
       return NextResponse.json<ModelsResult>(failed(err.status, short(err.detail)));
     }

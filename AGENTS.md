@@ -16,8 +16,10 @@ own inline copy of the landing's tokens, so the app's `globals.css` themes do no
 ## Commands
 
 ```bash
-./start.sh       # clone-and-run: provisions Node into .node/ if needed, installs, runs dev
+./start.sh       # macOS/Linux/WSL clone-and-run: provisions Node into .node/ if needed, installs, runs dev
 ./start.sh --lan # the same, but also serving to the LAN (opt-in; see Environment)
+.\start.ps1      # native Windows clone-and-run equivalent
+.\start.ps1 --lan # native Windows LAN opt-in
 npm install       # better-sqlite3 + esbuild have native install scripts — they must be allowed to run
 npm run dev       # http://localhost:3000/board/demo
 npm test          # vitest run (node env, only lib/**/*.test.ts)
@@ -32,8 +34,8 @@ those versions only, and older Node silently falls back to a node-gyp compile th
 stock Debian/Ubuntu. `scripts/check-node.js` (`preinstall`) repeats the check with a
 friendlier message, but it is a second net, not the gate: npm runs root lifecycle scripts
 *after* reifying dependencies, so by then the native build has already been attempted.
-`./start.sh` is the user-facing entry point and sidesteps all of it by fetching its own Node
-into `.node/` when the system one is unsuitable.
+`./start.sh` and `.\start.ps1` are the user-facing entry points and sidestep all of it by
+fetching their own Node into `.node/` when the system one is unsuitable.
 
 There is **no lint script or lint config** — verify changes with `npm run typecheck` and
 `npm test`.
@@ -61,7 +63,8 @@ the user's to make — say what needs looking at and stop there.
   is the point:** `next dev`/`next start` bind every interface on their own, so the board was
   silently on the LAN of every machine it ran on. There is no auth anywhere — one settings
   row, every `/api` route open to whoever asks — so reaching the network is an explicit
-  per-run decision (`./start.sh --lan` or `SMARTI_LAN=1`, which export `SMARTI_HOST=0.0.0.0`),
+  per-run decision (`./start.sh --lan`, `.\start.ps1 --lan`, or `SMARTI_LAN=1`, which export
+  `SMARTI_HOST=0.0.0.0`),
   never a default and never persisted. `next.config.ts` lists the private ranges in
   `allowedDevOrigins`; without them Next 15 serves the page over LAN and refuses its own API.
 

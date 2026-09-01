@@ -21,9 +21,10 @@ var lines = [
   '',
   '  Smarti Board needs Node ' + MIN + '-' + MAX + ' — you have v' + version + '.',
   '',
-  '  Easiest fix, nothing to install:',
+  '  Easiest fixes, nothing to install:',
   '',
-  '      ./start.sh          # fetches its own Node into .node/ and runs the app',
+  '      ./start.sh          # macOS/Linux/WSL: fetches Node into .node/ and runs the app',
+  '      .\\start.ps1         # Windows: fetches Node into .node\\ and runs the app',
   '',
   '  Or install Node yourself:',
   '',
@@ -34,7 +35,7 @@ var lines = [
   '      curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -',
   '      sudo apt-get install -y nodejs',
   '',
-  '  Then:  rm -rf node_modules && npm install',
+  '  Then remove node_modules and run npm install again.',
   ''
 ];
 

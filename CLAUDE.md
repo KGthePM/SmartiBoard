@@ -17,12 +17,16 @@ https://github.com/KGthePM/SmartiBoard — installed by cloning it, so `.nvmrc`,
 ## Commands
 
 ```bash
-./start.sh       # clone-and-run: provisions Node into .node/ if needed, installs, runs dev
+./start.sh       # macOS/Linux/WSL clone-and-run: provisions Node into .node/ if needed, installs, runs dev
+.\start.ps1      # native Windows clone-and-run equivalent
 npm install       # better-sqlite3 and esbuild need install scripts approved
 npm run dev       # http://localhost:3000
 npm test          # vitest: lib/**/*.test.ts
 npm run typecheck # tsc --noEmit
 npm run build     # next build
+npm run desktop:install # install Electron packaging dependencies
+npm run desktop:dir     # unpacked local Windows build
+npm run desktop:dist    # local Windows x64 NSIS installer
 ```
 
 **Node 22-26 only.** `.npmrc` sets `engine-strict=true`, so `npm install` on anything else
@@ -32,7 +36,13 @@ stock Debian/Ubuntu. `scripts/check-node.js` (`preinstall`) repeats the check wi
 friendlier message, but it is a second net, not the gate: npm runs root lifecycle scripts
 *after* reifying dependencies, so by then the native build has already been attempted.
 `./start.sh` is the user-facing entry point and sidesteps all of it by fetching its own Node
-into `.node/` when the system one is unsuitable.
+into `.node/` when the system one is unsuitable; `.\start.ps1` does the same for native Windows.
+
+The Windows desktop wrapper is under `desktop/`; `desktop/README.md` documents its lifecycle,
+data location, native-module staging, signing requirements, and tag release process. A local
+desktop build may be unsigned for development. A public release may not: the tag workflow
+requires Authenticode credentials and publishes the installer, updater metadata, checksums,
+notices, and exact tagged source to `KGthePM/SmartiBoard-Releases`.
 
 ### Verification: no browsers
 
@@ -98,6 +108,12 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
+- `desktop/main.cjs` — Electron lifecycle: first-run import, owned loopback backend, secure
+  window, coordinated save/exit, and updates. `desktop/preload.cjs` is the narrow IPC bridge.
+- `scripts/prepare-desktop.js` — standalone Next staging plus an isolated Electron-ABI rebuild
+  of better-sqlite3. The isolation is load-bearing: never rebuild the root Node binding in place.
+- `middleware.ts` + `lib/desktop-security.ts` — token/host gate enabled only for the desktop
+  backend. The ordinary self-hosted web edition remains unchanged.
 - `components/SearchPanel.tsx` — the find bar (⌘F), plus `useSearchMatches`, which the canvas
   also reads to tint the hits.
 
@@ -338,13 +354,14 @@ like a collaborator or a paperclip. Both are now settled:
   the one property that marks a proposal as provisional. No model call anywhere in it: still
   exactly one unsolicited AI behavior and one user-invoked one.
 
-- **LAN access is opt-in per run** (v2.5): `./start.sh --lan` (or `SMARTI_LAN=1`) binds the dev
+- **LAN access is opt-in per run** (v2.5): `./start.sh --lan`, `.\start.ps1 --lan` (or `SMARTI_LAN=1`) binds the dev
   server to every interface and prints the machine's LAN address, so a phone or tablet on the
   same network can open the board; with no flag the server listens on `127.0.0.1` only.
   **That default is itself the change.** `next dev` and `next start` bind every interface on
   their own, so before this the board was already on the LAN of every machine it ran on, quietly
   and with no way to say otherwise — the flag would have been a banner over a door that was
-  open either way. So the npm scripts pin `-H ${SMARTI_HOST:-127.0.0.1}`, which makes loopback
+  open either way. So the npm scripts run Next through `scripts/run-next.js`, which passes
+  `-H ${SMARTI_HOST:-127.0.0.1}` without relying on a POSIX shell, making loopback
   the thing you get by doing nothing (`npm run dev` by hand included) and the flag the only
   thing that widens it. `start.sh --lan` exports `SMARTI_HOST=0.0.0.0` rather than appending a
   second `-H`: one place decides the host. **The flag is the entire security model, which is why it is a flag.**

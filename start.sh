@@ -30,8 +30,9 @@ die() { printf '\n%s\n\n' "$*" >&2; exit 1; }
 # Nothing about the choice is stored — it belongs to the invocation, not the install.
 #
 # It is a real binding, not a banner: `next dev` on its own listens on every interface,
-# so the npm scripts pin -H to $SMARTI_HOST, defaulting to 127.0.0.1. This flag is the
-# only thing that widens it, and `npm run dev` by hand is loopback-only too.
+# so the npm scripts run Next through scripts/run-next.js with $SMARTI_HOST, defaulting
+# to 127.0.0.1. This flag is the only thing that widens it, and `npm run dev` by hand is
+# loopback-only too.
 LAN="${SMARTI_LAN:-}"
 case "${1:-}" in
   --lan) LAN=1 ;;
@@ -59,7 +60,8 @@ bootstrap_node() {
     Linux)  plat="linux" ;;
     Darwin) plat="darwin" ;;
     *) die "Unsupported OS: $os
-On Windows, run this from WSL, or install Node ${MIN_MAJOR}+ and use: npm install && npm run dev" ;;
+On native Windows, run .\start.ps1 or start.cmd. From WSL, run ./start.sh.
+Or install Node ${MIN_MAJOR}+ yourself, then: npm install && npm run dev" ;;
   esac
 
   case "$arch" in

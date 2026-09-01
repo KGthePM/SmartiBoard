@@ -1,6 +1,6 @@
 # Smarti Board
 
-A web idea board with a built-in Smarti Assistant that points out gap-fills and
+A local idea board with a built-in Smarti Assistant that points out gap-fills and
 connections as you work — rather than responding to prompts on demand.
 One deliberate exception: **⌘.** opens an ideas panel where one click asks for a handful of
 candidate ideas — for the whole board, or branching off the card you have selected. They
@@ -23,22 +23,65 @@ proposed. Three visually distinct layers coexist on the board at all times:
 Accepting a proposal constructs a *new* node; the proposal object itself is discarded.
 There is no code path that merges a suggestion into your content implicitly.
 
-## Running it
+## Windows desktop app
+
+Download the signed Windows x64 installer from
+[SmartiBoard-Releases](https://github.com/KGthePM/SmartiBoard-Releases/releases). The
+assisted installer lets you choose the installation directory and whether to add a desktop
+shortcut; it always adds a Start menu shortcut. Smarti Board runs as one local app with no
+service, tray process, login, or listening LAN port.
+
+On first launch, choose **Import existing data** to select a `smarti.db` from a self-hosted
+copy, or **Start fresh**. Import makes a consistent SQLite snapshot, including committed WAL
+changes, and never modifies the selected file. The desktop copy lives at:
+
+```text
+%LOCALAPPDATA%\Smarti Board\data\smarti.db
+```
+
+Boards, themes, provider settings, and the saved provider key all live in that file.
+Uninstalling the app deliberately keeps it, so reinstalling does not erase your work. Remove
+the `Smarti Board` LocalAppData folder yourself only when you intend to delete all local data.
+
+The app checks for an update after launch. It asks before downloading; once downloaded, you
+can restart immediately or let the update install when you next quit. **Settings > Desktop
+updates** also has a manual check. Release pages include SHA-256 checksums, third-party
+notices, and the exact corresponding source archive for each AGPL-3.0-only build.
+
+## Running the web edition
+
+Download the matching `SmartiBoard-Source-<version>.zip` from the
+[public release](https://github.com/KGthePM/SmartiBoard-Releases/releases), verify it with
+`SHA256SUMS.txt`, and extract it. Maintainers with access to the private source repository can
+instead clone it and check out the matching `v<version>` tag.
+
+macOS, Linux, or WSL:
 
 ```bash
-git clone https://github.com/KGthePM/SmartiBoard.git
-cd SmartiBoard
 ./start.sh                # http://localhost:3000
 ```
 
-That is the whole install. `start.sh` checks whether your Node is one this app can use
+Windows PowerShell:
+
+```powershell
+.\start.ps1               # http://localhost:3000
+```
+
+Windows Command Prompt:
+
+```bat
+start.cmd                 # http://localhost:3000
+```
+
+That is the whole install. The start script checks whether your Node is one this app can use
 (22-26) and, if not, downloads its own into `./.node` and uses that. No `sudo`, no version
 manager to install first, no change to the Node already on your system — everything it
 creates lives inside the cloned folder. Debian and Ubuntu still ship Node 18, so on a stock
-Linux box this is the difference between working and not.
+Linux box this is the difference between working and not; native Windows gets the same
+private Node treatment from `start.ps1`.
 
-**Already on Node 22 or 24?** Then the ordinary commands are all you need, and nothing gets
-downloaded:
+**Already on Node 22-26?** Then the ordinary commands are all you need, and nothing gets
+downloaded on any OS:
 
 ```bash
 npm install
@@ -58,14 +101,23 @@ step, no migration to apply. A fresh clone opens onto one board, the tutorial (b
 ### On your phone, on your own network
 
 ```bash
-./start.sh --lan          # http://localhost:3000 *and* http://<your-lan-ip>:3000
+./start.sh --lan          # macOS/Linux/WSL
+```
+
+```powershell
+.\start.ps1 --lan         # Windows PowerShell
+```
+
+```bat
+start.cmd --lan           # Windows Command Prompt
 ```
 
 The flag binds the server to every interface instead of just loopback and prints the address
 to type into the other device. Without it the server listens on `127.0.0.1` only — note that
 this is *not* the Next.js default, which is every interface; the `dev` and `start` scripts pin
-the host so that the safe case is the one you get by doing nothing. `SMARTI_LAN=1 ./start.sh` does the same thing, as does
-`SMARTI_HOST=0.0.0.0 npm run dev` if you skip the script. It is what you
+the host so that the safe case is the one you get by doing nothing. `SMARTI_LAN=1 ./start.sh`
+or `$env:SMARTI_LAN=1; .\start.ps1` does the same thing, as does `SMARTI_HOST=0.0.0.0 npm run dev`
+or `$env:SMARTI_HOST='0.0.0.0'; npm run dev` if you skip the script. It is what you
 want when the boards live on your laptop and you would like to read or edit them from a phone
 or tablet in the same house. The canvas answers touch: drag to pan, pinch to zoom, drag a card
 to move it, drag the dot to connect, and **hold** where you would press Shift — on empty canvas
@@ -98,7 +150,11 @@ same reason: it is supported by the library but has no published prebuild.)
 Easiest fix, nothing to install:
 
 ```bash
-./start.sh
+./start.sh                # macOS/Linux/WSL
+```
+
+```powershell
+.\start.ps1               # Windows
 ```
 
 Or install Node yourself:
@@ -110,10 +166,10 @@ curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-Then `rm -rf node_modules && npm install`.
+On Windows, install Node 24 from nodejs.org or use `start.ps1` and let the project download
+its private copy.
 
-Windows is not covered by `start.sh` — use WSL, or install Node 22+ and run the npm commands
-directly.
+Then remove `node_modules` and run `npm install` again.
 </details>
 
 **Bring your own model.** Open the ⚙ in the top-right (or `⌘,`) and pick one:
@@ -154,6 +210,9 @@ npm test          # placement, trigger policy, rich text, board naming, board sw
 npm run typecheck
 npm run build
 ```
+
+The Windows desktop packaging commands and signed release procedure are documented in
+[`desktop/README.md`](desktop/README.md).
 
 ## Boards
 

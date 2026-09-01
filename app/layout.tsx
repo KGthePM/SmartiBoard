@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Cinzel } from 'next/font/google';
 import { loadSettings } from '@/lib/db';
 import { DEFAULT_THEME } from '@/lib/theme';
+import { DesktopLifecycle } from '@/components/DesktopLifecycle';
 import './globals.css';
 
 // next/font bakes the files into the build output; the running app never
@@ -44,7 +45,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const theme = loadSettings()?.theme ?? DEFAULT_THEME;
   return (
     <html lang="en" className={cinzel.variable} data-theme={theme}>
-      <body>{children}</body>
+      <body>
+        <DesktopLifecycle />
+        {children}
+      </body>
     </html>
   );
 }

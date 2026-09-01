@@ -6,6 +6,7 @@ import type { IdeaDraft } from '@/lib/ai/ideas';
 import { stripMarks } from '@/lib/richtext';
 import { useBoard } from '@/lib/store';
 import type { NodeId } from '@/lib/graph';
+import { registerDesktopCloseTask } from '@/lib/desktop-close';
 
 /**
  * The ideas drawer (v2.0), replacing the summary panel. The one place the
@@ -128,6 +129,15 @@ export function IdeasPanel() {
       useBoard.getState().cancelIdeas();
     };
   }, []);
+
+  useEffect(
+    () =>
+      registerDesktopCloseTask(() => {
+        abortRef.current?.abort();
+        useBoard.getState().cancelIdeas();
+      }),
+    [],
+  );
 
   /* Esc closes — same dismissibility as everything else the AI shows. */
   useEffect(() => {

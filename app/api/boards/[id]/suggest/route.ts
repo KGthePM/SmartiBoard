@@ -25,6 +25,7 @@ const SUGGEST_TIMEOUT_MS = 60_000;
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(SUGGEST_TIMEOUT_MS)]);
 
   // Privacy Mode, checked before anything is read and before a provider is even
   // resolved. The trigger declines to ask, but that is a client being polite;
@@ -111,8 +112,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     let response;
     try {
-      response = await client.messages.create(params);
+      response = await client.messages.create(params, { signal });
     } catch (err) {
+      if (signal.aborted) {
+        return NextResponse.json({ proposal: null, reason: 'aborted' }, { status: 499 });
+      }
       console.error('[suggest] request failed:', causeChain(err));
       return NextResponse.json({ proposal: null, reason: 'upstream_error' });
     }
@@ -130,10 +134,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         user: `${user}\n\n${JSON_CONTRACT}`,
         maxTokens: 2000,
         json: true,
-        // Plain fetch has no timeout of its own; same bound as the SDK path.
-        signal: AbortSignal.timeout(SUGGEST_TIMEOUT_MS),
+        signal,
       });
     } catch (err) {
+      if (signal.aborted) {
+        return NextResponse.json({ proposal: null, reason: 'aborted' }, { status: 499 });
+      }
       console.error('[suggest] request failed:', causeChain(err));
       return NextResponse.json({ proposal: null, reason: 'upstream_error' });
     }

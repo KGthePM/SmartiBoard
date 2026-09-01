@@ -5,6 +5,8 @@ node_modules/
 # next.js
 .next/
 out/
+.desktop-build/
+dist-desktop/
 next-env.d.ts
 
 # build info
@@ -26,6 +28,10 @@ data/*.sqlite3
 coverage/
 *.log
 npm-debug.log*
+
+# generated desktop resources
+build/icon.png
+THIRD_PARTY_NOTICES.txt
 
 # editor & OS
 .DS_Store

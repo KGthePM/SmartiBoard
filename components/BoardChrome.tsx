@@ -244,8 +244,8 @@ export function BoardChrome() {
 
         <button
           className="chrome-settings"
-          title="Model settings (⌘,)"
-          aria-label="Model settings"
+          title="Settings (⌘,)"
+          aria-label="Settings"
           onClick={() => setSettingsOpen(true)}
         >
           ⚙

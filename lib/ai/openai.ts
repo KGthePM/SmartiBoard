@@ -169,10 +169,11 @@ export function parseModelList(json: unknown): ModelInfo[] {
 export async function openaiListModels(cfg: {
   apiKey: string | null;
   baseUrl: string;
-}): Promise<ModelInfo[]> {
+}, signal?: AbortSignal): Promise<ModelInfo[]> {
   const res = await fetch(endpoint(cfg.baseUrl, 'models'), {
     method: 'GET',
     headers: authHeaders(cfg.apiKey),
+    signal,
   });
   if (!res.ok) throw new OpenAiError(res.status, await snippet(res));
   return parseModelList(await res.json());

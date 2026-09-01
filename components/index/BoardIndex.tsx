@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { relativeTime, type BoardSummary } from '@/lib/boards';
 import { IndexMark } from './IndexMark';
 import { BoardThumb } from './BoardThumb';
+import { SettingsPanel } from '../SettingsPanel';
 
 /**
  * The project library. `now` comes from the server so the relative timestamps
@@ -14,6 +15,18 @@ import { BoardThumb } from './BoardThumb';
 export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault();
+        setSettingsOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const active = boards.filter((b) => b.archivedAt === null);
   const archived = boards.filter((b) => b.archivedAt !== null);
@@ -57,6 +70,9 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
   return (
     <div className="index">
       <header className="index-head">
+        <button className="index-settings" title="Settings (Ctrl+,)" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
         <IndexMark size={34} className="index-mark" />
         <h1 className="index-wordmark">Smarti Board</h1>
         <p className="index-motto" lang="la">
@@ -152,6 +168,7 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           </a>
         </nav>
       </footer>
+      {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }

@@ -1,0 +1,183 @@
+name: Release Windows desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-2025
+    env:
+      RELEASE_REPOSITORY: KGthePM/SmartiBoard-Releases
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix desktop
+
+      - name: Verify source
+        run: |
+          npm run version:check
+          npm test
+          npm run typecheck
+
+      - name: Guard immutable release version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw 'RELEASES_TOKEN is required.' }
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          gh release view $tag --repo $env:RELEASE_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists and is immutable." }
+
+          $latestJson = gh release view --repo $env:RELEASE_REPOSITORY --json tagName,isDraft,isPrerelease 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $latest = $latestJson | ConvertFrom-Json
+            if (-not $latest.isDraft -and -not $latest.isPrerelease) {
+              $latestVersion = [version]($latest.tagName -replace '^v', '')
+              if ([version]$version -le $latestVersion) {
+                throw "$version must be greater than the current public release $latestVersion."
+              }
+            }
+          }
+
+      - name: Prepare desktop payload
+        run: npm run build --prefix desktop
+
+      - name: Decode signing certificate
+        id: certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { throw 'WINDOWS_CERTIFICATE is required.' }
+          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw 'WINDOWS_CERTIFICATE_PASSWORD is required.' }
+          $certificate = Join-Path $env:RUNNER_TEMP 'smarti-board-release.pfx'
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          "path=$certificate" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build signed installer
+        env:
+          CSC_LINK: ${{ steps.certificate.outputs.path }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: npm run package:dist --prefix desktop
+
+      - name: Remove signing certificate
+        if: always() && steps.certificate.outcome == 'success'
+        shell: pwsh
+        run: Remove-Item -LiteralPath '${{ steps.certificate.outputs.path }}' -Force -ErrorAction SilentlyContinue
+
+      - name: Verify signatures and update assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $installer = "dist-desktop/SmartiBoard-Setup-$version-x64.exe"
+          $application = 'dist-desktop/win-unpacked/Smarti Board.exe'
+          foreach ($file in @($installer, $application)) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Missing release artifact: $file" }
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature on $file`: $($signature.Status)" }
+          }
+          foreach ($file in @("$installer.blockmap", 'dist-desktop/latest.yml')) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Missing updater artifact: $file" }
+          }
+          if ((Get-Content -Raw -LiteralPath dist-desktop/latest.yml) -notmatch "(?m)^version: $([regex]::Escape($version))$") {
+            throw 'latest.yml does not describe the tagged version.'
+          }
+          foreach ($file in @(
+            'dist-desktop/win-unpacked/resources/LICENSE.txt',
+            'dist-desktop/win-unpacked/resources/THIRD_PARTY_NOTICES.txt'
+          )) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Packaged app is missing $file" }
+          }
+
+          $sqlite = (Resolve-Path 'dist-desktop/win-unpacked/resources/backend/node_modules/better-sqlite3').Path
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & $application -e "const Database=require(process.argv[1]); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close();" $sqlite
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged better-sqlite3 does not load under Electron.' }
+
+      - name: Create corresponding source and checksums
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $source = "dist-desktop/SmartiBoard-Source-$version.zip"
+          git archive --format=zip --prefix="SmartiBoard-$version/" --output=$source $env:GITHUB_SHA
+          Copy-Item -LiteralPath THIRD_PARTY_NOTICES.txt -Destination dist-desktop/THIRD_PARTY_NOTICES.txt
+          Copy-Item -LiteralPath LICENSE -Destination dist-desktop/LICENSE.txt
+          Copy-Item -LiteralPath dist-desktop/win-unpacked/LICENSE.electron.txt -Destination dist-desktop/LICENSE.electron.txt
+          Copy-Item -LiteralPath dist-desktop/win-unpacked/LICENSES.chromium.html -Destination dist-desktop/LICENSES.chromium.html
+          $assets = @(
+            "dist-desktop/SmartiBoard-Setup-$version-x64.exe",
+            "dist-desktop/SmartiBoard-Setup-$version-x64.exe.blockmap",
+            'dist-desktop/latest.yml',
+            $source,
+            'dist-desktop/THIRD_PARTY_NOTICES.txt',
+            'dist-desktop/LICENSE.txt',
+            'dist-desktop/LICENSE.electron.txt',
+            'dist-desktop/LICENSES.chromium.html'
+          )
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($asset))"
+          }
+          $lines | Set-Content -LiteralPath dist-desktop/SHA256SUMS.txt -Encoding ascii
+
+      - name: Publish public release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          @"
+          # Smarti Board $version
+
+          Download `SmartiBoard-Setup-$version-x64.exe` for Windows x64. The installer and application are Authenticode signed; verify downloads with `SHA256SUMS.txt`.
+
+          `SmartiBoard-Source-$version.zip` is the exact corresponding source used for this build, including its locked dependencies and build instructions. Smarti Board is AGPL-3.0-only. The source links GitHub displays automatically on this binary-release repository are not the application source.
+          "@ | Set-Content -LiteralPath $notes -Encoding utf8
+
+          $assets = @(
+            "dist-desktop/SmartiBoard-Setup-$version-x64.exe",
+            "dist-desktop/SmartiBoard-Setup-$version-x64.exe.blockmap",
+            'dist-desktop/latest.yml',
+            "dist-desktop/SmartiBoard-Source-$version.zip",
+            'dist-desktop/SHA256SUMS.txt',
+            'dist-desktop/THIRD_PARTY_NOTICES.txt',
+            'dist-desktop/LICENSE.txt',
+            'dist-desktop/LICENSE.electron.txt',
+            'dist-desktop/LICENSES.chromium.html'
+          )
+          gh release create $tag $assets --repo $env:RELEASE_REPOSITORY --draft --latest=false --title "Smarti Board $version" --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the complete draft release.' }
+
+          $release = gh release view $tag --repo $env:RELEASE_REPOSITORY --json assets | ConvertFrom-Json
+          $uploaded = @($release.assets | ForEach-Object { $_.name })
+          foreach ($asset in $assets) {
+            $name = [IO.Path]::GetFileName($asset)
+            if ($name -notin $uploaded) { throw "Draft release is missing $name." }
+          }
+          gh release edit $tag --repo $env:RELEASE_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Assets uploaded, but the draft could not be published.' }

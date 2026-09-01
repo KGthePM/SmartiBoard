@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ModelInfo } from '@/lib/ai/openai';
 import { PRESETS, PROVIDERS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, GHOST_DELAY_OFF, GHOST_DELAY_STEPS_MS } from '@/lib/ai/trigger';
@@ -13,6 +13,8 @@ import {
   normalizeCollapseMode,
   type CollapseMode,
 } from '@/lib/collapse';
+import { registerDesktopCloseTask } from '@/lib/desktop-close';
+import { DesktopUpdateSection } from './DesktopUpdateSection';
 
 /**
  * Where the user says which model co-authors their boards.
@@ -89,6 +91,10 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   /** null means free-text mode: either nothing loaded yet, or the user opted out. */
   const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [listing, setListing] = useState(false);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const testAbortRef = useRef<AbortController | null>(null);
+  const pendingSaveRef = useRef<Promise<void> | null>(null);
+  const retrySaveRef = useRef<(() => Promise<void>) | null>(null);
 
   const preset = PRESETS[provider];
   /** A key already saved for *this* provider — switching away stops crediting it. */
@@ -131,6 +137,30 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    const unregister = registerDesktopCloseTask(async () => {
+        listAbortRef.current?.abort();
+        testAbortRef.current?.abort();
+        await pendingSaveRef.current;
+        const retry = retrySaveRef.current;
+        if (retry) {
+          const operation = retry();
+          pendingSaveRef.current = operation;
+          try {
+            await operation;
+            retrySaveRef.current = null;
+          } finally {
+            if (pendingSaveRef.current === operation) pendingSaveRef.current = null;
+          }
+        }
+    });
+    return () => {
+      listAbortRef.current?.abort();
+      testAbortRef.current?.abort();
+      unregister();
+    };
+  }, []);
+
   /**
    * Switching provider refills the endpoint and model with that provider's
    * defaults. Edits belonged to the provider they were made under — carrying
@@ -162,6 +192,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
    * the panel or typing a key must never call out on its own.
    */
   const loadModels = async () => {
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
     setListing(true);
     setTest({ phase: 'idle' });
     try {
@@ -174,6 +207,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           baseUrl: baseUrl.trim(),
         }),
+        signal: controller.signal,
       });
       const d = (await res.json()) as {
         ok?: boolean;
@@ -194,19 +228,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         if (!model.trim()) setModel(d.models[0].id);
       }
     } catch {
-      setTest({ phase: 'bad', reason: 'error' });
+      if (!controller.signal.aborted) setTest({ phase: 'bad', reason: 'error' });
     } finally {
-      setListing(false);
+      if (listAbortRef.current === controller) {
+        listAbortRef.current = null;
+        setListing(false);
+      }
     }
   };
 
   const runTest = async () => {
+    testAbortRef.current?.abort();
+    const controller = new AbortController();
+    testAbortRef.current = controller;
     setTest({ phase: 'running' });
     try {
       const res = await fetch('/api/settings/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload()),
+        signal: controller.signal,
       });
       const d = (await res.json()) as {
         ok?: boolean;
@@ -220,18 +261,21 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           : { phase: 'bad', reason: d.reason ?? 'error', detail: d.detail },
       );
     } catch {
-      setTest({ phase: 'bad', reason: 'error' });
+      if (!controller.signal.aborted) setTest({ phase: 'bad', reason: 'error' });
+    } finally {
+      if (testAbortRef.current === controller) testAbortRef.current = null;
     }
   };
 
   const save = async () => {
     setSaving(true);
-    try {
+    const run = async () => {
       const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload()),
       });
+      if (!res.ok) throw new Error(`settings save failed: ${res.status}`);
       const d = (await res.json()) as { settings: Masked | null };
       if (d.settings) setStored(d.settings);
       // The store is the suggest loop's only channel to this setting — write
@@ -251,20 +295,45 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       if (typeof d.settings?.collapseMode === 'string') {
         useBoard.getState().setCollapseMode(normalizeCollapseMode(d.settings.collapseMode));
       }
+    };
+    const operation = run();
+    pendingSaveRef.current = operation;
+    try {
+      await operation;
+      retrySaveRef.current = null;
       onClose();
     } catch {
+      retrySaveRef.current = run;
       setSaving(false);
       setTest({ phase: 'bad', reason: 'error', detail: "couldn't save" });
+    } finally {
+      if (pendingSaveRef.current === operation) pendingSaveRef.current = null;
     }
   };
 
   const forget = async () => {
-    const res = await fetch('/api/settings', { method: 'DELETE' });
-    const d = (await res.json()) as { settings: Masked | null };
-    setStored(d.settings);
-    setApiKey('');
-    setTest({ phase: 'idle' });
-    setModels(null);
+    setSaving(true);
+    const run = async () => {
+      const res = await fetch('/api/settings', { method: 'DELETE' });
+      if (!res.ok) throw new Error(`settings delete failed: ${res.status}`);
+      const d = (await res.json()) as { settings: Masked | null };
+      setStored(d.settings);
+      setApiKey('');
+      setTest({ phase: 'idle' });
+      setModels(null);
+    };
+    const operation = run();
+    pendingSaveRef.current = operation;
+    try {
+      await operation;
+      retrySaveRef.current = null;
+    } catch {
+      retrySaveRef.current = run;
+      setTest({ phase: 'bad', reason: 'error', detail: "couldn't forget the saved key" });
+    } finally {
+      if (pendingSaveRef.current === operation) pendingSaveRef.current = null;
+      setSaving(false);
+    }
   };
 
   // The anthropic flavor's endpoint is baked into each preset (or left to the
@@ -290,11 +359,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <div
         className="settings"
         role="dialog"
-        aria-label="AI provider settings"
+        aria-label="Settings"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="settings-head">
-          <span className="settings-title">Model</span>
+          <span className="settings-title">Settings</span>
           <button className="settings-x" title="Close (Esc)" onClick={onClose}>
             ×
           </button>
@@ -481,6 +550,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             Stored on this machine, in the same file as your boards. The key is never sent to the browser and
             never leaves for anywhere but the provider you picked.
           </p>
+
+          <DesktopUpdateSection />
 
           <p className="settings-credit">
             <a

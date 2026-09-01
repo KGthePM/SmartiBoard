@@ -36,6 +36,7 @@ function failed(status: number | undefined, detail: string): TestResult {
 }
 
 export async function POST(req: Request) {
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(60_000)]);
   let body: { provider?: unknown; apiKey?: unknown; baseUrl?: unknown; model?: unknown };
   try {
     body = await req.json();
@@ -77,16 +78,22 @@ export async function POST(req: Request) {
   try {
     if (cfg.flavor === 'anthropic') {
       const client = new Anthropic({ apiKey: cfg.apiKey!, baseURL: cfg.baseUrl || undefined });
-      await client.messages.create({
-        model: cfg.model,
-        max_tokens: 1,
-        messages: [{ role: 'user', content: 'hi' }],
-      });
+      await client.messages.create(
+        {
+          model: cfg.model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        },
+        { signal },
+      );
     } else {
-      await openaiComplete(cfg, { system: 'Reply with one word.', user: 'hi', maxTokens: 1 });
+      await openaiComplete(cfg, { system: 'Reply with one word.', user: 'hi', maxTokens: 1, signal });
     }
     return NextResponse.json<TestResult>({ ok: true, model: cfg.model });
   } catch (err) {
+    if (signal.aborted) {
+      return NextResponse.json<TestResult>({ ok: false, reason: 'error' }, { status: 499 });
+    }
     if (err instanceof OpenAiError) {
       return NextResponse.json<TestResult>(failed(err.status, short(err.detail)));
     }

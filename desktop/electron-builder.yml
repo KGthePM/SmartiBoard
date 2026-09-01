@@ -1,0 +1,59 @@
+appId: com.smartiboard.app
+productName: Smarti Board
+executableName: Smarti Board
+copyright: Copyright © 2026 Smarti Board contributors
+
+directories:
+  output: ../dist-desktop
+  buildResources: ../build
+
+files:
+  - main.cjs
+  - preload.cjs
+  - package.json
+
+extraResources:
+  - from: ../.desktop-build/backend
+    to: backend
+    filter:
+      - '**/*'
+      - '!node_modules{,/**/*}'
+  - from: ../.desktop-build/backend/node_modules
+    to: backend/node_modules
+    filter:
+      - '**/*'
+  - from: ../LICENSE
+    to: LICENSE.txt
+  - from: ../THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+
+asar: true
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: ../build/icon.png
+  artifactName: SmartiBoard-Setup-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Smarti Board
+  uninstallDisplayName: Smarti Board
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  include: installer.nsh
+
+publish:
+  provider: github
+  owner: KGthePM
+  repo: SmartiBoard-Releases
+  releaseType: release

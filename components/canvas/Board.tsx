@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
 import {
-  emptyBoard,
   fitViewport,
   NODE_H,
   NODE_W,
@@ -25,6 +24,11 @@ import {
   type PinchStart,
 } from '@/lib/gesture';
 import { REACTIONS } from '@/lib/reactions';
+import { enqueueBoardSave, flushBoardSave } from '@/lib/board-save';
+import {
+  registerDesktopCloseCancellation,
+  registerDesktopCloseTask,
+} from '@/lib/desktop-close';
 import {
   cardView,
   normalizeCollapseMode,
@@ -150,10 +154,11 @@ export function Board({ boardId }: { boardId: string }) {
 
   const surfaceRef = useRef<HTMLDivElement>(null);
   const savedRef = useRef<string>('');
-  // Monotonic id for each PUT we send. A response landing after a newer save
-  // has gone out must not mark the board saved — or failed — on its own behalf.
-  const saveSeqRef = useRef(0);
+  const lastQueuedRef = useRef<{ boardId: string; payload: string } | null>(null);
+  const closingRef = useRef(false);
+  const closeAttemptRef = useRef(0);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [loadError, setLoadError] = useState(false);
   // Exists only to re-arm the autosave effect while a save is failing; a
   // board whose author stopped typing still deserves to recover on its own.
   const [retryNonce, setRetryNonce] = useState(0);
@@ -165,6 +170,8 @@ export function Board({ boardId }: { boardId: string }) {
   // print sheets exist. Nothing on screen changes for it: the stylesheet
   // shows the sheets under @media print and nowhere else.
   const [printing, setPrinting] = useState(false);
+  /** The one unsolicited request in flight, cancelled on navigation/privacy/quit. */
+  const suggestAbortRef = useRef<AbortController | null>(null);
   /**
    * Every pointer currently down on the surface, by id. One entry is a drag;
    * two are a pinch. A mouse only ever puts one thing in here, so nothing about
@@ -311,15 +318,10 @@ export function Board({ boardId }: { boardId: string }) {
     const s = useBoard.getState();
     if (!s.loaded) return;
     const payload = savePayload(s.board);
-    if (payload === savedRef.current) return;
-    savedRef.current = payload;
-    // Supersedes anything in flight, so its late response touches nothing.
-    saveSeqRef.current++;
-    void fetch(`/api/boards/${s.board.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: payload,
-    }).catch(() => {
+    const latest = lastQueuedRef.current;
+    if (latest?.boardId === s.board.id && latest.payload === payload) return;
+    lastQueuedRef.current = { boardId: s.board.id, payload };
+    void enqueueBoardSave({ boardId: s.board.id, payload }).catch(() => {
       /* Unsupervised by design — see above. */
     });
   };
@@ -334,6 +336,8 @@ export function Board({ boardId }: { boardId: string }) {
     // and a board switch does not remount this component.
     useBoard.getState().beginLoad(boardId);
     savedRef.current = '';
+    lastQueuedRef.current = null;
+    setLoadError(false);
 
     const arrive = (b: Board) => {
       if (cancelled) return;
@@ -343,15 +347,23 @@ export function Board({ boardId }: { boardId: string }) {
       // updated_at), and a failed load would write its empty fallback over
       // real content.
       savedRef.current = savePayload(b);
+      lastQueuedRef.current = { boardId, payload: savedRef.current };
       // The indicator starts each board honest, whatever the last one showed.
-      saveSeqRef.current++;
       setSaveState('saved');
     };
 
-    fetch(`/api/boards/${boardId}`)
-      .then((r) => r.json())
+    // A quick leave-and-return must not hydrate the row from before the final
+    // outgoing PUT. The manager also retries a failed final write once here.
+    void flushBoardSave(boardId)
+      .then(() => fetch(`/api/boards/${boardId}`))
+      .then((r) => {
+        if (!r.ok) throw new Error(`board load failed: ${r.status}`);
+        return r.json();
+      })
       .then((b) => arrive(parseBoard(boardId, b)))
-      .catch(() => arrive(emptyBoard(boardId)));
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -362,34 +374,44 @@ export function Board({ boardId }: { boardId: string }) {
   useEffect(() => {
     // board.id lags boardId for one render on a switch; writing then would put
     // the outgoing board's content under the incoming board's id.
-    if (!loaded || board.id !== boardId) return;
+    if (!loaded || board.id !== boardId || closingRef.current) return;
     const payload = savePayload(board);
-    if (payload === savedRef.current) return;
+    const latest = lastQueuedRef.current;
+    if (latest?.boardId === boardId && latest.payload === payload) {
+      if (savedRef.current === payload) setSaveState('saved');
+      return;
+    }
 
     // Dirty: the change exists only in this tab until a PUT lands, and the
     // indicator says so for the debounce and the flight alike.
     setSaveState('saving');
     const t = setTimeout(() => {
-      const mine = ++saveSeqRef.current;
-      savedRef.current = payload;
-      void fetch(`/api/boards/${boardId}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: payload,
-      })
-        .then((r) => {
-          if (mine !== saveSeqRef.current) return;
-          // A non-2xx wrote nothing — the row never changed — so it takes
-          // the failure path rather than counting as a save.
-          if (!r.ok) throw new Error(`save failed: ${r.status}`);
-          setSaveState('saved');
+      if (closingRef.current) return;
+      lastQueuedRef.current = { boardId, payload };
+      void enqueueBoardSave({ boardId, payload })
+        .then(() => {
+          const state = useBoard.getState();
+          if (state.loaded && state.board.id === boardId) savedRef.current = payload;
+          const queued = lastQueuedRef.current;
+          if (
+            state.loaded &&
+            state.board.id === boardId &&
+            savePayload(state.board) === payload &&
+            queued?.boardId === boardId &&
+            queued.payload === payload
+          ) {
+            setSaveState('saved');
+          }
         })
         .catch(() => {
-          if (mine !== saveSeqRef.current) return;
-          // The local board stays authoritative; savedRef reset makes the
-          // next mutation (or the retry tick below) resend the whole board.
-          savedRef.current = '';
-          setSaveState('error');
+          const state = useBoard.getState();
+          const queued = lastQueuedRef.current;
+          if (queued?.boardId !== boardId || queued.payload !== payload) return;
+          lastQueuedRef.current = null;
+          if (state.loaded && state.board.id === boardId && savePayload(state.board) === payload) {
+            savedRef.current = '';
+            setSaveState('error');
+          }
         });
     }, AUTOSAVE_MS);
     return () => clearTimeout(t);
@@ -398,8 +420,8 @@ export function Board({ boardId }: { boardId: string }) {
 
   // A failed save recovers on its own: waiting for the next edit would strand
   // every board whose author stopped typing the moment it failed. While in
-  // error, wake the autosave effect every SAVE_RETRY_MS — savedRef is '' in
-  // that state, so it always finds the board dirty and resends.
+  // error, wake the autosave effect every SAVE_RETRY_MS. The failed write
+  // clears lastQueuedRef, so the unchanged board is still considered dirty.
   useEffect(() => {
     if (saveState !== 'error') return;
     const t = setTimeout(() => setRetryNonce((n) => n + 1), SAVE_RETRY_MS);
@@ -423,6 +445,53 @@ export function Board({ boardId }: { boardId: string }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [saveState]);
+
+  /* ---------- desktop close: save first, then let Electron stop the server ---------- */
+
+  useEffect(() => {
+    const unregisterTask = registerDesktopCloseTask(async () => {
+      const attempt = ++closeAttemptRef.current;
+      closingRef.current = true;
+      suggestAbortRef.current?.abort();
+      suggestAbortRef.current = null;
+      useBoard.getState().setSuggesting(false);
+      // Panels with their own requests answer this event; the board's save is
+      // the only operation shutdown waits for.
+      window.dispatchEvent(new Event('smarti:prepare-close'));
+
+      const state = useBoard.getState();
+      if (!state.loaded) return;
+      const payload = savePayload(state.board);
+      const latest = lastQueuedRef.current;
+      try {
+        if (latest?.boardId !== state.board.id || latest.payload !== payload) {
+          lastQueuedRef.current = { boardId: state.board.id, payload };
+          await enqueueBoardSave({ boardId: state.board.id, payload });
+          savedRef.current = payload;
+          if (closingRef.current && closeAttemptRef.current === attempt) setSaveState('saved');
+        }
+      } catch {
+        const queued = lastQueuedRef.current;
+        if (queued?.boardId === state.board.id && queued.payload === payload) {
+          lastQueuedRef.current = null;
+        }
+        savedRef.current = '';
+        if (closeAttemptRef.current === attempt) setSaveState('error');
+        throw new Error('The latest board changes could not be saved.');
+      }
+    });
+    const unregisterCancellation = registerDesktopCloseCancellation(() => {
+      closeAttemptRef.current++;
+      closingRef.current = false;
+      // An edit whose autosave effect returned while closing needs a new tick;
+      // changing a ref alone would leave it stranded indefinitely.
+      setRetryNonce((nonce) => nonce + 1);
+    });
+    return () => {
+      unregisterTask();
+      unregisterCancellation();
+    };
+  }, []);
 
   /* ---------- the suggest loop ----------
    * Runs on its own timer, entirely off the interaction path. Nothing here is
@@ -459,34 +528,67 @@ export function Board({ boardId }: { boardId: string }) {
 
       s.markRequested(decision.fingerprint);
       s.setSuggesting(true);
+      const requestBoardId = s.board.id;
+      const controller = new AbortController();
+      suggestAbortRef.current?.abort();
+      suggestAbortRef.current = controller;
 
-      void fetch(`/api/boards/${s.board.id}/suggest`, {
+      void fetch(`/api/boards/${requestBoardId}/suggest`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ board: s.board, rejected: rejectedFor(s) }),
+        signal: controller.signal,
       })
         .then((r) => r.json())
         .then((data) => {
+          const current = useBoard.getState();
+          if (
+            controller.signal.aborted ||
+            suggestAbortRef.current !== controller ||
+            current.boardId !== requestBoardId ||
+            current.board.privacy
+          ) {
+            return;
+          }
           if (data?.proposal) {
-            useBoard.getState().receiveProposal(data.proposal);
+            current.receiveProposal(data.proposal);
           } else if (data?.reason === 'upstream_error') {
             // Nothing was asked and nothing was answered, so this board is still
             // unasked. A plain null proposal is different: the model looked and
             // had nothing to add, and that answer holds until the board changes.
-            useBoard.getState().failRequest();
+            current.failRequest();
           }
         })
         .catch(() => {
           /* Silence is the correct failure mode for an unsolicited suggestion. */
-          useBoard.getState().failRequest();
+          if (!controller.signal.aborted && useBoard.getState().boardId === requestBoardId) {
+            useBoard.getState().failRequest();
+          }
         })
-        .finally(() => useBoard.getState().setSuggesting(false));
+        .finally(() => {
+          if (suggestAbortRef.current !== controller) return;
+          suggestAbortRef.current = null;
+          if (useBoard.getState().boardId === requestBoardId) {
+            useBoard.getState().setSuggesting(false);
+          }
+        });
     };
 
     const id = setInterval(tick, TRIGGER_TICK_MS);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      suggestAbortRef.current?.abort();
+      suggestAbortRef.current = null;
+    };
     // boardId is a dependency so the timer is torn down across a switch.
   }, [loaded, boardId]);
+
+  useEffect(() => {
+    if (!board.privacy) return;
+    suggestAbortRef.current?.abort();
+    suggestAbortRef.current = null;
+    useBoard.getState().setSuggesting(false);
+  }, [board.privacy]);
 
   /* ---------- presentation: the opening camera ---------- */
 
@@ -708,6 +810,23 @@ export function Board({ boardId }: { boardId: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [presenting, selectedIds, selectedEdgeId]);
+
+  if (loadError) {
+    return (
+      <main className="board-load-error" role="alert">
+        <div>
+          <strong>This board could not be loaded.</strong>
+          <p>Your stored board was not replaced. Retry, or return to the library.</p>
+          <span>
+            <button type="button" onClick={() => window.location.reload()}>
+              Retry
+            </button>
+            <a href="/">Board library</a>
+          </span>
+        </div>
+      </main>
+    );
+  }
 
   const pendingLine =
     drag?.kind === 'connect'

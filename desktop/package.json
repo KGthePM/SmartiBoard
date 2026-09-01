@@ -1,0 +1,30 @@
+{
+  "name": "smarti-board-desktop",
+  "productName": "Smarti Board",
+  "description": "A local idea board with an AI collaborator.",
+  "author": "Smarti Board contributors",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "main": "main.cjs",
+  "engines": {
+    "node": ">=22.12 <27"
+  },
+  "scripts": {
+    "build": "node ../scripts/prepare-desktop.js",
+    "dir": "npm run build && electron-builder --dir --x64",
+    "package:dist": "electron-builder --win nsis --x64 --publish never",
+    "dist": "npm run build && npm run package:dist"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "electron": "44.1.0",
+    "electron-builder": "26.15.3"
+  },
+  "allowScripts": {
+    "electron@44.1.0": true
+  }
+}

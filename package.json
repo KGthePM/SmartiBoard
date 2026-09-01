@@ -8,11 +8,16 @@
   },
   "scripts": {
     "preinstall": "node scripts/check-node.js",
-    "dev": "next dev -H ${SMARTI_HOST:-127.0.0.1}",
+    "dev": "node scripts/run-next.js dev",
     "build": "next build",
-    "start": "next start -H ${SMARTI_HOST:-127.0.0.1}",
+    "start": "node scripts/run-next.js start",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "desktop:install": "npm install --prefix desktop",
+    "desktop:dist": "npm run dist --prefix desktop",
+    "desktop:dir": "npm run dir --prefix desktop",
+    "desktop:notices": "node scripts/generate-third-party-notices.js",
+    "version:check": "node scripts/check-release.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { summarize, type BoardSummary } from './boards';
-import { emptyBoard, newId, parseBoard, type Board } from './graph';
+import { emptyBoard, newId, type Board } from './graph';
+import { parsePersistedBoard } from './persisted-board';
 import type { ProviderId, StoredSettings } from './ai/providers';
 import { normalizeGhostDelay } from './ai/trigger';
 import { DEFAULT_THEME, normalizeTheme, type ThemeId } from './theme';
@@ -28,6 +29,7 @@ import { tutorialBoard } from './tutorial';
 const DB_PATH = resolve(process.env.SMARTI_DB_PATH ?? './data/smarti.db');
 
 let db: Database.Database | null = null;
+let exitHooked = false;
 
 function conn(): Database.Database {
   if (db) return db;
@@ -37,6 +39,13 @@ function conn(): Database.Database {
   // Saying the absolute path out loud once is the whole fix.
   console.log(`[smarti] database: ${DB_PATH}`);
   db = new Database(DB_PATH);
+  if (!exitHooked) {
+    exitHooked = true;
+    // better-sqlite3 writes synchronously, and this closes the final handle on
+    // Electron's graceful utility-process exit. A hard OS kill still relies on
+    // SQLite WAL recovery, as it does in the web edition today.
+    process.once('exit', closeDatabase);
+  }
   db.pragma('journal_mode = WAL');
   db.exec(`
     CREATE TABLE IF NOT EXISTS boards (
@@ -57,6 +66,12 @@ function conn(): Database.Database {
   `);
   migrate(db);
   return db;
+}
+
+export function closeDatabase(): void {
+  if (!db?.open) return;
+  db.close();
+  db = null;
 }
 
 /**
@@ -105,10 +120,11 @@ export function loadBoard(id: string): Board {
   if (!row) return emptyBoard(id);
 
   try {
-    return parseBoard(id, JSON.parse(row.data));
+    return parsePersistedBoard(id, JSON.parse(row.data));
   } catch {
-    // A corrupt row degrades to an empty board rather than a 500.
-    return emptyBoard(id);
+    // Never turn unreadable persisted content into a valid empty replacement:
+    // the next full-board PUT would make that data loss permanent.
+    throw new Error(`Board ${id} contains unreadable data.`);
   }
 }
 
@@ -159,7 +175,7 @@ export function listBoards(): BoardSummary[] {
   return rows.map((row) => {
     let board: Board;
     try {
-      board = parseBoard(row.id, JSON.parse(row.data));
+      board = parsePersistedBoard(row.id, JSON.parse(row.data));
     } catch {
       board = emptyBoard(row.id);
     }
