@@ -388,6 +388,14 @@ xcrun notarytool store-credentials smarti \
 npm run dist:mac -- --config.mac.notarize=true
 ```
 
+**Every `dist:*` passes `--publish never`, and that is not decoration.** electron-builder turns
+publishing on *implicitly* when it sees a git tag, then fails resolving where to publish — which
+means the scripts work on an untagged checkout and break on the exact commit you are trying to
+release. The workflow uploads artifacts itself, so electron-builder should never publish
+anything. There is deliberately no `repository` field in `desktop/package.json` either: adding
+one would satisfy the resolver and let a tagged build quietly upload a release instead of
+erroring, which is the worse failure of the two.
+
 **Each `dist:*` stages for exactly one platform and architecture**, because the native
 better-sqlite3 binary is specific to both. Mixing them — staging arm64 and packaging x64 — is
 caught by `desktop/verify-arch.js` at pack time rather than by the user at their first database
