@@ -28,6 +28,9 @@
   --mark-green: #1a7f37;
   --mark-blue: #0969da;
   --mark-violet: #8250df;
+  --mark-orange: #bc4c00;
+  --mark-rose: #c2255c;
+  --mark-teal: #0f766e;
 
   /* ---- chrome, not content ----
      Buttons, panels, inputs, scrims, and shadows. These were hardcoded #fff
@@ -127,6 +130,9 @@
   --mark-green: #6ed49a;
   --mark-blue: #7ab8ff;
   --mark-violet: #c3a3f2;
+  --mark-orange: #ffa94d;
+  --mark-rose: #f783ac;
+  --mark-teal: #63d6cf;
 
   --surface: #21242a;
   --surface-raised: #272b32;
@@ -212,6 +218,9 @@
   --mark-green: #b6ff3d;
   --mark-blue: #4fd8ff;
   --mark-violet: #c77dff;
+  --mark-orange: #ff8a3c;
+  --mark-rose: #ff7bd0;
+  --mark-teal: #3dffc8;
 
   --surface: #0b120e;
   --surface-raised: #0e1712;
@@ -382,6 +391,9 @@ html, body {
 .rt-c-green { color: var(--mark-green); }
 .rt-c-blue { color: var(--mark-blue); }
 .rt-c-violet { color: var(--mark-violet); }
+.rt-c-orange { color: var(--mark-orange); }
+.rt-c-rose { color: var(--mark-rose); }
+.rt-c-teal { color: var(--mark-teal); }
 
 /* A search hit, painted over whatever formatting the word already had. Only
    `.find.active` takes the ink override, because only it is ever a solid fill;
@@ -452,6 +464,9 @@ html, body {
 .rt-sw-green { background: var(--mark-green); }
 .rt-sw-blue { background: var(--mark-blue); }
 .rt-sw-violet { background: var(--mark-violet); }
+.rt-sw-orange { background: var(--mark-orange); }
+.rt-sw-rose { background: var(--mark-rose); }
+.rt-sw-teal { background: var(--mark-teal); }
 
 .port {
   position: absolute;
@@ -2309,6 +2324,9 @@ html, body {
     --mark-green: #1a7f37;
     --mark-blue: #0969da;
     --mark-violet: #8250df;
+    --mark-orange: #bc4c00;
+    --mark-rose: #c2255c;
+    --mark-teal: #0f766e;
 
     --surface: #ffffff;
     --surface-raised: #ffffff;

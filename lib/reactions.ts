@@ -14,8 +14,8 @@
  * because a misclick on an 18px target must be recoverable, but no
  * `lastMutationAt` bump.
  *
- * The set is closed and small, like `PALETTE` in ./richtext — five marks a
- * board stays scannable under. A free emoji picker would make every card a
+ * The set is closed and small, like `PALETTE` in ./richtext — a short rack of
+ * marks a board stays scannable under. A free emoji picker would make every card a
  * different alphabet. Pure and node-free, like ./theme: `parseBoard`, the
  * store, the card, and the tests all import this one file, so the legal set
  * cannot drift between them.

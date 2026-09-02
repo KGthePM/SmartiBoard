@@ -177,7 +177,8 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   would let ⌘Z restore one board's snapshot into another, which autosave would then write
   to the wrong id.
 - **Text formatting** (v1.1, functional not flourish): bold/italic/underline/strike plus a fixed
-  5-color palette, stored as inline markers inside `node.text` (see `lib/richtext.ts`). The AI
+  8-color palette (five at v1.1; orange, rose and teal appended after v3.4), stored as inline
+  markers inside `node.text` (see `lib/richtext.ts`). The AI
   paths always see `stripMarks()` output — formatting never changes the fingerprint, never
   reaches the prompt, and proposals are always plain text.
 - **Idea generator** (v2.0, replacing the v1.3 board summary): the second AI behavior —

@@ -65,6 +65,13 @@ describe('parseRichText', () => {
     expect(parseRichText('{{purple|x}}')).toEqual([{ text: '{{purple|x}}' }]);
   });
 
+  it('parses the extended palette keys', () => {
+    expect(parseRichText('{{orange|x}}')).toEqual([{ text: 'x', color: 'orange' }]);
+    expect(parseRichText('{{rose|x}}')).toEqual([{ text: 'x', color: 'rose' }]);
+    expect(parseRichText('{{teal|x}}')).toEqual([{ text: 'x', color: 'teal' }]);
+    expect(stripMarks('{{teal|hot}} idea')).toBe('hot idea');
+  });
+
   it('renders exactly the stripped text across segments', () => {
     const samples = [
       'a **b** *c* __d__ ~~e~~ {{red|f}}',

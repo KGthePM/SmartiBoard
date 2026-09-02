@@ -13,7 +13,7 @@
  * Unmatched markers are literal text: `2 * 3` must never italicize.
  */
 
-export const PALETTE = ['red', 'amber', 'green', 'blue', 'violet'] as const;
+export const PALETTE = ['red', 'amber', 'green', 'blue', 'violet', 'orange', 'rose', 'teal'] as const;
 export type ColorKey = (typeof PALETTE)[number];
 
 const COLOR_OPEN = new RegExp(`^\\{\\{(${PALETTE.join('|')})\\|`);
