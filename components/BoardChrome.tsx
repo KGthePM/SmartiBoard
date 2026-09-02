@@ -7,6 +7,7 @@ import { binnedNodes } from '@/lib/collapse';
 import { boardTitle } from '@/lib/boards';
 import { downloadJson } from '@/lib/download';
 import { fitViewport } from '@/lib/graph';
+import { isGuest } from '@/lib/shareToken';
 import { boardToFile, fileNameFor } from '@/lib/transfer';
 import { useBoard } from '@/lib/store';
 import { BoardSwitcher } from './BoardSwitcher';
@@ -15,6 +16,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { IdeasPanel } from './IdeasPanel';
 import { SearchPanel } from './SearchPanel';
 import { DoneBinPanel } from './DoneBinPanel';
+import { ShareDialog } from './ShareDialog';
 
 /**
  * Board identity, top-left: the name leads the board. The buttons stay
@@ -60,13 +62,38 @@ export function BoardChrome() {
    * way in, which made the one piece of in-app help unreachable from the one
    * kind of device whose gestures are least obvious. */
   const [helpOpen, setHelpOpen] = useState(false);
+  /** Session UI, not board content — the BoardSwitcher's tier, not the objective's. */
+  const [shareOpen, setShareOpen] = useState(false);
+  /**
+   * Somebody else's board, opened from a share link.
+   *
+   * A share token reaches this board and nothing else, so the chrome that leads
+   * anywhere else — Home, ⌘K, ⚙, Export — is removed rather than left to fail.
+   *
+   * **State set in an effect, not read during render**, even though the token
+   * never changes: it lives in the URL *fragment*, which the server by
+   * definition never receives, so reading it inline would render one thing on
+   * the server and another on the client and hydration would disagree. The cost
+   * is one frame of host chrome on a guest's first paint; the alternative is a
+   * mismatch warning and a DOM React has to repair.
+   */
+  const [guest, setGuest] = useState(false);
+  const [hostLabel, setHostLabel] = useState('');
+  useEffect(() => {
+    setGuest(isGuest());
+    setHostLabel(window.location.host);
+  }, []);
   const inputRef = useRef<HTMLInputElement>(null);
   /** The title as it was before this rename, so Escape can put it back. */
   const beforeRef = useRef('');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A control a guest cannot see must not still fire: hiding the button
+      // while leaving its shortcut live is the v2.6 reachability rule inverted.
+      const guestHere = isGuest();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        if (guestHere) return;
         e.preventDefault();
         setOpen((v) => !v);
       } else if ((e.metaKey || e.ctrlKey) && e.key === '.') {
@@ -75,6 +102,7 @@ export function BoardChrome() {
         e.preventDefault();
         useBoard.getState().setIdeasOpen(!useBoard.getState().ideasOpen);
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        if (guestHere) return;
         e.preventDefault();
         useBoard.getState().setSettingsOpen(!useBoard.getState().settingsOpen);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
@@ -290,38 +318,68 @@ export function BoardChrome() {
           Print
         </button>
 
+        {/* Beside Print and Export, the other two actions that take the board
+            out of the app. Hosting is the install's to offer, so a guest never
+            sees it — they cannot invite the rest of the network to a board they
+            were let into. No shortcut: the row is full, as Export notes. */}
+        {guest ? null : (
+          <button
+            className="chrome-share"
+            title="Share this board with someone on your network"
+            disabled={!loaded}
+            onClick={() => setShareOpen(true)}
+          >
+            Share
+          </button>
+        )}
+
         {/* Straight from the store, not from a fetch: this is WYSIWYG, so an
             edit still inside the autosave debounce is in the file. A read, so
             it spends nothing — no snapshot, no bump, never a token. No shortcut;
             the row is full, and the library has the same button per card. */}
-        <button
-          className="chrome-export"
-          title="Export this board as a file"
-          disabled={!loaded}
-          onClick={() => downloadJson(fileNameFor(boardTitle(board), board.id), boardToFile(board))}
-        >
-          Export
-        </button>
+        {/* Export writes a file the guest would then hold a copy of, which is
+            not what they were given: they were let into one live board. */}
+        {guest ? null : (
+          <button
+            className="chrome-export"
+            title="Export this board as a file"
+            disabled={!loaded}
+            onClick={() => downloadJson(fileNameFor(boardTitle(board), board.id), boardToFile(board))}
+          >
+            Export
+          </button>
+        )}
 
         {/* Navigation, not a board action: leaving unmounts the canvas, whose
             cleanup flushes any unsaved edit fire-and-forget — the same exit the
-            board switch takes. */}
-        <Link className="chrome-home" href="/" title="All boards">
-          Home
-        </Link>
+            board switch takes. There is no library for a guest to go home to. */}
+        {guest ? (
+          <span
+            className="chrome-guest"
+            title={`This board lives on ${hostLabel} and is live while that app is open`}
+          >
+            Shared board · {hostLabel}
+          </span>
+        ) : (
+          <>
+            <Link className="chrome-home" href="/" title="All boards">
+              Home
+            </Link>
 
-        <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>
-          ⌘K
-        </button>
+            <button className="chrome-switch" title="Switch board" onClick={() => setOpen(true)}>
+              ⌘K
+            </button>
 
-        <button
-          className="chrome-settings"
-          title="Model settings (⌘,)"
-          aria-label="Model settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          ⚙
-        </button>
+            <button
+              className="chrome-settings"
+              title="Model settings (⌘,)"
+              aria-label="Model settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              ⚙
+            </button>
+          </>
+        )}
 
         {/* Hover or keyboard focus reveals the directions in passing; a press
             pins them, which is the only way in without a pointer that hovers.
@@ -359,6 +417,7 @@ export function BoardChrome() {
       {ideasOpen ? <IdeasPanel /> : null}
       {objectiveOpen ? <ObjectivePanel onClose={() => setObjectiveOpen(false)} /> : null}
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
+      {shareOpen ? <ShareDialog boardId={board.id} onClose={() => setShareOpen(false)} /> : null}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { canGenerateIdeas, fingerprint } from '@/lib/ai/trigger';
 import type { IdeaDraft } from '@/lib/ai/ideas';
 import { stripMarks } from '@/lib/richtext';
+import { apiFetch } from '@/lib/shareToken';
 import { useBoard } from '@/lib/store';
 import type { NodeId } from '@/lib/graph';
 
@@ -53,7 +54,7 @@ export function IdeasPanel() {
     start.beginIdeas(seed);
 
     try {
-      const res = await fetch(`/api/boards/${id}/ideas`, {
+      const res = await apiFetch(`/api/boards/${id}/ideas`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ board: start.board, seedId: seed }),

@@ -25,6 +25,7 @@ import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import { toggleReaction as toggleIn, type ReactionKey } from './reactions';
 import { cardView, DEFAULT_COLLAPSE_MODE, viewRect, type CollapseMode } from './collapse';
+import { applyOps, type Op } from './sync';
 import type { Proposal, ProposalDraft } from './proposal';
 
 /** Screen size of the canvas surface, needed to know what's actually visible. */
@@ -243,9 +244,23 @@ export type State = {
   toggleExpanded: (id: NodeId) => void;
   markRequested: (fingerprint: string) => void;
   failRequest: () => void;
-  receiveProposal: (draft: ProposalDraft) => void;
+  /** The room's ghost went back on the table; ask again on the next tick. */
+  releaseRequest: () => void;
+  /** `proposalId` is the room's name for this ghost, when there is a room. */
+  receiveProposal: (draft: ProposalDraft, proposalId?: string) => void;
   acceptProposal: () => void;
   dismissProposal: () => void;
+  /** Someone else accepted or turned down the ghost we are both looking at. */
+  remoteRetireProposal: (
+    proposalId: string,
+    phase: 'accepted' | 'dismissed',
+    text: string,
+  ) => void;
+  /**
+   * A batch of ops from another client (v4.0). `dirty` is what this tab has
+   * changed but not yet had acked — those nodes are ours until the save lands.
+   */
+  applyRemote: (boardId: string, ops: Op[], dirty: NodeId[]) => void;
 
   setIdeasOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -664,7 +679,18 @@ export const useBoard = create<State>((set, get) => ({
    */
   failRequest: () => set({ lastRequestedFingerprint: null, suggestFailedAt: Date.now() }),
 
-  receiveProposal: (draft) => {
+  /**
+   * The room's ghost lease expired with nothing delivered (v4.0) — the client
+   * that won the claim died between asking and answering.
+   *
+   * Deliberately NOT failRequest: that also stamps suggestFailedAt and buys a
+   * 30s cooldown, which a lease nobody used has not earned. Releasing the
+   * fingerprint alone means the room asks again on the very next tick, and one
+   * of the surviving clients wins it.
+   */
+  releaseRequest: () => set({ lastRequestedFingerprint: null }),
+
+  receiveProposal: (draft, proposalId) => {
     const { board, deletedEdgesByBoard, viewport, surface } = get();
     const rectFor = viewRectFor(get());
     // A connection the user deleted by hand must not come back as a ghost.
@@ -682,7 +708,11 @@ export const useBoard = create<State>((set, get) => ({
     );
     // No pushUndo: a suggestion arriving is not something the user did, so it
     // must never be undoable. Otherwise the board feels haunted.
-    set({ proposal: { ...draft, id: newId('p'), x, y } });
+    //
+    // The id comes from the server when there is a room to share it with, so
+    // accept and dismiss can name the same ghost on every screen. Locally
+    // minted otherwise, exactly as before.
+    set({ proposal: { ...draft, id: proposalId ?? newId('p'), x, y } });
   },
 
   acceptProposal: () =>
@@ -739,6 +769,105 @@ export const useBoard = create<State>((set, get) => ({
           ...s.rejectedByBoard,
           [id]: [...seen, s.proposal.text].slice(-REJECTED_LIMIT),
         },
+      };
+    }),
+
+  /**
+   * The room's ghost, retired by someone else (v4.0). Ops alone cannot do this:
+   * if Alice accepts, her node arrives everywhere through the diff, but Bob's
+   * `proposal` is still sitting on his canvas with nothing to retire it.
+   *
+   * A dismissal is recorded in `rejectedByBoard` whether or not this tab was
+   * showing the ghost, because **one person's "not that" is the room's** — and
+   * each client sends its own rejected list with its own suggest call, so a
+   * dismissal that landed nowhere else would come straight back reworded.
+   */
+  remoteRetireProposal: (proposalId, phase, text) =>
+    set((s) => {
+      const mine = s.proposal && s.proposal.id === proposalId ? s.proposal : null;
+      if (phase === 'accepted') {
+        // The node itself rides the ops in the same request, so there is
+        // nothing to build here — only the ghost to take down.
+        return mine ? { proposal: null } : s;
+      }
+      const id = s.board.id;
+      const seen = s.rejectedByBoard[id] ?? [];
+      const turned = text || mine?.text;
+      return {
+        ...(mine ? { proposal: null } : {}),
+        ...(turned
+          ? {
+              rejectedByBoard: {
+                ...s.rejectedByBoard,
+                [id]: [...seen, turned].slice(-REJECTED_LIMIT),
+              },
+            }
+          : {}),
+      };
+    }),
+
+  /**
+   * Someone else's edits, landing on this canvas (v4.0). Four rules, each of
+   * which is a visible bug if it is missed:
+   *
+   * 1. **Another person's edit is never in your undo stack.** No pushUndo, no
+   *    redo spend. It *does* bump lastMutationAt — the board now says something
+   *    different, and the ghost may have something to say about it. This is the
+   *    descendant of v1's rule that a ghost appearing is not undoable but
+   *    accepting one is.
+   * 2. **Never clobber a node with unsaved local edits.** The textarea is
+   *    controlled over node.text and commits per keystroke, so a remote
+   *    node.put mid-burst yanks the card out from under the typist. Anything in
+   *    `dirty` — what the hook's diff against its last acked basis touched — is
+   *    dropped here. Last-write-wins already decided ours wins; the skip retires
+   *    itself the moment the save acks. One rule covering live streaming, the
+   *    reconnect resync, and the open textarea at once.
+   * 3. **Rebase both stacks.** They hold whole-board snapshots, so a stale one
+   *    resurrects the card a teammate just deleted. Running the same ops over
+   *    every snapshot means ⌘Z only ever undoes *your* edits. The consequence to
+   *    accept: undo can restore their wording of a card you both edited — that
+   *    is last-write-wins applied to history, and the alternative is the
+   *    per-field merge engine this whole design exists to not need.
+   * 4. **Prune what points at what is gone**, and retire the ghost if the board
+   *    went private under us — not via dismissProposal, because nobody turned
+   *    that idea down. The same distinction setPrivacy makes.
+   *
+   * lastTextEditId is deliberately untouched: a teammate's edit must not end
+   * your typing burst and split a sentence into two undo steps.
+   */
+  applyRemote: (boardId, ops, dirty) =>
+    set((s) => {
+      // A frame for a board this session has already navigated away from.
+      if (s.boardId !== boardId || s.board.id !== boardId) return s;
+
+      const ours = new Set(dirty);
+      const kept = ops.filter((op) =>
+        op.t === 'node.put'
+          ? !ours.has(op.node.id)
+          : op.t === 'node.del'
+            ? !ours.has(op.id)
+            : true,
+      );
+      // Everything in the batch was about a card we are still holding: nothing
+      // changed here, so nothing may bump the trigger clock.
+      if (kept.length === 0) return s;
+
+      const board = applyOps(s.board, kept);
+      const nodes = new Set(board.nodes.map((n) => n.id));
+      const privateNow = kept.some((op) => op.t === 'board.set' && op.privacy === true);
+
+      return {
+        board,
+        undoStack: s.undoStack.map((b) => applyOps(b, kept)),
+        redoStack: s.redoStack.map((b) => applyOps(b, kept)),
+        selectedIds: s.selectedIds.filter((id) => nodes.has(id)),
+        selectedEdgeId:
+          s.selectedEdgeId && board.edges.some((e) => e.id === s.selectedEdgeId)
+            ? s.selectedEdgeId
+            : null,
+        expandedIds: s.expandedIds.filter((id) => nodes.has(id)),
+        proposal: privateNow ? null : s.proposal,
+        lastMutationAt: Date.now(),
       };
     }),
 

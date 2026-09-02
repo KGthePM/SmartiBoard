@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
+import { guardManage } from '@/lib/access';
 import { OpenAiError, openaiComplete } from '@/lib/ai/openai';
 import { PRESETS, resolveConfigFrom, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS } from '@/lib/ai/trigger';
@@ -36,6 +37,11 @@ function failed(status: number | undefined, detail: string): TestResult {
 }
 
 export async function POST(req: Request) {
+  // This route reads the stored key to test with. Ungated it would be a key
+  // oracle for anyone who could reach the port.
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   let body: { provider?: unknown; apiKey?: unknown; baseUrl?: unknown; model?: unknown };
   try {
     body = await req.json();

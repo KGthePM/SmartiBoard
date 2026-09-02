@@ -174,6 +174,13 @@ if [ -n "$LAN" ]; then
   say ""
   SMARTI_HOST=0.0.0.0
   export SMARTI_HOST
+  # v4.1's access gate reads this: bound wide *and* vouched for means every caller
+  # is 'trusted' and reaches everything, which is exactly what this flag has meant
+  # since v2.5 and what the warning above describes. Without it a wide binding is
+  # gated, and only a share token gets in — that is the desktop's mode, not this
+  # one. Not persisted, like the binding itself: it belongs to the invocation.
+  SMARTI_TRUST_LAN=1
+  export SMARTI_TRUST_LAN
   exec npm run dev
 fi
 say "Starting Smarti Board on http://localhost:3000"

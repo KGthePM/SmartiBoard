@@ -959,6 +959,7 @@ html, body {
 .chrome-bin,
 .chrome-print,
 .chrome-export,
+.chrome-share,
 .chrome-search,
 .chrome-undo,
 .chrome-center,
@@ -1112,6 +1113,27 @@ html, body {
 }
 .chrome-export:hover:not(:disabled) { color: var(--ink); }
 .chrome-export:disabled { opacity: 0.45; cursor: default; }
+/* Share joins the same pair — the third action that takes the board somewhere,
+   here to a person rather than to paper or a file. */
+.chrome-share {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chrome-share:hover:not(:disabled) { color: var(--ink); }
+.chrome-share:disabled { opacity: 0.45; cursor: default; }
+/* Where Home, ⌘K and ⚙ sit on your own board: a label, not a control, because
+   there is nowhere for a guest to navigate to. */
+.chrome-guest {
+  font-size: 12px;
+  line-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  color: var(--muted);
+  border: 1px dashed var(--user-border);
+  border-radius: 5px;
+}
 
 /* ---------- presentation mode ---------- */
 
@@ -2574,3 +2596,109 @@ html, body {
     inset: -10px;
   }
 }
+
+/* ---------- the share dialog (v4.1) ---------- */
+
+/* The template library's shell, verbatim: same backdrop, same surface, same
+   head. Built from existing tokens only — a share dialog is chrome, and the
+   three-layer invariant belongs to the board underneath it, which is unchanged.
+   No new color token, so no theme owes this a new answer. */
+.share-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10dvh;
+}
+.share {
+  width: min(560px, 92vw);
+  background: var(--surface-raised);
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+.share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 9px 9px 13px;
+  border-bottom: 1px solid var(--grid);
+}
+.share-title { font-size: 12px; color: var(--muted); }
+.share-x {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.share-x:hover { color: var(--ink); }
+.share-body { padding: 13px; display: flex; flex-direction: column; gap: 11px; }
+.share-lead { font-size: 12px; line-height: 1.5; color: var(--ink); margin: 0; }
+.share-note { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 0; }
+.share-go,
+.share-stop {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  align-self: flex-start;
+}
+.share-go:disabled,
+.share-stop:disabled { opacity: 0.5; cursor: default; }
+.share-stop { color: var(--muted); }
+.share-stop:hover:not(:disabled) { color: var(--ink); }
+.share-urls { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.share-urls li { display: grid; grid-template-columns: 1fr auto; gap: 5px 7px; align-items: center; }
+.share-url-label { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+/* An input rather than text: a clipboard the browser refuses must not be the
+   only way to get the link out, so it stays selectable. */
+.share-url {
+  font: inherit;
+  font-size: 11px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 0;
+}
+.share-copy {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 5px;
+  border: 1px solid var(--user-border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.share-copy:hover { color: var(--ink); }
+/* Said here rather than in the README, because they are true at the moment the
+   button is pressed. */
+.share-caveats {
+  border-top: 1px solid var(--grid);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.share-caveats p { margin: 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.share-caveats code { font-size: 11px; }
+.share-warn { color: var(--ink); }

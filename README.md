@@ -114,6 +114,9 @@ asks. Anyone who can reach that address can read and edit every board, and can s
 model provider key you configured. That is a fine trade on your own Wi-Fi and a bad one on a
 café or conference network, which is exactly why the app will not make the choice for you.
 
+If what you actually want is to let one person into *one* board, that is
+[Sharing a board](#sharing-a-board) instead, and it is much narrower than this flag.
+
 <details>
 <summary><strong>Why Node 22+, and what if <code>npm install</code> refuses to run?</strong></summary>
 
@@ -227,6 +230,20 @@ for good.
 a new one. Switching is clean — the undo/redo stacks, the live ghost, and the AI's memory of
 what you dismissed all belong to the board you were on, not to the session.
 
+**Two windows on one board update each other.** There is no save button — the board saves
+itself as you work — and since v3.6 it saves *what you changed* rather than the whole
+document, so an edit in one window no longer wipes an edit in the other: different cards both
+survive, and the same card keeps whichever version was typed last. Since v4.0 the other
+window also *sees* it, about a second after you stop typing: cards, connections, the
+objective and Privacy Mode all travel. A card you are still typing in is yours until your own
+save lands, and ⌘Z only ever undoes your own edits — it will not bring back a card the other
+window deleted. If a window loses its connection it catches up when it reconnects.
+
+The AI is shared too: a board open in three windows still gets **one** ghost, offered to
+everyone at once, and accepting or dismissing it in one window retires it in all of them.
+
+Since v4.1 the other window can be **someone else's** — see [Sharing a board](#sharing-a-board).
+
 **Deleting is two steps.** Archive moves a board out of the library and is reversible from
 the Archived section; permanent deletion is only offered on a board that is already
 archived. Nothing on the board is destroyed by a single click — same principle as the ghost
@@ -264,6 +281,41 @@ layer.
   highlights never do
 - The **Export** button writes this board to a `.smarti.json` file, and the library's
   **Import board** tile reads one back — how a board moves to another machine
+
+## Sharing a board
+
+**Share** in a board's chrome hands one board to one person. Press it, pick the address they
+can reach you on, and send them the link — they open it in a browser and edit the board with
+you, live. It is the same two-windows behaviour above, with the second window on their machine.
+
+Three things about the link, all of which the dialog also tells you at the moment you press
+the button:
+
+- **It dies when you close Smarti Board.** Nothing is stored — no account, no server, no row
+  in your database. Closing the app is how you revoke it, and **Stop sharing** is how you do it
+  without closing anything. Reopening the dialog gives you back the *same* link rather than
+  minting a new one, so a link you already sent keeps working.
+- **It reaches that board and nothing else.** Not your library, not your other boards, not your
+  settings, not your API key. A link with the token removed reaches nothing at all, and the
+  person you shared with cannot share it onward — hosting is yours to offer.
+- **They can use the AI on that board, which spends your model provider key.** That is usually
+  the point: the ghost works for the room, and one board open in three places still gets one
+  ghost between them rather than three. If you would rather it didn't, turn on **Private**
+  (⌘⇧P) — that switch already means "nothing here is sent to a model", and it applies to guests
+  exactly as it applies to you.
+
+**What sharing does not do:** it does not give them a copy. There is no board in their library
+afterwards, nothing to export, and nothing left behind when they close the tab — they were
+looking at yours the whole time.
+
+If you started the app with `./start.sh --lan`, the dialog will say so: that flag already opens
+every board on the machine to the whole network, so there the link is a shortcut to the right
+board rather than a limit on what your visitor can see. The desktop app is the other way round
+— it accepts network connections but refuses everything that arrives without a link, so only
+the boards you actually shared are reachable. **That does mean the desktop app now listens on
+your network at every launch**, where earlier versions listened only to itself, and your
+operating system will probably ask about it the first time. Nothing is reachable without a
+link you handed out, but an open port is worth knowing about.
 
 ## Moving boards between machines
 

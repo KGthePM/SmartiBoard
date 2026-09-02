@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { guardManage } from '@/lib/access';
 import { clearSettingsApiKey, loadSettings, saveSettings } from '@/lib/db';
 import { keyHint, PRESETS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, normalizeGhostDelay } from '@/lib/ai/trigger';
@@ -31,11 +32,20 @@ function masked() {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // The provider config is the install's, and the key it hints at is the host's
+  // to spend. A guest reaches none of it — Board.tsx's GET here already falls
+  // back to defaults on failure, so their canvas is unaffected.
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   return NextResponse.json({ settings: masked() });
 }
 
 export async function PUT(req: Request) {
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   let body: {
     provider?: unknown;
     apiKey?: unknown;
@@ -101,7 +111,10 @@ export async function PUT(req: Request) {
   return NextResponse.json({ settings: masked() });
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   clearSettingsApiKey();
   return NextResponse.json({ settings: masked() });
 }

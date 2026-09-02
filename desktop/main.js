@@ -9,13 +9,44 @@
  * this small should not need a build step of its own.
  */
 
-const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, session, shell } = require('electron');
 const { fork } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const net = require('node:net');
 const { join } = require('node:path');
 
-const HOST = '127.0.0.1';
+/**
+ * The two halves of what used to be one HOST (v4.1).
+ *
+ * The desktop can now host a shared board, so the server binds every interface —
+ * **from launch, not on demand**: a listening server cannot rebind, so widening on
+ * a button press would mean a new port and a window reload in the middle of a
+ * collaboration. The token is the boundary instead (lib/access.ts).
+ *
+ * The window still loads loopback. Nothing about that address changed, and it is
+ * also what proves the window is local: see LOCAL_SECRET below.
+ *
+ * Worth stating plainly, because it is the one genuinely new exposure in v4.1:
+ * this app now holds an open port on the LAN at every launch, where before it held
+ * none, and will raise a firewall prompt the first time. A caller without a token
+ * reaches nothing — not a board, not the library, not the settings — but a gated
+ * port is not the same thing as no port.
+ */
+const BIND_HOST = '0.0.0.0';
+const URL_HOST = '127.0.0.1';
 const READY_TIMEOUT_MS = 45_000;
+
+/**
+ * How this window proves it is us.
+ *
+ * Next's App Router does not expose the peer address, and the Host header is not a
+ * substitute — a machine on the LAN can send `Host: localhost`. So `local` is not
+ * something a request looks like, it is something it must prove, and this is the
+ * proof: a per-run secret handed to the server as an env var and attached to every
+ * request this window makes. A LAN peer cannot guess a randomUUID and therefore
+ * gets the share tier at best. It is minted per launch and never persisted.
+ */
+const LOCAL_SECRET = randomUUID();
 
 // electron-builder unpacks app/** out of the asar (see package.json), because the Next server
 // reads its own build output off disk and an archive is a worse place to do that from than a
@@ -51,13 +82,17 @@ app.on('second-instance', () => {
  */
 const DB_PATH = join(app.getPath('userData'), 'data', 'smarti.db');
 
-/** An OS-assigned free port, asked for and released, so we never guess at 3000. */
+/**
+ * An OS-assigned free port, asked for and released, so we never guess at 3000.
+ * Probed on the *bind* host: a port free on loopback but already taken on the
+ * wildcard would be handed over and then fail to listen.
+ */
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
     probe.unref();
     probe.on('error', reject);
-    probe.listen(0, HOST, () => {
+    probe.listen(0, BIND_HOST, () => {
       const { port } = probe.address();
       probe.close(() => resolve(port));
     });
@@ -95,8 +130,9 @@ function startServer(port) {
       ELECTRON_RUN_AS_NODE: '1',
       NODE_ENV: 'production',
       PORT: String(port),
-      HOSTNAME: HOST,
+      HOSTNAME: BIND_HOST,
       SMARTI_DB_PATH: DB_PATH,
+      SMARTI_LOCAL_SECRET: LOCAL_SECRET,
     },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
@@ -210,7 +246,19 @@ async function boot() {
     const port = await freePort();
     const { child, signal } = startServer(port);
     serverProcess = child;
-    const url = `http://${HOST}:${port}`;
+    const url = `http://${URL_HOST}:${port}`;
+    // Every request the app's own window makes carries the proof. Scoped to this
+    // server's own origin, so nothing leaks to a page opened elsewhere — and the
+    // window opens nothing elsewhere anyway (setWindowOpenHandler externalises
+    // http(s) to the system browser and denies the rest).
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: [`${url}/*`] },
+      (details, callback) => {
+        callback({
+          requestHeaders: { ...details.requestHeaders, 'x-smarti-local': LOCAL_SECRET },
+        });
+      },
+    );
     await waitForServer(url, signal);
     console.log(`[smarti] desktop shell on ${url}`);
     await window.loadURL(url);

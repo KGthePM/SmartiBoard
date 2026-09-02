@@ -29,6 +29,13 @@ const config: NextConfig = {
     '172.20.*.*', '172.21.*.*', '172.22.*.*', '172.23.*.*',
     '172.24.*.*', '172.25.*.*', '172.26.*.*', '172.27.*.*',
     '172.28.*.*', '172.29.*.*', '172.30.*.*', '172.31.*.*',
+    // Tailscale hands out addresses from the CGNAT block 100.64.0.0/10, and
+    // without these `next dev` over a tailnet serves a page that refuses its own
+    // API calls — the same failure the RFC 1918 entries above exist to prevent.
+    // Generated rather than written out: 64 more literal lines beside the 16
+    // above would be a wall nobody re-reads, and `100.*.*.*` would over-match
+    // public space the way `172.*.*.*` would have.
+    ...Array.from({ length: 64 }, (_, i) => `100.${64 + i}.*.*`),
     '*.local',
   ],
 };

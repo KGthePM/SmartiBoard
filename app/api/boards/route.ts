@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { guardManage } from '@/lib/access';
 import { allBoards, createBoard, listBoards } from '@/lib/db';
 import { newId, parseBoard } from '@/lib/graph';
 import { buildTemplate } from '@/lib/templates';
@@ -13,6 +14,11 @@ export const runtime = 'nodejs';
  * dropdown would be the wrong default for the sake of one button.
  */
 export async function GET(req: Request) {
+  // The library is the install, not a board: a share token names one board and
+  // therefore reaches neither the list nor `?full=1`. See lib/access.ts.
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   if (new URL(req.url).searchParams.get('full') === '1') {
     return NextResponse.json({ boards: allBoards() });
   }
@@ -39,6 +45,9 @@ export async function GET(req: Request) {
  * whole feature: an import can only ever add boards, never overwrite one.
  */
 export async function POST(req: Request) {
+  const denied = guardManage(req);
+  if (denied) return denied;
+
   const body = (await req.json().catch(() => null)) as {
     template?: unknown;
     board?: unknown;

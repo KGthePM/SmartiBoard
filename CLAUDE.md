@@ -83,6 +83,22 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
 - `lib/search.ts` — find & replace: `findMatches`, `planReplaceAll`, `markMatches`. Pure.
+- `lib/sync.ts` — the save path as a diff (v3.6): the `Op` union, `diffBoards`, `applyOps`.
+  Pure, node-free; the hook and the sync route import the same functions. The node is the
+  unit of merge and every op is idempotent — both are load-bearing, see the invariant below.
+- `lib/hub.ts` — the room (v4.0): in-process pub/sub per board, pinned on `globalThis`, plus
+  the ghost lease and, since v4.1, the share registry (a *sibling* map — `sweep` would revoke
+  a token stored on `Room`). Server-only (timers, a process global) but node-free, so it
+  tests directly.
+- `lib/access.ts` — who is calling (v4.1): `decideAccess` (pure, node-free, the whole refusal
+  matrix as a table) and the bound `accessFor` / `guardManage` / `guardBoard`. The
+  `providers.ts`-vs-`config.ts` split again. **`local` is proved, never inferred** — see the
+  invariant below.
+- `lib/share.ts` — the share link (v4.1): `shareUrl`, `parseShareToken`. Pure, node-free; the
+  token rides in the URL fragment, which no server ever receives.
+- `lib/shareToken.ts` — the one DOM line for the above (`location.hash`, and `apiFetch`, which
+  every client API call goes through). Kept out of `lib/share.ts` so that stays pure, exactly
+  as `lib/download.ts` is kept out of `lib/transfer.ts`. Untested by design.
 - `lib/gesture.ts` — touch as arithmetic: `zoomAround` (the wheel and the pinch alike),
   `pinchViewport`, and the long-press constants. Pure, node-free.
 - `lib/placement.ts` — where a ghost lands. Pure.
@@ -107,13 +123,21 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   `readTransfer`, `declaredNodeCount`. Pure, node-free; the index and the tests import it.
 - `lib/download.ts` — the one DOM line (`downloadJson`), kept out of `lib/transfer.ts` so
   that stays pure. Untested by design: the filename is where the logic is.
-- `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
+- `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`,
+  `PresentOverlay` (the v1.13 presentation chrome), `useSync` (the autosave seam: debounce,
+  indicator, retry, flush — sending ops since v3.6, and holding the room's stream since v4.0).
 - `app/api/boards/route.ts` — the collection: list (`?full=1` for the export bundle),
   create, and import.
-- `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
+- `app/api/boards/[id]/` — `route.ts` (whole-board GET/PUT, archive, delete),
+  `sync/route.ts` (the canvas's write path: POST a batch of ops, merged per node; GET the
+  room's SSE stream — `hello`, `ops`, `ghost`, `ping`),
+  `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator),
+  `share/route.ts` (mint / revoke / list the board's link and this machine's addresses).
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
+- `components/ShareDialog.tsx` — the share modal (the Share button): start/stop, one link per
+  address, and the three caveats that are true the moment you press it.
 - `app/page.tsx` + `components/index/` — the project library, its minimaps, and the
   Template library modal (`TemplateLibrary.tsx`).
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
@@ -762,6 +786,211 @@ like a collaborator or a paperclip. Both are now settled:
   successful pick navigates (unmounting the modal for free) and a failed one leaves it open
   with `busy` cleared. Pure index presentation — no route, db, store, schema, or undo/redo
   impact, no AI behavior, never a token.
+
+- **Ops: the save path stops clobbering** (v3.6): the canvas autosaves **what changed**, not
+  the document. Until this, `Board.tsx` PUT the whole board and `saveBoard` upserted on id
+  with no version check, so **two browser tabs on one board destroyed each other's work,
+  silently** — last writer wins, whole document. That is a single-user bug (a second tab, a
+  second monitor) before it is a multiplayer blocker, which is why it ships alone as a fix
+  and not as a feature. No UI, no networking, no security surface, no AI behavior, never a
+  token: still exactly one unsolicited and one user-invoked.
+  **`lib/graph.ts` is untouched and so are the tables** — the ops are a wire format, not a
+  schema, which is the whole reason there is no migration and `parseBoard`, import and export
+  are unaffected.
+  **The node is the unit of merge** (`lib/sync.ts`, pure and node-free like `lib/search.ts`):
+  one `node.put` is a whole-node replace, so a single op covers text, position, size, font
+  step, `done` and reactions at once. Two people on *different* cards both win; two on the
+  *same* card resolve LWW **on that card alone**, and nothing else on the board is in the
+  blast radius. Field-level ops would cost a large op set and test surface to settle a
+  collision nobody has.
+  **`applyOps` takes `parseBoard`'s doctrine — total and tolerant.** An unknown `t` (an op
+  from a newer version), a malformed node, a `node.del` for a gone id, a non-array batch are
+  each dropped in silence and the rest of the batch lands: a bad op costs that change, never
+  the batch and never a 500. It re-uses the existing guards rather than writing second ones —
+  `createNode` + `snapFontSize` + `normalizeReactions` for a node, `removeNodes` for a
+  delete (so a deleted card's edges leave with it), `TITLE_MAX`/`OBJECTIVE_MAX` and
+  `privacy === true` for `board.set`, and no edges to nowhere.
+  **Delivery is at-least-once, so every op must be idempotent.** All are for free except one:
+  **`edge.add` upserts by id**, or a lost ack quietly doubles the line. The property is a
+  test — any batch applied twice leaves the board exactly as applying it once did — and it is
+  what lets the client re-send rather than reconcile.
+  **`POST /api/boards/[id]/sync` is the only new write path**, and it needs no revision clock
+  because better-sqlite3 is synchronous and this is one process: load, apply, save inside one
+  handler tick cannot interleave, so **arrival order at a single process *is* the total
+  order**. It caps the batch by op count and by bytes (a misbehaving peer costs a 413, not
+  memory), treats an empty batch as a no-op that does not churn `updated_at`, and accepts a
+  `clientId` it ignores, so the request shape survives a later live-update layer.
+  **`PUT /api/boards/[id]` is deliberately unchanged** — import, hand-editing and whole-board
+  writes still need a full replace, and it stays the honest fallback. It simply stops being
+  what the canvas uses.
+  **`components/canvas/useSync.ts` is a swap inside the existing autosave seam, not a new
+  lifecycle.** The debounce, the monotonic send id, the saving/saved/error indicator, the
+  `SAVE_RETRY_MS` self-heal and `flushUnsaved` all moved out of `Board.tsx` unchanged; only
+  the body is different. **`flushUnsaved` swaps too** — it is the one save nobody is watching
+  (board switch, canvas unmount), and a whole-board PUT there would have put the clobber back
+  on every board switch.
+  **The basis is the last board the server *acked*, and it advances only on ack.** The old
+  code stamped it optimistically and reset it to `''` on failure, resending the document;
+  now a failure leaves it alone and the retry re-diffs from the same basis, so the merge holds
+  on the retry path too — which is only safe because the ops are idempotent. **A null basis is
+  never dirty**, which is how opening a board stays not-a-write: the load effect calls
+  `beginBoard()` on the switch and `seedBasis(b)` on arrival, replacing the `savePayload`
+  string compare (that function is gone with its last caller).
+  **What this does not do: live updates.** A second tab still needs a reload to *see* the
+  other's edits — it only stops them destroying each other. `lib/store.ts` is untouched, both
+  undo stacks are untouched, and nothing here knows a second person exists.
+
+- **Live updates and the shared ghost** (v4.0): the second half of v3.6. Ops stopped two
+  windows destroying each other's work; this tells them. A client subscribes to its board and
+  the edits it is not making arrive as they land — **and because two clients on one board
+  would otherwise fire two `/suggest` calls per change and spend the host's key twice, the
+  ghost becomes a room-wide object with a lease.** That is a correctness requirement of live
+  updates, not a feature beside it, which is why the two ship together.
+  **Nothing here widens the network.** Reach is exactly what it was: loopback, or the LAN if
+  the operator passed `--lan`, which already exposes every board. `lib/access.ts`,
+  `lib/share.ts`, the share dialog and the desktop binding are v4.1 and are untouched — there
+  must never exist a build where something binds wide and the gate isn't there.
+  **Unchanged:** `lib/graph.ts` (no board-schema change), both tables (no migration), the `Op`
+  union, `PUT /api/boards/[id]`, `lib/transfer.ts`, `lib/ai/trigger.ts`, `lib/ai/prompt.ts`.
+  Still exactly one unsolicited AI behavior and one user-invoked one — and *fewer* calls per
+  change than before, not more.
+  **`lib/hub.ts` is in-process pub/sub and there is no broker**, because one process is
+  already a given: `sync/route.ts` leans on the same fact for its merge, and arrival order at
+  a single process *is* the total order. The `Map<boardId, Room>` is pinned on `globalThis`
+  for the reason `lib/db.ts` keeps a module singleton — `next dev` reloads a route module on
+  edit, and a fresh map there would orphan every open stream. **`seq` is ordering information,
+  not a revision clock**: per room, session-only, never persisted, nothing merges by it.
+  **The GET is the ideas route's idiom with two differences**, both because this stream is
+  idle by design rather than bounded by one model call: it opens with `hello` carrying the
+  whole stored board — **so an offline client resyncs by reconnecting rather than by replaying
+  a log the hub would have to keep** — and it needs a heartbeat, which is also how a dead
+  subscriber is noticed and dropped. **The POST broadcasts the ops as received, not as
+  applied**: every receiver runs them back through `applyOps`, which is total, so an op the
+  server dropped is dropped identically everywhere. One serialization path, not two.
+  **Echo suppression is a client rule** — the hub sends every frame to everyone, including the
+  sender, and each client drops frames carrying its own `clientId`. The alternative is the hub
+  knowing which subscriber belongs to which client, which buys nothing and goes wrong the
+  first time one client holds two streams.
+  **`applyRemote(boardId, ops, dirty)` in `lib/store.ts` has four rules and each is a visible
+  bug if missed.** (1) **Another person's edit is never in your undo stack** — no snapshot, no
+  redo spend — but it *does* bump `lastMutationAt`, since the board now says something
+  different; the descendant of v1's rule that a ghost appearing is not undoable but accepting
+  one is. (2) **Never clobber a node with unsaved local edits**: the textarea is controlled
+  over `node.text` and commits per keystroke, so a remote `node.put` mid-burst yanks the card
+  out from under the typist. Anything in `dirty` (what the hook's diff against its last acked
+  basis touched) is dropped; LWW already decided ours wins, and the skip retires itself when
+  the save acks. One rule covering live streaming, the reconnect resync and the open textarea
+  at once. (3) **Rebase both stacks** — they hold whole-board snapshots, so a stale one
+  resurrects the card a teammate deleted; running the kept ops over every snapshot means ⌘Z
+  only ever undoes *your* edits. The consequence to accept: undo can restore their wording of
+  a card you both edited. That is LWW applied to history, and the alternative is the per-field
+  merge engine this design exists to not need. (4) **Prune what points at what is gone**, and
+  clear a live ghost if a remote `board.set` turns privacy **on** — not through
+  `dismissProposal`, because nobody turned that idea down, the same distinction `setPrivacy`
+  makes. An all-skipped batch changes nothing and therefore must not bump the clock, and
+  `lastTextEditId` is deliberately untouched: a teammate's edit must not end your typing burst.
+  **`useSync` gained the stream, not a new lifecycle** — the debounce, the send id, the
+  indicator, the retry, `flushUnsaved`, `beginBoard` and `seedBasis` are all v3.6's, unchanged.
+  It is read with `fetch` and a reader rather than `EventSource`, which is the choice that
+  survives v4.1: a share token must ride in a header, and `EventSource` cannot set one.
+  **The reconnect rule is the hardest merge here**: what the room did while we were away is
+  `diffBoards(basis, hello)` — **never** `diffBoards(board, hello)`, which would compute ops
+  that wipe our own unsaved work. **And an `ops` frame does two things, the second easy to
+  miss: it applies to the board *and* advances the basis** (`applyOps(basis, ops)`), or every
+  remote change reads as local dirt and is echoed straight back. A node skipped as dirty stays
+  dirty against the new basis, which is exactly right — our version re-sends and wins.
+  **The ghost lease is one holder per room, TTL 30s, claimed before a provider is resolved and
+  before anything is spent.** A loser is told `claimed` — a refusal ranked with `privacy` and
+  `no_api_key`, not an error — and goes quiet, because `markRequested` fired *before* the POST
+  and the fingerprint is already stamped. **A lease that expires undelivered broadcasts
+  `released`, and that needs a real timer rather than a lazy check on the next claim**: the
+  losers are all sitting behind `no_material_change` and will never ask again on their own, so
+  without the announcement a winner whose tab died deadlocks the room's ghost until somebody
+  happens to edit something. `releaseRequest` answers it and is deliberately **not**
+  `failRequest`, which also buys a 30s cooldown a lease nobody used has not earned.
+  **The lifecycle frames exist because ops alone retire nobody's ghost**: if one person
+  accepts, the diff builds their node on every screen, but everyone else's `proposal` is still
+  sitting there. So an accept/dismiss rides the *same* sync POST as its ops — one request, so
+  no client can see "the ghost is gone" before "the node arrived", or the reverse — and a
+  remote dismissal lands in each client's `rejectedByBoard`, because **one person's "not that"
+  is the room's**. **Placement stays per-client**: `receiveProposal` runs `placeProposal`
+  against the local `viewRectFor`, which reads install-level `collapseMode` and session-level
+  `expandedIds`, so two clients with different fold settings may place the same ghost a little
+  differently. Same idea, same layer, same id; converging the coordinate would mean the server
+  doing geometry, which it has never done. **The three-layer invariant is untouched** — a
+  proposal is still never a node, still never persisted, and now one per *room* rather than
+  one per tab, which is strictly closer to the rule.
+  **What this does not do: presence.** No cursors, no names, no selection. Most visible, least
+  load-bearing, and built now it would spend the polish budget on cursor colours before the
+  merge engine has been used in anger.
+
+- **Sharing on a network** (v4.1): a board you can hand someone with a link. They open it in a
+  browser, on your machine's own page, and edit it with you live — the thing v3.6's merge and
+  v4.0's stream were built for. **No AI behavior, no new state, no board-schema change, no
+  migration, never a token: still exactly one unsolicited and one user-invoked.**
+  **`local` is proved, never inferred, and that is the ruling the whole release turns on.**
+  `collaboration-plan.md` drafted the gate as reading the peer address; **Next's App Router
+  does not expose the socket**, and the `Host` header is not a substitute — a machine on the
+  LAN can send `Host: localhost`, and read naively that inverts the strictest tier into the
+  most permissive one. So `local` became something a request must carry a **per-run secret**
+  to claim (`SMARTI_LOCAL_SECRET`, minted by `desktop/main.js` and injected into its own
+  window's headers). The order in `decideAccess` is: a Cloudflare header means never local and
+  never trusted; the secret means `local`; **a server that is not bound wide means `local`
+  regardless**, because there the operating system is the boundary and no header needs
+  believing; `SMARTI_TRUST_LAN` means `trusted`; a token that resolves to *this* board means
+  `{ share }`; otherwise denied.
+  **Which is why a clone-and-run install is unchanged in every observable way.** The npm
+  scripts pin `-H ${SMARTI_HOST:-127.0.0.1}`, so nothing non-local can arrive, so rule 3
+  answers every request `local`. And `./start.sh --lan` now exports `SMARTI_TRUST_LAN=1`, so
+  **v2.5 is preserved bit-for-bit** — that flag still means "this whole install, to this whole
+  network", warning block and all. **The gate therefore bites in exactly one configuration:
+  bound wide *without* trust, which is the desktop's new mode.** Said plainly in the dialog
+  rather than papered over: under `--lan` the token puts a guest on the right board and is
+  **not** a boundary, because the flag already gave the network everything.
+  **The `CF-Connecting-IP` rule ships here rather than with the v4.2 tunnel it protects.**
+  `cloudflared` runs *on the host* and dials loopback, so a tunneled request would otherwise
+  arrive looking like the most trusted caller there is. It was cheaper to write while the file
+  was being born than to remember later, and it is the assertion `access.test.ts` guards hardest.
+  **The token authorises a board, never a person** — there is still no login, no session, no
+  cookie and no identity concept anywhere in this codebase, which is what keeps the brief's
+  ruling against multi-user scope intact. It is **minted in `lib/hub.ts` and dies with the
+  process**: v2.5's "a network decision belongs to the invocation, not the install" applied to
+  the capability, so closing the app is the revocation story and **there is no table, no column
+  and no migration**. The registry is a *sibling* map rather than a field on `Room`, because
+  `sweep` deletes a room the moment nobody is subscribed and nothing is leased — a token stored
+  there would be revoked by the host closing their tab. Minting is **idempotent per board**, or
+  reopening the dialog would invalidate a link already sent.
+  **The link is `/board/<id>#s=<token>` — the page route the app already had, and the fragment
+  on purpose:** a fragment is never sent to a server, so the capability stays out of access
+  logs, `Referer` headers and proxy history. That is also the reason v4.0 chose `fetch` and a
+  reader over `EventSource`, which cannot set a header; the alternative was the token in a
+  query string, the one place it must never be.
+  **Refusals are 404 board-scoped and 403 install-scoped**, and in `/suggest` and `/ideas` the
+  gate goes **above** the privacy check, so a stranger cannot tell "privacy is on" from "no such
+  board". A guest reaches that board's `GET`, `sync` and the two AI routes and **nothing else** —
+  not the library, not `?full=1`, not another board, not the settings, not `PUT`/`PATCH`/`DELETE`,
+  and **not minting a further share**: hosting is the install's to offer, or the first person you
+  invited could invite the network. **A guest does spend the host's provider key** (the ghost
+  fires for the room, ⌘. is live), which is correct and belongs in the dialog rather than in a
+  bill — **and Privacy Mode is the guest-proof switch**, already enforced server-side against
+  the stored board, so it needed no change.
+  **Guest chrome removes what the token cannot reach, and its shortcuts with it** — Home, ⌘K, ⚙,
+  Export — because a control you cannot see but that still fires on ⌘K is the v2.6 reachability
+  rule inverted. `isGuest()` is read in an **effect, not during render**: the token lives in the
+  fragment, which the server by definition never receives, so an inline read would hydrate
+  mismatched. `Board.tsx`'s `/api/settings` GET already fell back to defaults on failure, so a
+  guest's 403 there cost nothing — a seam cut right three versions early.
+  **`apiFetch` in `lib/shareToken.ts` is the one place a client API call is built.** Nothing in
+  v4.1 needs it (a guest is same-origin, so **no CORS in this release** — permissive headers
+  would be untested surface guarding a case that does not exist yet); v4.3's "Shared with me"
+  does, and this makes that release one line here instead of the same threading exercise in
+  three files. The token must stay a **module read, never a prop or a dep**, or `useSync`'s
+  `[boardId]`-only memo reopens the stream on every keystroke.
+  **The desktop binds `0.0.0.0` from launch**, because a listening server cannot rebind and
+  widening on a button press would mean a new port and a window reload mid-collaboration.
+  **Written down because it is the one genuinely new exposure in this release:** the app now
+  holds an open port on the LAN at every launch where before it held none, and raises a firewall
+  prompt the first time. Gated is not the same as absent.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

@@ -1546,3 +1546,198 @@ describe('the Done bin', () => {
     s().setCollapseMode('full');
   });
 });
+
+/**
+ * v4.0: another person's edits landing on this canvas. The rules are all about
+ * what a remote change must NOT do — appear in your undo stack, overwrite the
+ * card you are typing in, or leave the stacks holding a board that no longer
+ * exists.
+ */
+describe('applyRemote', () => {
+  /** A node op the way the sync route broadcasts one. */
+  const put = (id: string, over: Partial<ReturnType<typeof createNode>> = {}) => ({
+    t: 'node.put' as const,
+    node: createNode({ id, x: 0, y: 0, createdAt: 1000, ...over }),
+  });
+
+  it('is never in your undo stack, and spends no redo stack', () => {
+    open('remote-undo');
+    s().addNode(0, 0);
+    s().undo();
+    const undos = s().undoStack.length;
+    const redos = s().redoStack.length;
+
+    s().applyRemote('remote-undo', [put('n-remote', { text: 'theirs' })], []);
+
+    expect(s().board.nodes.map((n) => n.id)).toContain('n-remote');
+    expect(s().undoStack).toHaveLength(undos);
+    expect(s().redoStack).toHaveLength(redos);
+  });
+
+  // The board says something different now, so the ghost is allowed to notice.
+  it('bumps lastMutationAt', () => {
+    open('remote-clock');
+    const before = s().lastMutationAt;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(before + 5000));
+    s().applyRemote('remote-clock', [put('n1')], []);
+    expect(s().lastMutationAt).toBeGreaterThan(before);
+    vi.useRealTimers();
+  });
+
+  it('ignores a batch for a board this session has left', () => {
+    open('remote-stale-a');
+    open('remote-stale-b');
+    s().applyRemote('remote-stale-a', [put('n1')], []);
+    expect(s().board.nodes).toEqual([]);
+  });
+
+  /**
+   * The typist's rule. The textarea is controlled over node.text and commits
+   * per keystroke, so a remote put mid-burst yanks the card out from under
+   * whoever is typing in it.
+   */
+  it('drops a remote put for a card this tab has not saved yet', () => {
+    open('remote-dirty');
+    const id = s().addNode(0, 0);
+    s().setNodeText(id, 'mine, still typing');
+
+    s().applyRemote('remote-dirty', [put(id, { text: 'theirs' })], [id]);
+    expect(s().board.nodes[0].text).toBe('mine, still typing');
+
+    // ...and the skip retires itself the moment that save acks.
+    s().applyRemote('remote-dirty', [put(id, { text: 'theirs' })], []);
+    expect(s().board.nodes[0].text).toBe('theirs');
+  });
+
+  it('drops a remote delete for a dirty card too', () => {
+    open('remote-dirty-del');
+    const id = s().addNode(0, 0);
+    s().applyRemote('remote-dirty-del', [{ t: 'node.del', id }], [id]);
+    expect(s().board.nodes).toHaveLength(1);
+  });
+
+  // An all-skipped batch changed nothing here, so it must not arm the ghost.
+  it('does not bump the clock when every op was ours', () => {
+    open('remote-all-skipped');
+    const id = s().addNode(0, 0);
+    const before = s().lastMutationAt;
+    s().applyRemote('remote-all-skipped', [put(id, { text: 'theirs' })], [id]);
+    expect(s().lastMutationAt).toBe(before);
+  });
+
+  /**
+   * Both stacks hold whole-board snapshots, so a stale one resurrects the card
+   * a teammate just deleted — the bug that makes ⌘Z feel like it is undoing
+   * somebody else's work.
+   */
+  it('rebases both stacks so undo cannot resurrect a remotely deleted card', () => {
+    open('remote-rebase');
+    const theirs = 'n-theirs';
+    s().applyRemote('remote-rebase', [put(theirs, { text: 'theirs' })], []);
+    // A local edit, so there is a snapshot holding their card.
+    const mine = s().addNode(10, 10);
+    s().undo();
+    s().redo();
+
+    s().applyRemote('remote-rebase', [{ t: 'node.del', id: theirs }], []);
+    s().undo();
+
+    expect(s().board.nodes.map((n) => n.id)).not.toContain(theirs);
+    s().redo();
+    expect(s().board.nodes.map((n) => n.id)).toEqual([mine]);
+  });
+
+  it('prunes the selection and the peeks of what is gone', () => {
+    open('remote-prune');
+    const id = s().addNode(0, 0);
+    const other = s().addNode(200, 0);
+    s().connect(id, other);
+    const edgeId = s().board.edges[0].id;
+    s().selectMany([id, other]);
+    s().selectEdge(edgeId);
+    s().toggleExpanded(id);
+
+    s().applyRemote('remote-prune', [{ t: 'node.del', id }], []);
+
+    expect(s().selectedIds).not.toContain(id);
+    expect(s().expandedIds).not.toContain(id);
+    // The card's edges left with it, so the selected line is gone too.
+    expect(s().selectedEdgeId).toBeNull();
+  });
+
+  /**
+   * Someone turned Privacy Mode on. The ghost has to go — but nobody turned
+   * that idea down, so it must not be remembered as rejected. The same
+   * distinction setPrivacy already makes locally.
+   */
+  it('retires the ghost when the board goes private under us, without rejecting it', () => {
+    open('remote-privacy');
+    s().receiveProposal(draft);
+    expect(s().proposal).not.toBeNull();
+
+    s().applyRemote('remote-privacy', [{ t: 'board.set', privacy: true }], []);
+
+    expect(s().board.privacy).toBe(true);
+    expect(s().proposal).toBeNull();
+    expect(rejectedFor(s())).toEqual([]);
+  });
+});
+
+describe('the room’s ghost', () => {
+  it('takes the room’s id so accept and dismiss can name the same one', () => {
+    open('ghost-id');
+    s().receiveProposal(draft, 'p_from_the_room');
+    expect(s().proposal?.id).toBe('p_from_the_room');
+  });
+
+  it('still mints an id of its own when there is no room', () => {
+    open('ghost-id-local');
+    s().receiveProposal(draft);
+    expect(s().proposal?.id).toBeTruthy();
+  });
+
+  it('clears the ghost someone else accepted, and rejects nothing', () => {
+    open('ghost-accept');
+    s().receiveProposal(draft, 'p1');
+    s().remoteRetireProposal('p1', 'accepted', draft.text);
+    expect(s().proposal).toBeNull();
+    expect(rejectedFor(s())).toEqual([]);
+  });
+
+  // One person's "not that" is the room's: each client sends its own rejected
+  // list, so a dismissal that landed nowhere else comes back reworded.
+  it('records the text someone else turned down', () => {
+    open('ghost-dismiss');
+    s().receiveProposal(draft, 'p1');
+    s().remoteRetireProposal('p1', 'dismissed', draft.text);
+    expect(s().proposal).toBeNull();
+    expect(rejectedFor(s())).toEqual([draft.text]);
+  });
+
+  it('records a dismissal even for a ghost this tab never showed', () => {
+    open('ghost-dismiss-unseen');
+    s().remoteRetireProposal('p-unknown', 'dismissed', 'not that');
+    expect(rejectedFor(s())).toEqual(['not that']);
+  });
+
+  it('leaves a different ghost alone', () => {
+    open('ghost-other');
+    s().receiveProposal(draft, 'p1');
+    s().remoteRetireProposal('p2', 'accepted', 'something else');
+    expect(s().proposal?.id).toBe('p1');
+  });
+
+  /**
+   * A lease that expired undelivered. Deliberately not failRequest: that buys a
+   * 30s cooldown a lease nobody used has not earned, and the room should be
+   * free to ask again on the very next tick.
+   */
+  it('releases the fingerprint without stamping a failure', () => {
+    open('ghost-released');
+    s().markRequested('fp');
+    s().releaseRequest();
+    expect(s().lastRequestedFingerprint).toBeNull();
+    expect(s().suggestFailedAt).toBeNull();
+  });
+});

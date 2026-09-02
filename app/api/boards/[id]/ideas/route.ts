@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
+import { guardBoard } from '@/lib/access';
 import { resolveConfig } from '@/lib/ai/config';
 import { IDEAS_MAX_TOKENS, IDEAS_SYSTEM_PROMPT, ideasInstruction } from '@/lib/ai/ideas-prompt';
 import { IDEAS_MAX, ideaFromLine, ideaKey, splitLines } from '@/lib/ai/ideas';
@@ -25,6 +26,11 @@ export const runtime = 'nodejs';
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+
+  // Above the privacy check on purpose: a caller with no right to this board
+  // must not be able to tell "privacy is on" from "no such board".
+  const denied = guardBoard(req, id);
+  if (denied) return denied;
 
   // Privacy Mode, before a provider is even resolved. The stored board is the
   // authority precisely because the caller isn't: the client declining to ask

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
+import { apiFetch } from '@/lib/shareToken';
 import {
   emptyBoard,
   fitViewport,
@@ -41,10 +42,8 @@ import { GhostCard } from './GhostCard';
 import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
 import { PrintSheets } from './PrintSheets';
+import { useSync } from './useSync';
 
-const AUTOSAVE_MS = 700;
-/** How often a failed save retries itself while the indicator shows error. */
-const SAVE_RETRY_MS = 5000;
 const TRIGGER_TICK_MS = 1000;
 
 /** One shared empty list, so a card with no matches gets a stable prop. */
@@ -150,14 +149,14 @@ export function Board({ boardId }: { boardId: string }) {
   }, [searchOpen, searchMatches, searchIndex]);
 
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const savedRef = useRef<string>('');
-  // Monotonic id for each PUT we send. A response landing after a newer save
-  // has gone out must not mark the board saved — or failed — on its own behalf.
-  const saveSeqRef = useRef(0);
-  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
-  // Exists only to re-arm the autosave effect while a save is failing; a
-  // board whose author stopped typing still deserves to recover on its own.
-  const [retryNonce, setRetryNonce] = useState(0);
+  // The whole write path, debounce and indicator included — it sends what
+  // changed rather than the document, so two tabs on one board merge instead of
+  // overwriting each other. See ./useSync and lib/sync.
+  const { saveState, clientId, flushUnsaved, beginBoard, seedBasis, queueGhostEvent } = useSync(
+    boardId,
+    board,
+    loaded,
+  );
   const [drag, setDrag] = useState<Drag>(null);
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
@@ -279,7 +278,7 @@ export function Board({ boardId }: { boardId: string }) {
   // with nothing riding on failure: no row means the default stands.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/settings')
+    apiFetch('/api/settings')
       .then((r) => r.json())
       .then((d: { settings: { ghostDelayMs?: unknown; collapseMode?: unknown } | null }) => {
         if (cancelled) return;
@@ -301,40 +300,18 @@ export function Board({ boardId }: { boardId: string }) {
     };
   }, []);
 
-  /* ---------- leaving a board: its pending edits leave as a write ---------- */
-
-  // Both exits from the canvas — switching boards (the load effect below) and
-  // unmounting it (navigating to the index) — destroy the debounce timer with
-  // the effect cleanup, and an edit from the last AUTOSAVE_MS would die with
-  // it. This is the same PUT the autosave would have made, fired unsupervised:
-  // by the time it settles there is no board on screen to report its fate to.
-  const flushUnsaved = () => {
-    const s = useBoard.getState();
-    if (!s.loaded) return;
-    const payload = savePayload(s.board);
-    if (payload === savedRef.current) return;
-    savedRef.current = payload;
-    // Supersedes anything in flight, so its late response touches nothing.
-    saveSeqRef.current++;
-    void fetch(`/api/boards/${s.board.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: payload,
-    }).catch(() => {
-      /* Unsupervised by design — see above. */
-    });
-  };
-
   /* ---------- load ---------- */
 
   useEffect(() => {
     let cancelled = false;
+    // The pending edits of the board being left, fired unsupervised: by the
+    // time it settles there is no board on screen to report its fate to.
     flushUnsaved();
     // Point the store at the new board before anything can fire against it,
-    // and forget what the last board had saved — savedRef is a component ref
-    // and a board switch does not remount this component.
+    // and forget the outgoing board's basis, so nothing reads as dirty against
+    // a board we are no longer on.
     useBoard.getState().beginLoad(boardId);
-    savedRef.current = '';
+    beginBoard();
 
     const arrive = (b: Board) => {
       if (cancelled) return;
@@ -343,74 +320,17 @@ export function Board({ boardId }: { boardId: string }) {
       // itself a write. Without this, every visit rewrites the row (churning
       // updated_at), and a failed load would write its empty fallback over
       // real content.
-      savedRef.current = savePayload(b);
-      // The indicator starts each board honest, whatever the last one showed.
-      saveSeqRef.current++;
-      setSaveState('saved');
+      seedBasis(b);
     };
 
-    fetch(`/api/boards/${boardId}`)
+    apiFetch(`/api/boards/${boardId}`)
       .then((r) => r.json())
       .then((b) => arrive(parseBoard(boardId, b)))
       .catch(() => arrive(emptyBoard(boardId)));
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
-
-  /* ---------- autosave: no save button, ever ---------- */
-
-  useEffect(() => {
-    // board.id lags boardId for one render on a switch; writing then would put
-    // the outgoing board's content under the incoming board's id.
-    if (!loaded || board.id !== boardId) return;
-    const payload = savePayload(board);
-    if (payload === savedRef.current) return;
-
-    // Dirty: the change exists only in this tab until a PUT lands, and the
-    // indicator says so for the debounce and the flight alike.
-    setSaveState('saving');
-    const t = setTimeout(() => {
-      const mine = ++saveSeqRef.current;
-      savedRef.current = payload;
-      void fetch(`/api/boards/${boardId}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: payload,
-      })
-        .then((r) => {
-          if (mine !== saveSeqRef.current) return;
-          // A non-2xx wrote nothing — the row never changed — so it takes
-          // the failure path rather than counting as a save.
-          if (!r.ok) throw new Error(`save failed: ${r.status}`);
-          setSaveState('saved');
-        })
-        .catch(() => {
-          if (mine !== saveSeqRef.current) return;
-          // The local board stays authoritative; savedRef reset makes the
-          // next mutation (or the retry tick below) resend the whole board.
-          savedRef.current = '';
-          setSaveState('error');
-        });
-    }, AUTOSAVE_MS);
-    return () => clearTimeout(t);
-    // retryNonce re-arms this effect after a failure, without any edit.
-  }, [board, boardId, loaded, retryNonce]);
-
-  // A failed save recovers on its own: waiting for the next edit would strand
-  // every board whose author stopped typing the moment it failed. While in
-  // error, wake the autosave effect every SAVE_RETRY_MS — savedRef is '' in
-  // that state, so it always finds the board dirty and resends.
-  useEffect(() => {
-    if (saveState !== 'error') return;
-    const t = setTimeout(() => setRetryNonce((n) => n + 1), SAVE_RETRY_MS);
-    return () => clearTimeout(t);
-  }, [saveState, retryNonce]);
-
-  // The other exit flushUnsaved covers: leaving the app unmounts the canvas
-  // without ever switching boards. StrictMode's simulated unmount is a no-op —
-  // a freshly mounted board has nothing unsaved to flush.
-  useEffect(() => () => flushUnsaved(), []);
+  }, [boardId, flushUnsaved, beginBoard, seedBasis]);
 
   // The guard rail the indicator implies: closing the tab while a save is
   // pending or failing would drop exactly the changes it says are not yet
@@ -461,15 +381,32 @@ export function Board({ boardId }: { boardId: string }) {
       s.markRequested(decision.fingerprint);
       s.setSuggesting(true);
 
-      void fetch(`/api/boards/${s.board.id}/suggest`, {
+      void apiFetch(`/api/boards/${s.board.id}/suggest`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ board: s.board, rejected: rejectedFor(s) }),
+        // clientId and the fingerprint are what the room's ghost lease is
+        // decided on (v4.0): one client per board gets past the claim, so N
+        // tabs on one board cost one request per change rather than N.
+        body: JSON.stringify({
+          board: s.board,
+          rejected: rejectedFor(s),
+          clientId,
+          fingerprint: decision.fingerprint,
+        }),
       })
         .then((r) => r.json())
         .then((data) => {
           if (data?.proposal) {
-            useBoard.getState().receiveProposal(data.proposal);
+            // The room's id for this ghost when there is a room; undefined
+            // otherwise, and receiveProposal mints one.
+            useBoard.getState().receiveProposal(data.proposal, data.proposalId);
+          } else if (data?.reason === 'claimed') {
+            // Another client is asking this question for all of us. Deliberately
+            // NOT failRequest: markRequested already stamped the fingerprint
+            // above, which is exactly what keeps this tab quiet until the
+            // winner's ghost arrives on the stream (or its lease expires and
+            // the room is told). Turning this into a failure would re-arm the
+            // loop and put the duplicate requests straight back.
           } else if (data?.reason === 'upstream_error') {
             // Nothing was asked and nothing was answered, so this board is still
             // unasked. A plain null proposal is different: the model looked and
@@ -487,7 +424,7 @@ export function Board({ boardId }: { boardId: string }) {
     const id = setInterval(tick, TRIGGER_TICK_MS);
     return () => clearInterval(id);
     // boardId is a dependency so the timer is torn down across a switch.
-  }, [loaded, boardId]);
+  }, [loaded, boardId, clientId]);
 
   /* ---------- presentation: the opening camera ---------- */
 
@@ -988,8 +925,19 @@ export function Board({ boardId }: { boardId: string }) {
           {proposal && !presenting ? (
             <GhostCard
               proposal={proposal}
-              onAccept={() => store.acceptProposal()}
-              onDismiss={() => store.dismissProposal()}
+              // The room is looking at this same ghost, and ops alone retire
+              // nobody's: accepting builds the node on every screen through the
+              // diff, but everyone else's proposal would sit there. The event
+              // rides the same POST as those ops, so no client can see the
+              // ghost go before the node arrives, or the reverse.
+              onAccept={() => {
+                queueGhostEvent({ phase: 'accepted', proposalId: proposal.id, text: proposal.text });
+                store.acceptProposal();
+              }}
+              onDismiss={() => {
+                queueGhostEvent({ phase: 'dismissed', proposalId: proposal.id, text: proposal.text });
+                store.dismissProposal();
+              }}
             />
           ) : null}
         </div>
@@ -1033,21 +981,6 @@ export function Board({ boardId }: { boardId: string }) {
       {printing ? <PrintSheets board={board} /> : null}
     </>
   );
-}
-
-/**
- * Exactly what gets PUT, and therefore what "already saved" is compared against.
- * A PUT is a full replace validated only by parseBoard, so a field missing here
- * is not merely unsaved — it is erased on the next autosave.
- */
-function savePayload(board: Board): string {
-  return JSON.stringify({
-    title: board.title,
-    objective: board.objective,
-    privacy: board.privacy,
-    nodes: board.nodes,
-    edges: board.edges,
-  });
 }
 
 /** The swept rectangle, whichever way the pointer dragged it. */
