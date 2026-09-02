@@ -102,8 +102,13 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   Pure, node-free; one hub, branches, one second-level branch.
 - `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES`, `buildTemplate`
   (null, never a throw). Adding a template is one entry here plus its own pure module.
+- `lib/transfer.ts` — boards as files: `fileNameFor`, `boardToFile`, `looksLikeBoard`,
+  `readTransfer`, `declaredNodeCount`. Pure, node-free; the index and the tests import it.
+- `lib/download.ts` — the one DOM line (`downloadJson`), kept out of `lib/transfer.ts` so
+  that stays pure. Untested by design: the filename is where the logic is.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`, `PresentOverlay` (the v1.13 presentation chrome).
-- `app/api/boards/route.ts` — the collection: list and create.
+- `app/api/boards/route.ts` — the collection: list (`?full=1` for the export bundle),
+  create, and import.
 - `app/api/boards/[id]/` — `route.ts` (autosave, archive, delete), `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator).
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
@@ -687,6 +692,53 @@ like a collaborator or a paperclip. Both are now settled:
   **The Windows and Linux builds are unsigned, and the README says so in words rather than
   leaving the OS to.** Signing is a fact about a certificate, not about the app. Auto-update is deliberately absent: an
   unsigned self-updater is a worse story than a Releases page.
+
+- **Import and export** (v3.3): a board leaves as a file and comes back as one. The app is
+  loopback-only by design — no auth, no sync, no account — so a file is not one option among
+  several, it is the only path a board has off the machine it was made on, and the machinery
+  was almost entirely already there: `parseBoard` is a full untrusted-JSON validator,
+  `createBoard(board?)` already took a prebuilt board (templates ride it), and
+  `GET /api/boards/[id]` already returns the whole thing. **No schema change, no migration,
+  no store field, no new board type, no undo/redo/`lastMutationAt`/fingerprint impact** — an
+  import happens before that board's first `beginLoad` and an export is a read — and **no
+  model is ever involved**: still exactly one unsolicited AI behavior and one user-invoked one.
+  **The format has no envelope, and the shape is the whole grammar: an object is a board, an
+  array is boards.** `parseBoard`'s per-era tolerance *is* the versioning strategy — a file
+  written today opens in a future version exactly the way an old row does — so a
+  `{version, …}` wrapper would only be a second thing to keep true, and a bare file stays
+  hand-editable and round-trippable through the existing PUT. The file is the board minus
+  `id`; `privacy` and `updatedAt` travel, node ids are **preserved rather than reminted**
+  (nothing keys globally on one — the store is per-board and `rejectedByBoard` is keyed by
+  board id — and reminting would make two exports of one board undiffable), and settings and
+  the API key are install-level and never in it.
+  **The server always mints the id, and that is the one real safety requirement in the
+  feature.** `saveBoard` upserts on id, so honouring a file's id would make import the only
+  action in the app that can destroy a board. `boardToFile` therefore strips it rather than
+  letting it ride along ignored: a field that is unconditionally discarded invites someone to
+  believe overwrite-by-id works. **An import can only ever add.**
+  **The refusal lives in the client, not the route.** "Creating a board must never be
+  refusable" still holds — `POST {board: {"a":1}}` is a blank board, not a 400 — but the trap
+  is that `parseBoard` turns *any* object into a blank board, so a plain is-it-an-object check
+  would report success while importing nothing. `looksLikeBoard` (an object carrying `nodes`,
+  `edges`, `title` or `objective`) is what says "not a Smarti Board file", and it says it in
+  the library, where there is a person to say it to. It answers only that question; "this
+  board is malformed" stays `parseBoard`'s, and `parseBoard` answers by dropping the bad part.
+  **What was dropped is said out loud** — `declaredNodeCount` against the returned board's
+  count — because silence is right for a database row nobody is watching and wrong for a file
+  someone just chose. The find bar's own ruling: content the app counted but never showed
+  reads as a bug. A clean single import redirects to the board like creating one does; a
+  lossy one deliberately stays in the library, because the note is the point of it.
+  **The bundle carries the working library, not the archive.** `allBoards()` excludes archived
+  rows: imported boards arrive unarchived, so a bundle carrying them would resurrect on the
+  new machine exactly what someone filed away on the old one. `?full=1` is opt-in on the
+  existing GET because the ⌘K switcher wants summaries, and shipping every board's nodes to
+  satisfy a dropdown would be the wrong default for the sake of one button.
+  Nothing in `desktop/` — a blob download lands in Electron's standard save flow, and
+  `main.js` installs no `will-download` handler. No new color tokens: the ⇩ is `.bcard-x`'s
+  twin and Export is Print's sibling (both take the board out of the app unchanged, one to
+  paper and one to a file), both taking the v2.6 touch treatment. Declined: a version
+  envelope, reminting node ids, a route-level 400, drag-and-drop as a second ingestion path,
+  and importing *into* an existing board — the upsert-on-id hazard for a case nobody asked for.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most

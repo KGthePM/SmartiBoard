@@ -74,6 +74,10 @@ no submissions yet. An authentication error means the Apple ID, team ID, or pass
 cd "/Users/kylegomez/ClaudeProjects/Smarti Boards/desktop"
 APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
 ```
+RUN THIS:
+cd "/Users/kylegomez/ClaudeProjects/Smarti Boards/desktop"
+  rm -rf dist/mac-arm64
+  APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
 
 **The env var is required and is the part that is easy to miss.** electron-builder does not
 know your profile is called `smarti`; it looks for `APPLE_KEYCHAIN_PROFILE` in the environment.

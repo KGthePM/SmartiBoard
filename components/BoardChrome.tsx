@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { canGenerateIdeas } from '@/lib/ai/trigger';
 import { binnedNodes } from '@/lib/collapse';
 import { boardTitle } from '@/lib/boards';
+import { downloadJson } from '@/lib/download';
+import { fitViewport } from '@/lib/graph';
+import { boardToFile, fileNameFor } from '@/lib/transfer';
 import { useBoard } from '@/lib/store';
 import { BoardSwitcher } from './BoardSwitcher';
 import { ObjectivePanel } from './ObjectivePanel';
@@ -242,6 +245,31 @@ export function BoardChrome() {
           Ideas
         </button>
 
+        {/* Center: the same fit presentation opens with, asked for on demand.
+            A viewport is not content, so like the wheel it spends nothing — no
+            snapshot, no redo, no bump, never a token. The binned are skipped,
+            because framing blank space where a hidden card sits is pointing at
+            nothing; the fit reads the drawn set, straight from the store at
+            click time, so an edit made since the last render is still framed. */}
+        <button
+          className="chrome-center"
+          title={
+            loaded && board.nodes.length > 0
+              ? 'Center the view on every card'
+              : 'Nothing to center on yet'
+          }
+          disabled={!loaded || board.nodes.length === 0}
+          onClick={() => {
+            const s = useBoard.getState();
+            const hidden = new Set(
+              binnedNodes(s.board.nodes, s.collapseMode, new Set(s.expandedIds)).map((n) => n.id),
+            );
+            s.setViewport(fitViewport(s.board.nodes.filter((n) => !hidden.has(n.id)), s.surface));
+          }}
+        >
+          Center
+        </button>
+
         <button
           className="chrome-present"
           title="Present this board (⌘⇧F)"
@@ -260,6 +288,19 @@ export function BoardChrome() {
           onClick={() => window.print()}
         >
           Print
+        </button>
+
+        {/* Straight from the store, not from a fetch: this is WYSIWYG, so an
+            edit still inside the autosave debounce is in the file. A read, so
+            it spends nothing — no snapshot, no bump, never a token. No shortcut;
+            the row is full, and the library has the same button per card. */}
+        <button
+          className="chrome-export"
+          title="Export this board as a file"
+          disabled={!loaded}
+          onClick={() => downloadJson(fileNameFor(boardTitle(board), board.id), boardToFile(board))}
+        >
+          Export
         </button>
 
         {/* Navigation, not a board action: leaving unmounts the canvas, whose

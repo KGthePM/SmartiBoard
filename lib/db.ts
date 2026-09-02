@@ -172,6 +172,33 @@ export function listBoards(): BoardSummary[] {
 }
 
 /**
+ * Every *active* board in full, newest first — the whole-library export (v3.3).
+ * Deliberately not a variant of `listBoards`: a summary carries a minimap and a
+ * count, and an export needs the boards themselves.
+ *
+ * Archived rows are excluded. An import can only ever add boards and they arrive
+ * unarchived, so a bundle carrying them would resurrect, on the new machine,
+ * exactly the boards someone filed away on the old one.
+ */
+export function allBoards(): Board[] {
+  const rows = conn()
+    .prepare(
+      `SELECT id, data FROM boards WHERE archived_at IS NULL ORDER BY updated_at DESC`,
+    )
+    .all() as { id: string; data: string }[];
+
+  return rows.map((row) => {
+    try {
+      return parseBoard(row.id, JSON.parse(row.data));
+    } catch {
+      // A corrupt row exports as an empty board rather than failing the bundle:
+      // one unreadable board must not cost the person the other eleven.
+      return emptyBoard(row.id);
+    }
+  });
+}
+
+/**
  * Written to disk immediately and deliberately: an empty board that only gets a
  * row on first edit would be invisible in the index right after you made it.
  *

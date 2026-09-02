@@ -943,8 +943,10 @@ html, body {
 .chrome-privacy,
 .chrome-bin,
 .chrome-print,
+.chrome-export,
 .chrome-search,
 .chrome-undo,
+.chrome-center,
 .chrome-redo {
   font: inherit;
   font-size: 12px;
@@ -1059,6 +1061,16 @@ html, body {
 }
 .chrome-redo:hover:not(:disabled) { color: var(--ink); }
 .chrome-redo:disabled { opacity: 0.45; cursor: default; }
+/* A camera move on demand — Present's opening fit, asked for mid-session.
+   Token colors only, so dark and neon answer it the same as the row. */
+.chrome-center {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chrome-center:hover:not(:disabled) { color: var(--ink); }
+.chrome-center:disabled { opacity: 0.45; cursor: default; }
 .chrome-present {
   color: var(--muted);
   border-color: var(--user-border);
@@ -1075,6 +1087,16 @@ html, body {
 }
 .chrome-print:hover:not(:disabled) { color: var(--ink); }
 .chrome-print:disabled { opacity: 0.45; cursor: default; }
+/* Export is Print's sibling: both take the board out of the app unchanged, one
+   to paper and one to a file, so they read as one pair in the row. */
+.chrome-export {
+  color: var(--muted);
+  border-color: var(--user-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chrome-export:hover:not(:disabled) { color: var(--ink); }
+.chrome-export:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- presentation mode ---------- */
 
@@ -1837,6 +1859,11 @@ html, body {
 }
 .index-tutorial:hover:not(:disabled) { color: var(--ink); }
 .index-tutorial:disabled { opacity: 0.5; cursor: default; }
+
+/* What the last import or export had to say. Both are otherwise silent, and a
+   silent failure — or a silent loss of three malformed cards — reads as success. */
+.index-note { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+.index-note.bad { color: var(--mark-red); }
 /* The entablature: a double hairline closing the header. */
 .index-head::after {
   content: "";
@@ -1910,12 +1937,45 @@ html, body {
   opacity: 0;
   transition: opacity 120ms;
 }
-.bcard:hover .bcard-x { opacity: 1; }
+.bcard-dl {
+  position: absolute;
+  top: 6px;
+  right: 30px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--index-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.bcard:hover .bcard-x,
+.bcard:hover .bcard-dl { opacity: 1; }
+.bcard-dl:disabled { opacity: 0.35; cursor: default; }
 /* A board card has no selected state to fall back on the way an idea card
    does, so with no hover it simply stays visible. Archiving a board was
    otherwise impossible from a phone. */
 @media (hover: none) {
-  .bcard-x { opacity: 1; }
+  .bcard-x,
+  .bcard-dl { opacity: 1; }
+}
+/* The drawn circles stay 20px — furniture sized for a fingertip is worse for
+   everyone — and grow a transparent hit area instead, as the card's controls do. */
+@media (pointer: coarse) {
+  .bcard-x::after,
+  .bcard-dl::after {
+    content: '';
+    position: absolute;
+    inset: -11px;
+  }
 }
 
 /* Same rule as the × on a card and on a board tile: with no hover, the control
@@ -1946,6 +2006,10 @@ html, body {
 /* The template tile is the blank one's sibling, not a louder version of it:
    same dashed frame, same accent, a mark instead of a plus. */
 .bcard-template .plus { font-size: 17px; }
+/* Not a template — a door for content that already exists — so it is the one
+   starter tile whose mark points inward rather than naming a shape. */
+.bcard-import .plus { font-size: 17px; }
+.index-file { display: none; }
 
 .archive { margin-top: 38px; }
 .archive h2 {

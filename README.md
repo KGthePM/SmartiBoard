@@ -261,6 +261,33 @@ layer.
   fit; only a truly sprawling board tiles across pages. Every card and connection prints
   with its done strikes and formatting; the AI's pending suggestion, selections, and search
   highlights never do
+- The **Export** button writes this board to a `.smarti.json` file, and the library's
+  **Import board** tile reads one back — how a board moves to another machine
+
+## Moving boards between machines
+
+Smarti Board runs on your machine and talks to nobody, so there is no account to sign into
+on the other one. Boards travel as files instead.
+
+**Export** in a board's chrome writes it to `<board name>.smarti.json`. In the library,
+every board tile has a small **⇩** beside its archive ×, archived boards get an **Export**
+button of their own, and **Export all** in the footer writes your whole working library —
+every board you have not archived — into one file.
+
+**Import board** in the library reads either one back: an exported board, an exported
+library, or a file you edited by hand. It is plain JSON with no wrapper, so you can read it
+and diff it, and old files keep opening in new versions the same way old boards do.
+
+Two things it deliberately will not do. **An import only ever adds boards** — every one
+arrives with a new id, so no file can overwrite a board you already have, even if you edit
+the id inside it. And **nothing but boards is in the file**: your provider, your API key and
+your appearance settings belong to the install, not to the board, and stay on the machine
+they were saved on. A private board stays private on arrival.
+
+If a file is not a Smarti Board file, the library says so and sends nothing. If it is one
+but some cards inside it are damaged, the damaged cards are dropped and the library tells
+you how many — an import that quietly loses three ideas would look exactly like one that
+worked.
 
 ## What the board is for
 

@@ -2,12 +2,32 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { relativeTime, type BoardSummary } from '@/lib/boards';
+import { useEffect, useRef, useState } from 'react';
+import { boardTitle, relativeTime, type BoardSummary } from '@/lib/boards';
+import { downloadJson } from '@/lib/download';
+import type { Board } from '@/lib/graph';
 import type { TemplateId } from '@/lib/templates';
+import {
+  boardToFile,
+  declaredNodeCount,
+  fileNameFor,
+  LIBRARY_FILE_NAME,
+  readTransfer,
+} from '@/lib/transfer';
 import { SettingsPanel } from '../SettingsPanel';
 import { IndexMark } from './IndexMark';
 import { BoardThumb } from './BoardThumb';
+
+/**
+ * What an import lost on the way in, in words. `parseBoard` drops a malformed
+ * card in silence — right for a database row nobody is watching, wrong for a
+ * file someone just chose — so the difference is said out loud. The find bar's
+ * "1 skipped" ruling: content the app counted but never showed reads as a bug.
+ */
+function dropped(lost: number): string {
+  if (lost <= 0) return '';
+  return ` — ${lost} malformed ${lost === 1 ? 'card was' : 'cards were'} dropped`;
+}
 
 /**
  * The project library. `now` comes from the server so the relative timestamps
@@ -24,6 +44,14 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
    * panel belongs to no board. Leaving the page unmounts it, open or not.
    */
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  /**
+   * What the last import or export had to say. One line under the header,
+   * because both operations are otherwise silent: an export that failed and an
+   * import that dropped three malformed cards would each look like success.
+   */
+  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // The chrome's ⌘,, answered here so the shortcut works before any board
   // exists. First-run setup is exactly when that matters most.
@@ -61,6 +89,95 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
     } catch {
       setBusy(false);
     }
+  };
+
+  /**
+   * A board, or a whole library, out to a file. The app is loopback-only by
+   * design, so this is the only path a board has off this machine.
+   */
+  const exportOne = async (b: BoardSummary) => {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const board = (await (await fetch(`/api/boards/${b.id}`)).json()) as Board;
+      // `b.title` is already the derived one, and `boardToFile` drops the id —
+      // an import always mints a fresh one, so a file carrying an id it never
+      // reads would only suggest that overwrite-by-id works.
+      downloadJson(fileNameFor(b.title, b.id), boardToFile(board));
+    } catch {
+      setNote({ text: 'Could not read that board.', bad: true });
+    }
+    setBusy(false);
+  };
+
+  const exportAll = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const { boards: full } = (await (await fetch('/api/boards?full=1')).json()) as {
+        boards: Board[];
+      };
+      downloadJson(LIBRARY_FILE_NAME, full.map(boardToFile));
+      setNote({
+        text: `Exported ${full.length} ${full.length === 1 ? 'board' : 'boards'}.`,
+        bad: false,
+      });
+    } catch {
+      setNote({ text: 'Could not read the library.', bad: true });
+    }
+    setBusy(false);
+  };
+
+  /**
+   * A file back in. `readTransfer` is the only refusal in the feature and it is
+   * deliberately here rather than in the route: creating a board must never be
+   * refusable, so the server turns junk into a blank board — which is the wrong
+   * answer when there is a person watching who chose the wrong file.
+   *
+   * The server mints every id, so an import can only add boards, never
+   * overwrite one. `parseBoard` drops malformed cards in silence, so the counts
+   * are compared afterwards and the difference is said out loud.
+   */
+  const importFile = async (file: File) => {
+    if (busy) return;
+    setNote(null);
+    const raws = readTransfer(await file.text().catch(() => ''));
+    if (!raws) {
+      setNote({ text: `“${file.name}” is not a Smarti Board file.`, bad: true });
+      return;
+    }
+
+    setBusy(true);
+    const claimed = declaredNodeCount(raws);
+    const single = raws.length === 1;
+    try {
+      const res = await fetch('/api/boards', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(single ? { board: raws[0] } : { boards: raws }),
+      });
+
+      if (single) {
+        const board = (await res.json()) as Board;
+        const lost = claimed - board.nodes.length;
+        // A clean import goes straight to the board, like creating one does.
+        // A lossy one keeps you here, because the note is the point of it.
+        if (lost <= 0) {
+          router.push(`/board/${board.id}`);
+          return;
+        }
+        setNote({ text: `Imported “${boardTitle(board)}”${dropped(lost)}.`, bad: false });
+      } else {
+        const { imported, nodes } = (await res.json()) as { imported: number; nodes: number };
+        setNote({ text: `Imported ${imported} boards${dropped(claimed - nodes)}.`, bad: false });
+      }
+      router.refresh();
+    } catch {
+      setNote({ text: 'Could not import that file.', bad: true });
+    }
+    setBusy(false);
   };
 
   const archive = async (id: string, archived_: boolean) => {
@@ -101,6 +218,12 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
         <button className="index-tutorial" disabled={busy} onClick={() => create('tutorial')}>
           Open the tutorial board
         </button>
+
+        {note ? (
+          <p className={`index-note${note.bad ? ' bad' : ''}`} role="status">
+            {note.text}
+          </p>
+        ) : null}
       </header>
 
       <div className="index-grid">
@@ -150,6 +273,33 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           <span>Mind map</span>
         </button>
 
+        {/* Not a template — a door for content that already exists, which is
+            why it sits at the end of the starters rather than among them. The
+            input is reset on every open so choosing the same file twice fires
+            change twice. */}
+        <button
+          className="bcard bcard-new bcard-import"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          title="Open a .smarti.json file exported from this or another machine"
+        >
+          <span className="plus" aria-hidden="true">
+            ⇧
+          </span>
+          <span>Import board</span>
+        </button>
+        <input
+          ref={fileRef}
+          className="index-file"
+          type="file"
+          accept=".json,application/json"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void importFile(file);
+          }}
+        />
+
         {active.map((b) => (
           <div className="bcard" key={b.id}>
             <Link className="bcard-hit" href={`/board/${b.id}`}>
@@ -162,6 +312,17 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
                 </span>
               </div>
             </Link>
+            {/* Beside the archive ×, and revealed the same way — hover, or
+                always under a coarse pointer, per the v2.6 reachability rule. */}
+            <button
+              className="bcard-dl"
+              title="Export as a file"
+              aria-label={`Export ${b.title}`}
+              disabled={busy}
+              onClick={() => exportOne(b)}
+            >
+              ⇩
+            </button>
             <button
               className="bcard-x"
               title="Archive"
@@ -194,6 +355,11 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
                   <button disabled={busy} onClick={() => archive(b.id, false)}>
                     Restore
                   </button>
+                  {/* An archived board is the one most worth having a copy of
+                      before Delete, so Export sits between the two. */}
+                  <button disabled={busy} onClick={() => exportOne(b)}>
+                    Export
+                  </button>
                   <button className="danger" disabled={busy} onClick={() => purge(b)}>
                     Delete
                   </button>
@@ -213,6 +379,17 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
               the first board exists. */}
           <button onClick={() => setSettingsOpen(true)}>Settings</button>
           <span aria-hidden="true">·</span>
+          {/* The whole working library in one file — the answer to "I am moving
+              to a new machine". Archived boards are deliberately not in it: they
+              would arrive unarchived, resurrecting what someone filed away. */}
+          {active.length > 0 ? (
+            <>
+              <button disabled={busy} onClick={exportAll}>
+                Export all
+              </button>
+              <span aria-hidden="true">·</span>
+            </>
+          ) : null}
           <a href="https://smartiboard.netlify.app/" target="_blank" rel="noopener noreferrer">
             Website
           </a>
