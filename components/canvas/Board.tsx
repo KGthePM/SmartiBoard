@@ -36,7 +36,7 @@ import type { Match } from '@/lib/search';
 import { rejectedFor, useBoard } from '@/lib/store';
 import { activeIndex, useSearchMatches } from '../SearchPanel';
 import { BoardChrome } from '../BoardChrome';
-import { EdgeLayer } from './EdgeLayer';
+import { EdgeLayer, SelectedEdgeX } from './EdgeLayer';
 import { GhostCard } from './GhostCard';
 import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
@@ -954,6 +954,21 @@ export function Board({ boardId }: { boardId: string }) {
                 />
               </div>
             ))}
+
+          {/* The selected edge's × rides above the cards: in EdgeLayer it
+              could sit under a card covering the line's midpoint, invisible
+              and unclickable. Gated for the room like the layer below. */}
+          <SelectedEdgeX
+            board={board}
+            views={views}
+            selectedEdgeId={presenting ? null : selectedEdgeId}
+            onDeleteEdge={(id) => {
+              // Same guard as the node ×: removing the line mid-click must not
+              // turn the next click into a new node.
+              lastDeleteAt.current = Date.now();
+              store.deleteEdge(id);
+            }}
+          />
 
           {drag?.kind === 'marquee' ? (
             (() => {
