@@ -25,11 +25,40 @@ import { tutorialBoard, TUTORIAL_TITLE } from './tutorial';
 export const TEMPLATE_IDS = ['tutorial', 'kanban', 'swot', 'mindmap'] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
-export const TEMPLATES: Record<TemplateId, { label: string; build: (id: string) => Board }> = {
-  tutorial: { label: TUTORIAL_TITLE, build: tutorialBoard },
-  kanban: { label: KANBAN_TITLE, build: kanbanBoard },
-  swot: { label: SWOT_TITLE, build: swotBoard },
-  mindmap: { label: MINDMAP_TITLE, build: mindMapBoard },
+/**
+ * `icon` and `blurb` are what the library renders, so they live here rather
+ * than in the component: a new template is still one entry and nothing else.
+ * The blurb is always-visible text — the descriptions used to live in
+ * `title` tooltips, which a finger cannot hover.
+ */
+export const TEMPLATES: Record<
+  TemplateId,
+  { label: string; icon: string; blurb: string; build: (id: string) => Board }
+> = {
+  tutorial: {
+    label: TUTORIAL_TITLE,
+    icon: '?',
+    blurb: 'A short guided tour — every card is something to try, and wrecking it is allowed',
+    build: tutorialBoard,
+  },
+  kanban: {
+    label: KANBAN_TITLE,
+    icon: '▥',
+    blurb: 'Backlog · Doing · Blocked · Done, as ordinary cards you can move or delete',
+    build: kanbanBoard,
+  },
+  swot: {
+    label: SWOT_TITLE,
+    icon: '⊞',
+    blurb: 'Strengths · Weaknesses · Opportunities · Threats, as four quadrants of ordinary cards',
+    build: swotBoard,
+  },
+  mindmap: {
+    label: MINDMAP_TITLE,
+    icon: '✳',
+    blurb: 'A central topic with branching themes — grow it by dragging from a card’s dot',
+    build: mindMapBoard,
+  },
 };
 
 export function isTemplateId(v: unknown): v is TemplateId {

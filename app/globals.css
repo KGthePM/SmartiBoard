@@ -2011,6 +2011,93 @@ html, body {
 .bcard-import .plus { font-size: 17px; }
 .index-file { display: none; }
 
+/* ---------- template library (v3.4) ---------- */
+
+/* Deliberately the settings panel's geometry and material: both are the same
+   kind of object — a small modal you summon, act in, and dismiss — just wide
+   enough for two template cards a row. It renders inside .index, so the
+   scoped --index-* palette follows all three themes with everything else. */
+.tplib-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10dvh;
+}
+.tplib {
+  width: min(560px, 92vw);
+  background: var(--surface-raised);
+  border: 1px solid var(--user-border);
+  border-radius: 7px;
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+.tplib-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 9px 9px 13px;
+  border-bottom: 1px solid var(--grid);
+}
+.tplib-title { font-size: 12px; color: var(--muted); }
+.tplib-x {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.tplib-x:hover { color: var(--ink); }
+.tplib-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 13px;
+}
+/* A card's material is the board card's — same border, same background — and
+   the blurb is text on the screen, not a title tooltip: the descriptions used
+   to live in hover tips a finger cannot hover. Hover only sharpens the
+   border; nothing is gated on it. */
+.tplib-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--index-border);
+  background: var(--user-bg);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+.tplib-card:hover:not(:disabled) { border-color: var(--index-accent); }
+.tplib-card:disabled { opacity: 0.5; cursor: default; }
+.tplib-icon { font-size: 17px; line-height: 1; color: var(--index-accent); }
+.tplib-name { font-size: 13px; }
+.tplib-blurb { font-size: 11px; line-height: 1.45; color: var(--muted); }
+.tplib-foot {
+  margin: 0;
+  padding: 9px 13px 11px;
+  border-top: 1px solid var(--grid);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/* A phone stacks the library one card a row, so no blurb is squeezed into a
+   column narrower than its own sentences. */
+@media (max-width: 520px) {
+  .tplib-grid { grid-template-columns: 1fr; }
+}
+
 .archive { margin-top: 38px; }
 .archive h2 {
   max-width: 1040px;

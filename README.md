@@ -203,11 +203,12 @@ next to the one card nothing is linked to. It is a real board, so edit it, wreck
 it, or delete it; *Open the tutorial board* under the header in the library brings a fresh
 copy back whenever you want one.
 
-**Or start from a Kanban board.** Beside *New board* in the library is a second tile that
-opens one already laid out — Backlog, Doing, Blocked, Done, with a couple of example cards
-under each. The columns are just positions: nothing snaps to them, and dragging a card under
-Done does not cross it off, because the ✓ is yours to press. Everything on it is an ordinary
-card you can move, rewrite or delete.
+**Or start from a template.** The *Template library* tile in the library opens every board
+you can start from: the Kanban — Backlog, Doing, Blocked, Done, with a couple of example
+cards under each — a SWOT analysis in four quadrants, a mind map with a hub and branches,
+and the tutorial again. Each template's shapes are just positions: nothing snaps to them,
+and dragging a card under Done does not cross it off, because the ✓ is yours to press.
+Everything on a template board is an ordinary card you can move, rewrite or delete.
 
 **Boards name themselves.** There is no naming step, for the same reason there is no save
 button. A board is titled after its first idea, stripped of formatting; rename it from the

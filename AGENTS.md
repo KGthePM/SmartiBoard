@@ -456,6 +456,14 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   one ring is a list; the child *is* the connect-dot lesson, and the hub is not special (delete
   it and the spokes survive, like any card). All templates ship a non-empty objective, so ⌘. is
   live before the ghost's 3-idea floor is met.
+  **The Template library** (v3.4): the index's starter row no longer grows a tile per template —
+  one "Template library" tile opens a modal (`components/index/TemplateLibrary.tsx`) that renders
+  `TEMPLATES` itself, so a template stays one registry entry and nothing else. Each entry carries
+  its own `icon` and `blurb` beside `label` and `build` (the descriptions were `title` tooltips,
+  invisible to a finger), and a test holds the library's contract: every entry arrives with a
+  non-empty icon and blurb. The tutorial is listed in it *and* keeps its quiet header line — both
+  are doors to the same ordinary board. Pure index presentation: it calls the index's existing
+  `create(template)` closure, so no route, db, store, or schema change, and never a token.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

@@ -40,4 +40,14 @@ describe('the template registry', () => {
       expect(isTemplateId(id)).toBe(true);
     }
   });
+
+  // The library renders the registry's own copy, so an entry that arrives
+  // without it would show up nameless, markless or descriptionless — the
+  // descriptions especially were hover tips once, and a finger cannot hover.
+  it('carries the icon and blurb the library renders', () => {
+    for (const id of TEMPLATE_IDS) {
+      expect(TEMPLATES[id].icon.trim().length).toBeGreaterThan(0);
+      expect(TEMPLATES[id].blurb.trim().length).toBeGreaterThan(0);
+    }
+  });
 });

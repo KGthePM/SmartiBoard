@@ -17,6 +17,7 @@ import {
 import { SettingsPanel } from '../SettingsPanel';
 import { IndexMark } from './IndexMark';
 import { BoardThumb } from './BoardThumb';
+import { TemplateLibrary } from './TemplateLibrary';
 
 /**
  * What an import lost on the way in, in words. `parseBoard` drops a malformed
@@ -44,6 +45,14 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
    * panel belongs to no board. Leaving the page unmounts it, open or not.
    */
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  /**
+   * The template library, same pattern: local to the index, dismissed by the
+   * backdrop / Escape / ×, and unmounted with the page. A successful create
+   * navigates away, which closes it for free; a failed one leaves it open
+   * with `busy` cleared, so the pick can simply be retried.
+   */
+  const [libOpen, setLibOpen] = useState(false);
 
   /**
    * What the last import or export had to say. One line under the header,
@@ -232,45 +241,22 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           <span>New board</span>
         </button>
 
-        {/* A template is a project starter, so it sits in the grid beside the
-            blank one — unlike the tutorial, which is a door and stays a quiet
-            line in the header. The Kanban's columns, the SWOT's quadrants and
-            the Mind map's hub are all positions, not modes: nothing about the
-            boards that come out is special. */}
+        {/* The template library, behind one tile instead of one tile per
+            template: the starter row grew a card for every template added,
+            pushing the person's own boards down their own home page — and the
+            registry is append-only, so it would keep growing. The tutorial is
+            in the library too, while keeping its quiet header line above:
+            both are doors to the same ordinary board. */}
         <button
           className="bcard bcard-new bcard-template"
-          onClick={() => create('kanban')}
+          onClick={() => setLibOpen(true)}
           disabled={busy}
-          title="Backlog · Doing · Blocked · Done, as ordinary cards you can move or delete"
+          title="Kanban, SWOT, mind map, and the tutorial — every board you can start from"
         >
           <span className="plus" aria-hidden="true">
             ▥
           </span>
-          <span>Kanban board</span>
-        </button>
-
-        <button
-          className="bcard bcard-new bcard-template"
-          onClick={() => create('swot')}
-          disabled={busy}
-          title="Strengths · Weaknesses · Opportunities · Threats, as four quadrants of ordinary cards"
-        >
-          <span className="plus" aria-hidden="true">
-            ⊞
-          </span>
-          <span>SWOT analysis</span>
-        </button>
-
-        <button
-          className="bcard bcard-new bcard-template"
-          onClick={() => create('mindmap')}
-          disabled={busy}
-          title="A central topic with branching themes — grow it by dragging from a card’s dot"
-        >
-          <span className="plus" aria-hidden="true">
-            ✳
-          </span>
-          <span>Mind map</span>
+          <span>Template library</span>
         </button>
 
         {/* Not a template — a door for content that already exists, which is
@@ -405,6 +391,9 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
       </footer>
 
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
+      {libOpen ? (
+        <TemplateLibrary onClose={() => setLibOpen(false)} onPick={create} busy={busy} />
+      ) : null}
     </div>
   );
 }

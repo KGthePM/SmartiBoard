@@ -100,8 +100,9 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   the mirror of `lib/kanban.ts` with quadrants in place of columns.
 - `lib/mindmap.ts` — the Mind map template's content: `mindMapBoard(id)`, `MINDMAP_TITLE`.
   Pure, node-free; one hub, branches, one second-level branch.
-- `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES`, `buildTemplate`
-  (null, never a throw). Adding a template is one entry here plus its own pure module.
+- `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES` (label, icon,
+  blurb, build), `buildTemplate` (null, never a throw). Adding a template is one entry
+  here plus its own pure module.
 - `lib/transfer.ts` — boards as files: `fileNameFor`, `boardToFile`, `looksLikeBoard`,
   `readTransfer`, `declaredNodeCount`. Pure, node-free; the index and the tests import it.
 - `lib/download.ts` — the one DOM line (`downloadJson`), kept out of `lib/transfer.ts` so
@@ -113,7 +114,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
-- `app/page.tsx` + `components/index/` — the project library and its minimaps.
+- `app/page.tsx` + `components/index/` — the project library, its minimaps, and the
+  Template library modal (`TemplateLibrary.tsx`).
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
@@ -612,8 +614,9 @@ like a collaborator or a paperclip. Both are now settled:
   **It is an ordinary board in every other way** — every node in the `user` layer, no accepted
   card and no ghost (a proposal is never a node), editable, archivable, deletable, autosaving,
   counted in the index, and nothing in the schema knows it exists. It is not a mode and not a
-  board type. In the library it is a tile beside "New board", because a template is a project
-  starter; the tutorial link stays a quiet line in the header, because it is a door. ⌘K's
+  board type. In the index it was a tile beside "New board", because a template is a project
+  starter (v3.4 moved that tile into the Template library modal); the tutorial link stays a
+  quiet line in the header, because it is a door. ⌘K's
   create is deliberately left blank-only. No AI behavior, no new state, no token: still exactly
   one unsolicited and one user-invoked.
 
@@ -630,7 +633,8 @@ like a collaborator or a paperclip. Both are now settled:
   every node parented once, so the minimap renders a star and the model reads a hierarchy), and
   the hub is not special: delete it and the spokes survive, like any card. Neither ships a done
   card; both ship a non-empty objective like the others, so ⌘. is live from the first second.
-  In the library they are tiles beside the Kanban's, because templates are project starters.
+  In the index they were tiles beside the Kanban's, because templates are project starters —
+  until v3.4's Template library gathered them.
 
 - **The desktop app** (v3.1): the same install in a different room. `desktop/` wraps the Next
   server in Electron and CI publishes Windows and Linux installers to GitHub Releases, so the
@@ -739,6 +743,24 @@ like a collaborator or a paperclip. Both are now settled:
   paper and one to a file), both taking the v2.6 touch treatment. Declined: a version
   envelope, reminting node ids, a route-level 400, drag-and-drop as a second ingestion path,
   and importing *into* an existing board — the upsert-on-id hazard for a case nobody asked for.
+
+- **The Template library** (v3.4): every board you can start from, in one modal. The index's
+  starter row had grown a tile per template — New, Kanban, SWOT, Mind map, Import — and the
+  registry is append-only, so every new template would push the person's own boards further
+  down their own home page. One "Template library" tile now opens a modal
+  (`components/index/TemplateLibrary.tsx`) that renders `TEMPLATES` itself, so a template
+  remains one registry entry and nothing else. **The registry carries its own copy**: `icon`
+  and `blurb` live in `lib/templates.ts` beside `label` and `build`, because the descriptions
+  used to be `title` tooltips on the index tiles — invisible to a finger, against the v2.6
+  reachability rule — and hardcoded glyphs in the component would have made "one entry" two.
+  The library's contract is tested: every entry must arrive with a non-empty icon and blurb.
+  **The tutorial is in it and keeps its header line** — both are doors to the same ordinary
+  board, and the quiet line stays for the person who already knows it's there. Same shell as
+  every panel (backdrop, ×, Escape; the settings panel's geometry and material, just wider)
+  and the same creation path: it calls the index's existing `create(template)` closure, so a
+  successful pick navigates (unmounting the modal for free) and a failed one leaves it open
+  with `busy` cleared. Pure index presentation — no route, db, store, schema, or undo/redo
+  impact, no AI behavior, never a token.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
