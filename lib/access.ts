@@ -133,7 +133,18 @@ export function decideAccess(
 
 /** The impure line: this process's environment, and this process's registry. */
 export function accessFor(req: Request, boardId: string | null = null): Access {
-  return decideAccess(req.headers, boardId, process.env as AccessEnv, boardForShare);
+  return accessForHeaders(req.headers, boardId);
+}
+
+/**
+ * The same decision for a caller that has headers but no `Request` — a server
+ * component, where Next hands over `headers()` and nothing else (v4.2). This
+ * is what lets a *page* refuse a proxied request: every guard used to live on
+ * `/api/*` route handlers, which left the library's server render — titles,
+ * summaries, the seed — readable through a bare tunnel hostname.
+ */
+export function accessForHeaders(h: Headers, boardId: string | null = null): Access {
+  return decideAccess(h, boardId, process.env as AccessEnv, boardForShare);
 }
 
 /**

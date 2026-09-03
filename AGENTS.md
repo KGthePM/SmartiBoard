@@ -143,7 +143,7 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
 - **Data model:** the board is a structured graph of typed nodes and edges, not a freeform pixel canvas. All features — especially AI behavior — build on the graph representation.
 - **Trust model:** AI output lives in a visually distinct "ghost" layer; every AI proposal must be previewable and reversible via a single accept/reject action. Never silently merge AI edits into user content, even in later versions. Concretely: a proposal lives in `store.proposal`, never in `board.nodes`; accepting constructs a *new* node and discards the proposal object.
 - **Latency:** local interactions (drag, type, snap) must never block on AI/LLM reasoning. LLM responses stream back asynchronously.
-- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 holds the one *user-invoked* slot: the idea generator (it replaced the read-only board summary that held it from v1.3). Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
+- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 added the idea generator as a *user-invoked* behavior (it replaced the read-only board summary that held that slot from v1.3), and the folder import's AI pass (phase 2 — import links plus per-file summaries, offered only inside the folder-import modal on its own consent screen) joined it as a second. Two user-invoked behaviors now; still exactly one unsolicited. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
   choice is now in — see Environment. It adds no AI behavior; it only says who answers.)
 
 ## Settled decisions — do not re-litigate
@@ -562,7 +562,7 @@ migration, no new table, never a token.** Still one unsolicited behavior and one
   `--lan` now exports `SMARTI_TRUST_LAN=1`. **The gate bites only when bound wide without
   trust — the desktop's mode.** Under `--lan` the token is a shortcut, not a boundary, and the
   dialog says so rather than implying protection that is not there.
-- **The `CF-Connecting-IP` rule ships now, with the v4.2 tunnel it protects still unbuilt.**
+- **The `CF-Connecting-IP` rule shipped here, a release before the v4.2 tunnel it protects.**
   `cloudflared` dials loopback from the host, so a tunneled request would otherwise look like
   the most trusted caller there is. It is the hardest-guarded line in `access.test.ts`.
 - **The token authorises a board, never a person.** No login, no session, no cookie, no
@@ -591,6 +591,54 @@ migration, no new table, never a token.** Still one unsolicited behavior and one
 - **The desktop binds `0.0.0.0` from launch** (a listening server cannot rebind; widening on a
   press would mean a new port and a reload mid-collaboration). **The one genuinely new exposure
   in this release**, and the README says so: a gated open port is not the same as no port.
+
+## v4.2 — Beyond this network (the tunnel)
+
+**⏸ Paused, pending re-evaluation** — see `v4.2-tunnel.md`. Built and passing the automated
+(curl-only) verification below, but the guest-facing path failed its first real browser test:
+opening the public link gets HTTP 500 on the shared board, not the board, and the cause isn't
+isolated (a curl repro against the same live tunnel does not reproduce it). The dialog's
+tier-2 button is hidden; `lib/tunnel.ts` / `/api/tunnel` are untouched and still work if
+called directly. The rest of this section is the design and the transport fix as built, both
+still believed correct.
+
+- **A `cloudflared` quick tunnel gives the install one public
+  `https://<random>.trycloudflare.com` address**, so a phone on cellular can open a shared
+  board. No AI behavior, no persisted state, no schema change, no migration, never a token.
+- **A tunnel forwards bytes and holds nothing** — why one is admitted where a hosted service is
+  not. Lose Cloudflare and only *reach* is lost.
+- **Per install, not per board.** `lib/tunnel.ts` never hears about a board; `/api/tunnel` is
+  install-scoped behind `guardManage`, so **you cannot open a tunnel through a tunnel** (rule 1
+  of `decideAccess`, free) and a guest cannot open one at all. **A bare tunnel URL with no
+  `#s=…` reaches nothing** — `lib/access.ts` does the scoping, exactly as on the LAN.
+- **Dies with the process**, v2.5 applied a third time: no setting, no column, no migration.
+  **And never a download** — `SMARTI_CLOUDFLARED` then `PATH`, a filesystem look rather than a
+  spawn; absent greys the tier out with a sentence.
+- **A quick tunnel buffers a response body until it ends.** Measured, and confirmed against a
+  raw Node server with no Next involved: content-type, padding, compression, HTTP version and
+  frame size change nothing. A request that *ends* is delivered at once (~47ms warm). **So the
+  stream is not made to survive — it stops being needed.**
+- **`GET …/sync?since=<seq>`** returns `{frames}` when the room speaks, `[]` after 20s
+  (its heartbeat). **A second delivery, not a second feature**: same room, same `Frame` union,
+  same `handle()`, so the shared ghost needs no special case. The batch **flushes a tick after
+  the first frame** (one POST can publish ops *and* the ghost riding it), and the poll
+  **subscribes before deciding what to answer** — joining first creates the room, or a lone
+  poller is told `null` and handed the whole board on a loop.
+- **`lib/hub.ts` gained a log and a grace**, both about the gap a poll has and a stream does
+  not. `framesSince` returns `[]` for "nothing happened" and `null` for "I cannot account for
+  the gap" (no room / a `seq` from a previous process / more than `LOG_MAX` missed); `null` is
+  answered with `hello`, so **losing the log is safe**. `ROOM_GRACE_MS` makes `sweep` defer, or
+  a room swept between two polls costs a whole-board resync per remote edit.
+- **The client falls back by silence, not by error.** `hello` lands the instant the route
+  subscribes, so `STREAM_PROBE_MS` of nothing means buffering. **Per board and one-way**;
+  loopback and the LAN never trip it and keep the stream they shipped with.
+- **Three caveats in the dialog, not the README** (true when the button is pressed): Cloudflare
+  terminates TLS so the text crosses their edge readable; a quick tunnel is not a paid service;
+  the tunnel is open for the whole app and the link is what keeps a guest to one board. Tier 2
+  renders only once tier 1 is live, and the public URL is composed **client-side** so
+  `/api/tunnel` never hears about a board.
+- **Deferred:** bundling `cloudflared` into the Electron installers. The `SMARTI_CLOUDFLARED`
+  seam exists; until then desktop uses one on `PATH` or greys the tier out.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

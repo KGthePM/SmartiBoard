@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 /**
- * Sharing a board on the network (v4.1).
+ * Sharing a board on the network (v4.1), and beyond it (v4.2).
  *
  * The link is minted server-side and **dies with the host's process**, which is
  * v2.5's ruling — a network decision belongs to the invocation, not the install
@@ -18,6 +18,12 @@ import { useCallback, useEffect, useState } from 'react';
  * The shell is `TemplateLibrary`'s, unchanged: a backdrop that closes on
  * `onPointerDown`, an inner dialog that stops it, an × titled `Close (Esc)`,
  * and a window-level Escape listener.
+ *
+ * **Tier 2 — "Beyond this network," the Cloudflare tunnel — is paused** (see
+ * `v4.2-tunnel.md`). It failed its first real end-to-end test (a guest opening the
+ * public link got a 500, not a board), and the cause isn't isolated yet. `lib/tunnel.ts`
+ * and `/api/tunnel` are untouched and still work if called directly; this dialog simply
+ * stops offering the button until that is fixed. Tier 1 below is unaffected.
  */
 
 type ShareUrl = { label: string; url: string };
@@ -68,6 +74,18 @@ export function ShareDialog({ boardId, onClose }: { boardId: string; onClose: ()
     );
   };
 
+  const linkRow = (label: string, url: string) => (
+    <li key={url}>
+      <span className="share-url-label">{label}</span>
+      {/* Selectable as well as copyable: a clipboard the browser
+          refuses must not be the only way to get the link out. */}
+      <input className="share-url" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
+      <button className="share-copy" onClick={() => copy(url)}>
+        {copied === url ? 'Copied' : 'Copy'}
+      </button>
+    </li>
+  );
+
   return (
     <div className="share-back" onPointerDown={onClose}>
       <div
@@ -107,19 +125,7 @@ export function ShareDialog({ boardId, onClose }: { boardId: string; onClose: ()
                   itself. Join a network and reopen this.
                 </p>
               ) : (
-                <ul className="share-urls">
-                  {state.urls.map((u) => (
-                    <li key={u.url}>
-                      <span className="share-url-label">{u.label}</span>
-                      {/* Selectable as well as copyable: a clipboard the browser
-                          refuses must not be the only way to get the link out. */}
-                      <input className="share-url" readOnly value={u.url} onFocus={(e) => e.currentTarget.select()} />
-                      <button className="share-copy" onClick={() => copy(u.url)}>
-                        {copied === u.url ? 'Copied' : 'Copy'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <ul className="share-urls">{state.urls.map((u) => linkRow(u.label, u.url))}</ul>
               )}
               <button className="share-stop" disabled={busy} onClick={() => void call('DELETE')}>
                 {busy ? 'Stopping…' : 'Stop sharing'}
@@ -127,7 +133,10 @@ export function ShareDialog({ boardId, onClose }: { boardId: string; onClose: ()
             </>
           )}
 
-          {/* The three things that are true the moment you press the button, and
+          {/* Tier 2 ("Beyond this network", the Cloudflare tunnel) is paused —
+              see the file header — so no button for it renders here. */}
+
+          {/* The things that are true the moment you press the button, and
               therefore belong here rather than in the README. */}
           {state?.sharing ? (
             <div className="share-caveats">

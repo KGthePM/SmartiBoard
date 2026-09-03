@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from '@/lib/shareToken';
+import { apiFetch, shareToken } from '@/lib/shareToken';
 import { useBoard } from '@/lib/store';
 import { applyOps, diffBoards, type Op } from '@/lib/sync';
 import { newId, parseBoard, type Board, type NodeId } from '@/lib/graph';
@@ -13,6 +13,25 @@ const SAVE_RETRY_MS = 5000;
 /** First reconnect wait for the stream; doubles to STREAM_RETRY_MAX_MS. */
 const STREAM_RETRY_MS = 1000;
 const STREAM_RETRY_MAX_MS = 30_000;
+/**
+ * How long a freshly opened stream may deliver nothing before this tab decides
+ * it is not a stream (v4.2).
+ *
+ * `hello` is sent the instant the route subscribes, so a working stream answers
+ * in milliseconds and this timer never fires on loopback or the LAN. What it
+ * catches is an intermediary that buffers the body until the response ends —
+ * Cloudflare's quick tunnels do, completely, so a shared board reached through
+ * v4.2's public link would otherwise sit silent while its edits merged
+ * invisibly. Generous, because the cost of firing early is a needless fallback
+ * and the cost of firing late is a blind guest.
+ */
+const STREAM_PROBE_MS = 5000;
+/**
+ * The floor on one poll cycle. The route holds a quiet request for LONGPOLL_MS,
+ * so this is never reached in practice; it exists so that a server answering
+ * "nothing" instantly cannot be turned into a spin.
+ */
+const POLL_MIN_MS = 250;
 
 export type SaveState = 'saved' | 'saving' | 'error';
 
@@ -54,6 +73,12 @@ export type GhostEvent = {
  * v4.0 adds the other direction: a stream of what everyone else is doing. The
  * basis is what makes that tractable — it is both "what to send" and "what we
  * already know", so a remote frame advances it exactly as our own ack does.
+ *
+ * v4.2 adds a second way to receive that direction and no third rule: when the
+ * stream turns out to be buffered rather than quiet — which is what a Cloudflare
+ * quick tunnel does to it — the same frames are fetched one answer at a time
+ * instead. The write path, the basis and `handle()` are untouched by that
+ * choice; only how the frames arrive differs.
  */
 export function useSync(
   boardId: string,
@@ -63,6 +88,13 @@ export function useSync(
   saveState: SaveState;
   /** This tab's id, for the routes that speak to the room on its behalf. */
   clientId: string;
+  /**
+   * The server refused this board outright — a 403/404 rather than a failure
+   * (v4.2). For a guest that means the share link died under them (the host
+   * stopped sharing, or restarted); retrying would 404 forever, so the loops
+   * stop and the canvas says so instead. Reset by a board switch.
+   */
+  denied: boolean;
   flushUnsaved: () => void;
   beginBoard: () => void;
   seedBasis: (b: Board) => void;
@@ -80,6 +112,10 @@ export function useSync(
   /** A ghost accept/dismiss waiting for the next POST to carry it. */
   const ghostRef = useRef<GhostEvent | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [denied, setDenied] = useState(false);
+  // The ref is what the transport loop reads between awaits; the state is what
+  // the canvas renders. Set together, cleared together.
+  const deniedRef = useRef(false);
   // Exists only to re-arm the autosave effect while a save is failing; a
   // board whose author stopped typing still deserves to recover on its own.
   const [retryNonce, setRetryNonce] = useState(0);
@@ -93,6 +129,21 @@ export function useSync(
     basisRef.current = null;
     // A ghost belongs to the board it was proposed on.
     ghostRef.current = null;
+    // A refusal was the last board's; the incoming one answers for itself.
+    deniedRef.current = false;
+    setDenied(false);
+  }, []);
+
+  /**
+   * A 403/404 is the server saying "not yours", which no amount of retrying
+   * changes — as opposed to a 5xx or a dropped connection, which the retry
+   * loops exist for. Latching it is what stops a guest whose link died from
+   * silently hammering a refusal every few seconds forever.
+   */
+  const refuse = useCallback((status: number) => {
+    if (status !== 403 && status !== 404) return;
+    deniedRef.current = true;
+    setDenied(true);
   }, []);
 
   const seedBasis = useCallback((b: Board) => {
@@ -178,7 +229,10 @@ export function useSync(
           if (mine !== saveSeqRef.current) return;
           // A non-2xx merged nothing — the row never changed — so it takes the
           // failure path rather than counting as a save.
-          if (!r.ok) throw new Error(`save failed: ${r.status}`);
+          if (!r.ok) {
+            refuse(r.status);
+            throw new Error(`save failed: ${r.status}`);
+          }
           if (ops.length === 0) return;
           // Only now: these ops are durable, so the next diff starts here.
           //
@@ -201,7 +255,7 @@ export function useSync(
     return () => clearTimeout(t);
     // retryNonce re-arms this effect after a failure, without any edit;
     // ghostNonce re-arms it for a dismissal, which changes nothing to diff.
-  }, [board, boardId, loaded, retryNonce, ghostNonce]);
+  }, [board, boardId, loaded, retryNonce, ghostNonce, refuse]);
 
   // A failed save recovers on its own: waiting for the next edit would strand
   // every board whose author stopped typing the moment it failed. While in
@@ -276,28 +330,85 @@ export function useSync(
   );
 
   /**
-   * The stream itself, read with `fetch` and a reader rather than
-   * `EventSource` — the same shape components/IdeasPanel.tsx already uses, and
-   * the choice that survives sharing: a share token must ride in a header, and
-   * EventSource cannot set one.
+   * The room, received. Two transports, one frame handler.
+   *
+   * **The stream is read with `fetch` and a reader rather than `EventSource`** —
+   * the same shape components/IdeasPanel.tsx already uses, and the choice that
+   * survives sharing: a share token must ride in a header, and `EventSource`
+   * cannot set one.
+   *
+   * **The poll (v4.2) is what a stream falls back to when it turns out not to be
+   * one.** A Cloudflare quick tunnel holds a response body until it ends, so the
+   * stream opens, is accepted, and then delivers nothing for as long as it stays
+   * open — never an error, which is why this is detected by silence rather than
+   * caught. `hello` lands the moment the route subscribes, so STREAM_PROBE_MS of
+   * nothing at all means the bytes are being held somewhere, and the answer is a
+   * request that *ends*: `?since=<seq>` returns the moment the room speaks.
+   *
+   * The fallback is per board and one-way. Reconnecting into a stream that has
+   * already proved buffered would spend STREAM_PROBE_MS blind on every retry,
+   * and nothing about a tunnel changes while a board is open.
    */
   useEffect(() => {
     if (!loaded) return;
     let cancelled = false;
     let ctrl: AbortController | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let wake: (() => void) | null = null;
     let backoff = STREAM_RETRY_MS;
+    /**
+     * Set once, by the probe below: this connection does not stream. A guest
+     * reached through a Cloudflare quick tunnel starts here outright — that
+     * transport is *known* buffered (measured in v4.2), so spending the probe's
+     * five blind seconds proving it again on every board open buys nothing.
+     */
+    let buffered = knownBuffered();
+    /**
+     * The last seq this tab has seen, and the poll's whole memory. `-1` is "I
+     * have nothing", which the route answers with `hello` — so a poll that
+     * starts, a poll that lost its room and a poll that fell too far behind all
+     * recover by the same path the stream already used.
+     */
+    let seq = -1;
 
-    const run = async () => {
+    const take = (frame: Frame) => {
+      seq = Math.max(seq, frame.seq);
+      handle(frame);
+    };
+
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        wake = resolve;
+        timer = setTimeout(resolve, ms);
+      });
+
+    /** True if the connection delivered something, which is what earns a retry
+     *  with the backoff reset. */
+    const runStream = async (): Promise<boolean> => {
       ctrl = new AbortController();
+      let spoke = false;
+      // Only a response whose *headers* arrived can prove buffering: silence
+      // before that is just a slow connect (a cold tunnel edge takes seconds),
+      // and latching `buffered` on it would convert the tab to polling for the
+      // life of the board on the strength of one bad handshake. The probe still
+      // aborts either way — a retry is cheap, a blind wait is not.
+      let connected = false;
+      const probe = setTimeout(() => {
+        if (spoke) return;
+        if (connected) buffered = true;
+        ctrl?.abort();
+      }, STREAM_PROBE_MS);
+
       try {
         const res = await apiFetch(`/api/boards/${boardId}/sync`, {
           headers: { accept: 'text/event-stream' },
           signal: ctrl.signal,
         });
-        if (!res.ok || !res.body) throw new Error(`stream failed: ${res.status}`);
-        // A connection that opened is a connection that works.
-        backoff = STREAM_RETRY_MS;
+        connected = true;
+        if (!res.ok || !res.body) {
+          refuse(res.status);
+          throw new Error(`stream failed: ${res.status}`);
+        }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -311,33 +422,98 @@ export function useSync(
           for (const chunk of chunks) {
             const line = chunk.split('\n').find((l) => l.startsWith('data: '));
             if (!line) continue;
+            // Before the parse: a frame we cannot read still proves the bytes
+            // are moving, which is the only question the probe is asking.
+            spoke = true;
             try {
-              handle(JSON.parse(line.slice(6)) as Frame);
+              take(JSON.parse(line.slice(6)) as Frame);
             } catch {
               // A frame we cannot read costs that frame. The next `hello`
               // resyncs the board, so there is nothing to recover here.
             }
           }
         }
-      } catch {
-        // A dropped stream is not an error the person needs to hear about; the
-        // save indicator speaks for the write path, and reconnecting is silent.
+        return spoke;
+      } finally {
+        clearTimeout(probe);
       }
-      if (cancelled) return;
-      retry = setTimeout(run, backoff);
-      backoff = Math.min(STREAM_RETRY_MAX_MS, backoff * 2);
+    };
+
+    const runPoll = async (): Promise<boolean> => {
+      ctrl = new AbortController();
+      const started = Date.now();
+      const res = await apiFetch(`/api/boards/${boardId}/sync?since=${seq}`, {
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        refuse(res.status);
+        throw new Error(`poll failed: ${res.status}`);
+      }
+
+      const { frames } = (await res.json()) as { frames: Frame[] };
+      for (const frame of frames) take(frame);
+      // An empty answer is this transport's heartbeat and is allowed to come
+      // back fast — but never fast enough to become a spin.
+      const elapsed = Date.now() - started;
+      if (frames.length === 0 && elapsed < POLL_MIN_MS) await sleep(POLL_MIN_MS - elapsed);
+      return true;
+    };
+
+    const run = async () => {
+      while (!cancelled && !deniedRef.current) {
+        let delivered = false;
+        try {
+          delivered = buffered ? await runPoll() : await runStream();
+        } catch {
+          // A dropped stream is not an error the person needs to hear about;
+          // the save indicator speaks for the write path, and reconnecting is
+          // silent.
+        }
+        if (cancelled) return;
+        if (delivered) {
+          backoff = STREAM_RETRY_MS;
+          continue;
+        }
+        await sleep(backoff);
+        backoff = Math.min(STREAM_RETRY_MAX_MS, backoff * 2);
+      }
     };
 
     void run();
     return () => {
-      // StrictMode's double mount must not leave two streams open.
+      // StrictMode's double mount must not leave two of these running.
       cancelled = true;
       ctrl?.abort();
-      if (retry) clearTimeout(retry);
+      if (timer) clearTimeout(timer);
+      wake?.();
     };
-  }, [boardId, loaded, handle]);
+  }, [boardId, loaded, handle, refuse]);
 
-  return { saveState, clientId: clientIdRef.current, flushUnsaved, beginBoard, seedBasis, queueGhostEvent };
+  return {
+    saveState,
+    clientId: clientIdRef.current,
+    denied,
+    flushUnsaved,
+    beginBoard,
+    seedBasis,
+    queueGhostEvent,
+  };
+}
+
+/**
+ * Whether this page's transport is already known not to carry a stream (v4.2).
+ *
+ * A guest on a Cloudflare quick tunnel is the one case we can name up front:
+ * the fragment token says "guest", the hostname says "quick tunnel", and the
+ * buffering was measured rather than assumed. Everyone else — loopback, LAN,
+ * a tailnet, some future proxy — keeps stream-first with the probe deciding.
+ */
+function knownBuffered(): boolean {
+  return (
+    shareToken() !== null &&
+    typeof window !== 'undefined' &&
+    window.location.hostname.endsWith('.trycloudflare.com')
+  );
 }
 
 /**

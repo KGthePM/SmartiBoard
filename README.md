@@ -317,6 +317,58 @@ your network at every launch**, where earlier versions listened only to itself, 
 operating system will probably ask about it the first time. Nothing is reachable without a
 link you handed out, but an open port is worth knowing about.
 
+### Sharing with someone who isn't on your network
+
+> **⏸ This feature is paused.** It failed its first real test — a guest opening the public
+> link got an error instead of the board — and the button is currently hidden from the Share
+> dialog while that's investigated (see `v4.2-tunnel.md`). Sharing on your own network, above,
+> is unaffected and is the current way to collaborate remotely. The rest of this section
+> describes the feature as designed, for when it's back.
+
+Everything above needs the other person to be able to reach your machine — the same Wi-Fi,
+or a tailnet. **Beyond this network** was meant to be the other case, reached at the bottom of
+the Share dialog: it opens a tunnel and gives you a second link on a public
+`trycloudflare.com` address that works from anywhere, including a phone on cellular.
+
+It needs [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
+which Smarti Board will **never** download for you — an idea board should not fetch executables
+because you pressed a button. Install it yourself:
+
+```bash
+brew install cloudflared            # macOS
+winget install --id Cloudflare.cloudflared   # Windows
+# or the .deb / .rpm / binary from the link above
+```
+
+If it isn't there, the section simply says so and stays greyed out. If you keep it somewhere
+unusual, point `SMARTI_CLOUDFLARED` at it.
+
+Three things are different about this link, and the dialog says all three at the moment you
+open it:
+
+- **Cloudflare carries the traffic**, so this board's text passes through their servers in
+  readable form. Nothing is blocked and nothing is stored there — it is a pipe, not a host, and
+  your boards still live only in your own database — but it is a third party in the middle,
+  which the LAN link never had. It is your board and your call.
+- **A quick tunnel is not a paid service.** The address is assigned free with no account and no
+  uptime promise, so it can slow down or stop working, and that is Cloudflare's doing rather
+  than a fault here. Close it and open it again for a new address.
+- **The tunnel is open for the whole app, not just this board.** The link is still what keeps a
+  guest to one board; the tunnel only decides who can knock. Nothing reaches your library, your
+  other boards or your settings without one.
+
+A new address takes a few seconds before it starts resolving, so a link that fails the instant
+you create it is usually just early — wait a moment and try again rather than opening a second
+one.
+
+**Close the public link** closes it, and so does quitting Smarti Board — nothing is stored and
+there is nothing to expire.
+
+One thing to know about how it behaves: through a public link, edits still arrive live, but
+the app switches to a slightly different way of listening because Cloudflare's free tunnels
+hold a connection's output until it finishes. You should not notice anything except that a
+teammate's first edit can take a second longer to appear than it does on your own network.
+
 ## Moving boards between machines
 
 Smarti Board runs on your machine and talks to nobody, so there is no account to sign into
@@ -428,9 +480,12 @@ different rules because you asked:
 
 In: draggable text nodes on an infinite canvas, one relationship type, instant autosave,
 many named boards, and exactly one *unsolicited* AI behavior — propose a gap-fill or
-connection, one-click accept/dismiss — plus one *user-invoked* behavior, the idea generator
-(v2.0, replacing the read-only summary that held the slot from v1.3). Either can be switched
-off per board with Privacy Mode (v1.9).
+connection, one-click accept/dismiss — plus two *user-invoked* behaviors: the idea generator
+(v2.0, replacing the read-only summary that held the slot from v1.3) and the folder import's
+AI pass (phase 2) — import links (read locally, free) and per-file summaries (egress, on
+your own key), offered inside the folder-import modal on explicit consent. Privacy Mode
+(v1.9) silences the ghost and the idea generator per board; the folder AI pass has no board
+yet to be private, so its consent screen is the gate instead.
 
 Out: real-time multiplayer, freehand drawing, images, styling, cross-session memory,
 model choice, any further AI behaviors. The AI also never moves or edits a node you placed.

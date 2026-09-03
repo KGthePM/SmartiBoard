@@ -37,6 +37,13 @@ const config: NextConfig = {
     // public space the way `172.*.*.*` would have.
     ...Array.from({ length: 64 }, (_, i) => `100.${64 + i}.*.*`),
     '*.local',
+    // v4.2's tunnel gives this install a public trycloudflare.com hostname, and
+    // without this `next dev` behind one serves the page and then refuses its
+    // own API calls — the identical failure the private ranges above exist to
+    // prevent. It is public space, unlike everything else in this list, but the
+    // entry means nothing unless a tunnel *this install opened* is running: the
+    // hostname is assigned per tunnel and points at this machine only.
+    '*.trycloudflare.com',
   ],
 };
 

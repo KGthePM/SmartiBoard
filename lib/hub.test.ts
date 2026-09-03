@@ -3,12 +3,14 @@ import {
   boardForShare,
   claimGhost,
   currentSeq,
+  framesSince,
   GHOST_LEASE_MS,
   mintShare,
   publish,
   releaseGhost,
   revokeShare,
   roomCount,
+  ROOM_GRACE_MS,
   shareFor,
   subscribe,
   type Frame,
@@ -257,5 +259,121 @@ describe('the share registry', () => {
     expect(roomCount(b)).toBe(0);
     expect(boardForShare(token)).toBe(b);
     expect(shareFor(b)).toBe(token);
+  });
+});
+
+describe('framesSince', () => {
+  /**
+   * The long poll's memory (v4.2). The contract the route leans on is the
+   * difference between `[]` and `null`: nothing happened, versus I cannot tell
+   * you what happened — and only the second one owes the client a whole board.
+   */
+  const held = (b: string) => {
+    const a = sink();
+    subscribe(b, a.send);
+    return a;
+  };
+
+  it('is null for a room nobody has opened', () => {
+    // Which is exactly the state a board falls into between two polls once it
+    // goes quiet: `sweep` deletes the room, and the next poll resyncs.
+    expect(framesSince(boardId(), 0)).toBeNull();
+  });
+
+  it('is empty when the room has said nothing since', () => {
+    const b = boardId();
+    held(b);
+    expect(framesSince(b, 0)).toEqual([]);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    expect(framesSince(b, 1)).toEqual([]);
+  });
+
+  it('hands back everything after seq, in order', () => {
+    const b = boardId();
+    held(b);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    publish(b, { type: 'ops', clientId: 'y', ops: ops('n2') });
+    publish(b, { type: 'ops', clientId: 'z', ops: ops('n3') });
+
+    expect(framesSince(b, 0)?.map((f) => f.seq)).toEqual([1, 2, 3]);
+    expect(framesSince(b, 2)?.map((f) => f.seq)).toEqual([3]);
+    expect(framesSince(b, 2)?.[0]).toMatchObject({ clientId: 'z' });
+  });
+
+  it('carries every kind of frame, the ghost included', () => {
+    // The reason the poll is a transport swap and not a second feature: a
+    // client on it hears about the room's proposal exactly as a stream does.
+    const b = boardId();
+    held(b);
+    publish(b, { type: 'ghost', clientId: 'x', phase: 'released' });
+    expect(framesSince(b, 0)).toEqual([
+      { type: 'ghost', clientId: 'x', phase: 'released', seq: 1 },
+    ]);
+  });
+
+  it('is null for a seq ahead of the room', () => {
+    // A client holding a seq from a previous process. The counter is
+    // session-only, so a restart begins again at zero and the held number is
+    // meaningless rather than merely stale.
+    const b = boardId();
+    held(b);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    expect(framesSince(b, 9)).toBeNull();
+  });
+
+  it('is null once the gap is wider than the log', () => {
+    const b = boardId();
+    held(b);
+    for (let i = 0; i < 300; i++) publish(b, { type: 'ops', clientId: 'x', ops: ops(`n${i}`) });
+
+    // Still inside the log: the oldest frame kept is seq 45, so a client
+    // holding 44 has an unbroken run to follow.
+    expect(framesSince(b, 44)?.[0]?.seq).toBe(45);
+    expect(framesSince(b, 0)).toBeNull();
+    expect(framesSince(b, 43)).toBeNull();
+  });
+
+  // The grace, from the poll's side: being between two requests is a pause, so
+  // the log is still there to resume from. Without this the room would be swept
+  // the instant a poll was answered and the next one would resync the whole
+  // board — on every remote edit, forever.
+  it('survives the gap between one poll and the next', () => {
+    const b = boardId();
+    const a = sink();
+    const off = subscribe(b, a.send);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    off();
+
+    expect(roomCount(b)).toBe(0);
+    expect(framesSince(b, 0)?.map((f) => f.seq)).toEqual([1]);
+  });
+
+  it('forgets once the grace runs out, and says so rather than lying', () => {
+    const b = boardId();
+    const a = sink();
+    const off = subscribe(b, a.send);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    off();
+
+    vi.advanceTimersByTime(ROOM_GRACE_MS + 1);
+    expect(framesSince(b, 0)).toBeNull();
+  });
+
+  // Rejoining inside the grace cancels the countdown outright, rather than
+  // leaving a timer that would delete a room somebody is sitting in.
+  it('stops counting down when somebody rejoins', () => {
+    const b = boardId();
+    const first = sink();
+    const off = subscribe(b, first.send);
+    publish(b, { type: 'ops', clientId: 'x', ops: ops('n1') });
+    off();
+
+    const second = sink();
+    subscribe(b, second.send);
+    vi.advanceTimersByTime(ROOM_GRACE_MS * 3);
+
+    expect(framesSince(b, 0)?.map((f) => f.seq)).toEqual([1]);
+    publish(b, { type: 'ops', clientId: 'y', ops: ops('n2') });
+    expect(second.got.map((f) => f.seq)).toEqual([2]);
   });
 });

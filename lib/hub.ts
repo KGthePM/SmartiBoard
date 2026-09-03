@@ -10,7 +10,8 @@
  * holds a module-level connection and `sync/route.ts` leans on the same fact for
  * its merge — arrival order at a single process *is* the total order, which is
  * what buys a merge with no revision clock and no board-schema change. A room is
- * a `Set` of subscribers and a counter, and that is the whole of it.
+ * a `Set` of subscribers, a counter, and — since v4.2 — a short log of what it
+ * last said, and that is the whole of it.
  *
  * The map is pinned on `globalThis` for the reason `lib/db.ts` keeps a module
  * singleton: `next dev` reloads a route module on edit, and a fresh `Map` there
@@ -36,6 +37,40 @@ import type { Op } from './sync';
  * mid-flight does not silence the room for a session.
  */
 export const GHOST_LEASE_MS = 30_000;
+
+/**
+ * How many frames a room remembers (v4.2).
+ *
+ * The stream needs no memory — a subscriber is either connected or it is not.
+ * The long poll does: it holds one request, is answered, and is *not* subscribed
+ * during the few milliseconds it takes to ask again, so a frame published in
+ * that gap would be lost with no way to notice. The log is what a returning
+ * poller is caught up from.
+ *
+ * **Losing it is safe, which is why it is a plain capped array and not a
+ * durable one.** `framesSince` answers `null` for anything it cannot serve —
+ * a gap, a room that was swept, a seq from a previous process — and the route
+ * answers a `null` with `hello`, the whole board. That is the same resync the
+ * stream already performs on reconnect, so the log is an optimization over a
+ * correct path rather than a mechanism of its own.
+ */
+const LOG_MAX = 256;
+
+/**
+ * How long a room outlives its last subscriber (v4.2).
+ *
+ * v4.0 could delete a room the moment the last subscriber left, because a
+ * stream is subscribed for as long as it is open. A long poll is subscribed
+ * only while it *waits*: between being answered and asking again it is not in
+ * the room at all. Swept in that window, the room takes its log and its counter
+ * with it, and the next poll is told `null`, resyncs the whole board, and finds
+ * an empty room again — a full board per remote edit, forever.
+ *
+ * The grace is what makes the poll's absence a pause rather than a departure.
+ * Generous, because an idle room is a `Set`, a number and at most LOG_MAX
+ * frames, and because the cost of it being too short is paid on every edit.
+ */
+export const ROOM_GRACE_MS = 60_000;
 
 /** A frame the hub is asked to send. `seq` is the hub's to assign. */
 export type Outgoing =
@@ -79,6 +114,10 @@ type Room = {
   subs: Set<(f: Frame) => void>;
   seq: number;
   lease: Lease | null;
+  /** The last LOG_MAX frames published here, oldest first. See LOG_MAX. */
+  log: Frame[];
+  /** Counting down to deletion, having been left empty. See ROOM_GRACE_MS. */
+  grace: ReturnType<typeof setTimeout> | null;
 };
 
 const store = globalThis as typeof globalThis & { __smartiRooms?: Map<string, Room> };
@@ -87,16 +126,32 @@ const rooms: Map<string, Room> = (store.__smartiRooms ??= new Map());
 function room(boardId: string): Room {
   let r = rooms.get(boardId);
   if (!r) {
-    r = { subs: new Set(), seq: 0, lease: null };
+    r = { subs: new Set(), seq: 0, lease: null, log: [], grace: null };
     rooms.set(boardId, r);
   }
   return r;
 }
 
-/** A room nobody is in and nothing is holding is not a room. */
+/**
+ * A room nobody is in and nothing is holding is not a room — after a grace.
+ *
+ * The delay is the whole of ROOM_GRACE_MS: emptiness is how a long poll looks
+ * between two requests, so deleting on sight would throw away the log of a room
+ * that is about to be rejoined. Anyone who does rejoin cancels the countdown in
+ * `subscribe`; anyone who does not costs one timer.
+ */
 function sweep(boardId: string): void {
   const r = rooms.get(boardId);
-  if (r && r.subs.size === 0 && !r.lease) rooms.delete(boardId);
+  if (!r || r.subs.size > 0 || r.lease || r.grace) return;
+
+  r.grace = setTimeout(() => {
+    const still = rooms.get(boardId);
+    if (!still) return;
+    still.grace = null;
+    if (still.subs.size === 0 && !still.lease) rooms.delete(boardId);
+  }, ROOM_GRACE_MS);
+  // An empty room must never be the reason a process stays alive.
+  (r.grace as { unref?: () => void }).unref?.();
 }
 
 /**
@@ -106,6 +161,11 @@ function sweep(boardId: string): void {
  */
 export function subscribe(boardId: string, send: (f: Frame) => void): () => void {
   const r = room(boardId);
+  // Rejoined inside the grace: the room is not going anywhere after all.
+  if (r.grace) {
+    clearTimeout(r.grace);
+    r.grace = null;
+  }
   r.subs.add(send);
   return () => {
     r.subs.delete(send);
@@ -116,6 +176,32 @@ export function subscribe(boardId: string, send: (f: Frame) => void): () => void
 /** Where the room's counter stands, for the `hello` frame. */
 export function currentSeq(boardId: string): number {
   return rooms.get(boardId)?.seq ?? 0;
+}
+
+/**
+ * What has happened since `seq`, or `null` for "I cannot tell you" (v4.2).
+ *
+ * The distinction is the whole contract: an empty array means *nothing has
+ * happened* and the caller should wait, while `null` means the log cannot
+ * account for the gap and the caller owes the client a `hello` instead. Three
+ * ways to get `null`, and each is a real case rather than a defensive one:
+ *
+ * - **No room.** Swept while nobody was subscribed, which is exactly what
+ *   happens between one long poll and the next when a board goes quiet.
+ * - **`seq` ahead of ours.** A client from a previous process — the counter is
+ *   session-only, so a restart begins again at zero and a held `seq` is
+ *   meaningless rather than merely stale.
+ * - **A gap.** More than LOG_MAX frames landed while the client was away.
+ */
+export function framesSince(boardId: string, seq: number): Frame[] | null {
+  const r = rooms.get(boardId);
+  if (!r || seq > r.seq) return null;
+  if (seq === r.seq) return [];
+
+  const oldest = r.log[0]?.seq;
+  // Frames are missing between what the client holds and what we still have.
+  if (oldest === undefined || seq < oldest - 1) return null;
+  return r.log.filter((f) => f.seq > seq);
 }
 
 /**
@@ -136,6 +222,8 @@ export function publish(boardId: string, frame: Outgoing): number {
 
   const seq = ++r.seq;
   const stamped = { ...frame, seq } as Frame;
+  r.log.push(stamped);
+  if (r.log.length > LOG_MAX) r.log.splice(0, r.log.length - LOG_MAX);
   for (const send of [...r.subs]) {
     try {
       send(stamped);

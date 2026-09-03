@@ -1,8 +1,10 @@
 # Team collaboration without a hosted database (v4.x)
 
 *Plan only, except v3.6 (the ops layer), v4.0 (live updates and the shared ghost) and v4.1*
-*(sharing on a network), which are built. See `v4.0-live-collaboration.md` and*
-*`v4.1-sharing.md` for those releases in detail; v4.2 — the tunnel — is the next one.*
+*(sharing on a network), which are built and working. v4.2 (the tunnel) was built but is*
+*⏸ paused pending re-evaluation — see `v4.2-tunnel.md` for the failure. See*
+*`v4.0-live-collaboration.md` and `v4.1-sharing.md` for the working releases in detail;*
+*v4.3 — "Shared with me" — is next, and depends on v4.2 being resolved first.*
 
 ## Goal
 
@@ -364,11 +366,36 @@ the guest.*
 
 Also: the link is `/board/<id>#s=…` on the page route the app already had, not a new `/b/`.
 
-**v4.2 — Beyond this network.** `lib/tunnel.ts`, `POST /api/tunnel`, the dialog's second tier,
-and `cloudflared` through `stage.js`/`verify-arch.js`. (**The `CF-Connecting-IP` rule and its
-test shipped early, in v4.1** — see above.) A release after the gate on purpose: the gate protects a network you chose to be on,
-this hands the same port to the internet. *Gate: a tunnel link works from a phone on cellular;
-a tunneled request is provably refused everything outside its board.*
+**v4.2 — Beyond this network. ⏸ Paused.** `lib/tunnel.ts`, `/api/tunnel`, the dialog's second
+tier. (**The `CF-Connecting-IP` rule and its test shipped early, in v4.1** — see above.) A
+release after the gate on purpose: the gate protects a network you chose to be on, this hands
+the same port to the internet. Detailed in `v4.2-tunnel.md`. *The curl-driven half of the gate
+held: a tunneled request was provably refused the library, `?full=1`, the settings, `/api/tunnel`
+itself and every board but the shared one, while the shared one answered. The operator's half —
+the link opened from a phone on cellular — was the remaining check flagged above, and it
+**failed**: the shared board answered with an HTTP 500, not a board. Not yet reproduced outside
+that phone. The dialog's tier-2 button is hidden pending a fix.*
+
+**Two things this plan got wrong, corrected in that release — plus a third, unresolved:**
+
+1. **A Cloudflare quick tunnel does not carry a stream.** It buffers a response body until it
+   *ends* — measured against a probe route and confirmed against a raw Node server with no Next
+   involved, unchanged by content-type, padding, compression, HTTP version or frame size. This
+   plan assumed v4.0's SSE would simply travel. It does not, and a tunnel guest would have seen
+   their edits merge invisibly. The fix is a long-poll delivery (`?since=<seq>`) the client falls
+   back to **by silence**, plus a replay log and a sweep grace in `lib/hub.ts` — so
+   `sync/route.ts`, `useSync.ts` and `lib/hub.ts` are modified by v4.2 where this plan expected
+   none of them to be.
+2. **`cloudflared` through `stage.js`/`verify-arch.js` is deferred**, not shipped here. The
+   `SMARTI_CLOUDFLARED` seam exists and `resolveBinary` documents it; until that pass, a desktop
+   build uses a `cloudflared` on `PATH` and greys the tier out otherwise, which is the designed
+   fallback rather than a broken state. It is a ~30–40 MB fetch per installer and cannot be
+   verified without producing one, so it earns its own release.
+3. **A real browser through a real tunnel 500s on the shared board, and this plan had no way
+   to catch it before shipping.** The verification matrix above was curl-only, by the repo's
+   no-browser-testing rule, and curl against the same live tunnel does not reproduce the
+   failure — so whatever's wrong is specific to the browser's request path. This is why the
+   dialog's tier-2 button is currently hidden and why `v4.3` waits on this being fixed.
 
 **v4.3 — Shared with me.** The `remotes` table, the "Shared with me" group, the origin-prefix
 refactor — the link opens in the guest's **installed app**. Lands alone: largest diff, only
@@ -393,8 +420,11 @@ the registry), every API route (the guards), `components/BoardChrome.tsx` (Share
 chrome), `useSync.ts`/`Board.tsx`/`IdeasPanel.tsx` (`apiFetch`), `app/globals.css`,
 `desktop/main.js`, `start.sh`, `next.config.ts`.
 
-**v4.2** — *new* `lib/tunnel.ts`, `app/api/tunnel/route.ts`; *mod* `lib/access.ts`(+test),
-`ShareDialog.tsx`, `desktop/stage.js`, `desktop/verify-arch.js`.
+**v4.2** *(as built)* — *new* `lib/tunnel.ts`(+test), `app/api/tunnel/route.ts`; *mod*
+`lib/hub.ts`(+test, the log and the grace), `sync/route.ts` (the `?since=` delivery),
+`useSync.ts` (the fallback), `ShareDialog.tsx`, `app/globals.css`, `next.config.ts`.
+`lib/access.ts` needed no change — the `CF-Connecting-IP` rule shipped in v4.1.
+*Deferred:* `desktop/stage.js`, `desktop/verify-arch.js`, `desktop/main.js`.
 
 **v4.3** — *mod* `lib/db.ts` (`remotes` only), `components/index/BoardIndex.tsx`, `Board.tsx`
 and `IdeasPanel.tsx` (origin prefix).

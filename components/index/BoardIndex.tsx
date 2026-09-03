@@ -17,6 +17,7 @@ import {
 import { SettingsPanel } from '../SettingsPanel';
 import { IndexMark } from './IndexMark';
 import { BoardThumb } from './BoardThumb';
+import { FolderImport } from './FolderImport';
 import { TemplateLibrary } from './TemplateLibrary';
 
 /**
@@ -53,6 +54,14 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
    * with `busy` cleared, so the pick can simply be retried.
    */
   const [libOpen, setLibOpen] = useState(false);
+
+  /**
+   * The folder import, same pattern again: local to the index, dismissed by
+   * the backdrop / Escape / ×, and unmounted with the page. It hands over a
+   * fully built board, so this closure is `importFile`'s single-board path
+   * minus the file reading.
+   */
+  const [folderOpen, setFolderOpen] = useState(false);
 
   /**
    * What the last import or export had to say. One line under the header,
@@ -189,6 +198,29 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
     setBusy(false);
   };
 
+  /**
+   * A board built on this page (the folder import). Same POST shape as the
+   * import's single-board path, same rules: the server mints the id, so this
+   * can only add a board, never overwrite one.
+   */
+  const createFromBoard = async (board: Board) => {
+    if (busy) return;
+    setNote(null);
+    setBusy(true);
+    try {
+      const res = await fetch('/api/boards', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ board }),
+      });
+      const created = (await res.json()) as Board;
+      router.push(`/board/${created.id}`);
+    } catch {
+      setNote({ text: 'Could not create that board.', bad: true });
+      setBusy(false);
+    }
+  };
+
   const archive = async (id: string, archived_: boolean) => {
     setBusy(true);
     await fetch(`/api/boards/${id}`, {
@@ -257,6 +289,22 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
             ▥
           </span>
           <span>Template library</span>
+        </button>
+
+        {/* A project folder as a board of connected cards — structure only,
+            names only, nothing read and nothing sent. Beside the template
+            library because it is the same kind of door: content that already
+            exists, shaped into a board before it lands. */}
+        <button
+          className="bcard bcard-new bcard-folderimport"
+          onClick={() => setFolderOpen(true)}
+          disabled={busy}
+          title="Turn a project folder into a board of connected cards — names only, nothing is read"
+        >
+          <span className="plus" aria-hidden="true">
+            ▤
+          </span>
+          <span>Import folder</span>
         </button>
 
         {/* Not a template — a door for content that already exists, which is
@@ -393,6 +441,9 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
       {libOpen ? (
         <TemplateLibrary onClose={() => setLibOpen(false)} onPick={create} busy={busy} />
+      ) : null}
+      {folderOpen ? (
+        <FolderImport onClose={() => setFolderOpen(false)} onCreate={createFromBoard} busy={busy} />
       ) : null}
     </div>
   );

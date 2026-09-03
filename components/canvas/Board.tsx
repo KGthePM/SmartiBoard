@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { shouldRequest, type TriggerState } from '@/lib/ai/trigger';
-import { apiFetch } from '@/lib/shareToken';
+import { apiFetch, isGuest } from '@/lib/shareToken';
 import {
-  emptyBoard,
   fitViewport,
   NODE_H,
   NODE_W,
@@ -152,11 +151,16 @@ export function Board({ boardId }: { boardId: string }) {
   // The whole write path, debounce and indicator included — it sends what
   // changed rather than the document, so two tabs on one board merge instead of
   // overwriting each other. See ./useSync and lib/sync.
-  const { saveState, clientId, flushUnsaved, beginBoard, seedBasis, queueGhostEvent } = useSync(
-    boardId,
-    board,
-    loaded,
-  );
+  const { saveState, clientId, denied, flushUnsaved, beginBoard, seedBasis, queueGhostEvent } =
+    useSync(boardId, board, loaded);
+  /**
+   * The initial load was refused or unanswered — the HTTP status, or 'no
+   * answer' for a network failure (v4.2). Held as words because the render
+   * shows them: a guest whose link died, or whose tunnel is still waking up,
+   * must see a sentence rather than the "Untitled board" that parseBoard would
+   * tolerantly make of a 404 body.
+   */
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
@@ -312,6 +316,7 @@ export function Board({ boardId }: { boardId: string }) {
     // a board we are no longer on.
     useBoard.getState().beginLoad(boardId);
     beginBoard();
+    setUnavailable(null);
 
     const arrive = (b: Board) => {
       if (cancelled) return;
@@ -323,10 +328,20 @@ export function Board({ boardId }: { boardId: string }) {
       seedBasis(b);
     };
 
+    // A refusal must never reach parseBoard: a 404 body is valid JSON, and
+    // parseBoard would tolerantly read it as a blank board — a guest whose
+    // link died would be handed a convincing "Untitled board" to type into.
+    // The same goes for a network failure (a tunnel edge still waking up):
+    // words on screen, never a fake empty canvas.
     apiFetch(`/api/boards/${boardId}`)
-      .then((r) => r.json())
-      .then((b) => arrive(parseBoard(boardId, b)))
-      .catch(() => arrive(emptyBoard(boardId)));
+      .then(async (r) => {
+        if (!r.ok) throw r.status;
+        arrive(parseBoard(boardId, (await r.json()) as unknown));
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setUnavailable(typeof e === 'number' ? `HTTP ${e}` : 'no answer');
+      });
     return () => {
       cancelled = true;
     };
@@ -656,6 +671,34 @@ export function Board({ boardId }: { boardId: string }) {
           return { from: { x: r.x + r.w / 2, y: r.y + r.h / 2 }, to: drag.to };
         })()
       : null;
+
+  // A board we were refused, or a room that went quiet under us. Rendered
+  // *instead of* the canvas, because everything the canvas would show here is
+  // wrong: a blank surface reads as an empty board, and for a guest that is a
+  // lie about somebody else's work. After every hook, so the hook order holds.
+  // Reading isGuest() during this render is safe: the flag that gets us here is
+  // set by a client-side fetch, so the server never renders this branch.
+  if (unavailable !== null || denied) {
+    const status = unavailable ?? 'refused mid-session';
+    return (
+      <div className="board-unavailable">
+        <div className="bu-card" role="alert">
+          <p className="bu-title">This board isn&rsquo;t reachable right now.</p>
+          <p className="bu-note">
+            {isGuest()
+              ? 'The share link may have stopped working — links die when the host closes ' +
+                'Smarti Board — or a fresh public address is still waking up. Wait a few ' +
+                'seconds and try again, or ask for a new link.'
+              : 'The server didn’t answer with this board. Check that it is still running.'}
+          </p>
+          <p className="bu-code">{status}</p>
+          <button className="bu-retry" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

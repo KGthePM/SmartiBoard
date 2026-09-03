@@ -88,8 +88,15 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   unit of merge and every op is idempotent — both are load-bearing, see the invariant below.
 - `lib/hub.ts` — the room (v4.0): in-process pub/sub per board, pinned on `globalThis`, plus
   the ghost lease and, since v4.1, the share registry (a *sibling* map — `sweep` would revoke
-  a token stored on `Room`). Server-only (timers, a process global) but node-free, so it
-  tests directly.
+  a token stored on `Room`). Since v4.2 also the replay log and `framesSince`, which is what
+  the long poll resumes from, and the sweep grace that keeps a room alive across the gap
+  between two polls. Server-only (timers, a process global) but node-free, so it tests
+  directly.
+- `lib/tunnel.ts` — the tunnel (v4.2): spawn `cloudflared`, parse the hostname off its output,
+  hold at most one per install, die with the process. A sibling of `lib/hub.ts` and pinned on
+  `globalThis` for the same reason, but it spawns, so it is **not** node-free; the two halves
+  worth testing (`parseTunnelUrl`, `resolveBinary`) are pure and take their dependencies as
+  arguments. Never fetches a binary.
 - `lib/access.ts` — who is calling (v4.1): `decideAccess` (pure, node-free, the whole refusal
   matrix as a table) and the bound `accessFor` / `guardManage` / `guardBoard`. The
   `providers.ts`-vs-`config.ts` split again. **`local` is proved, never inferred** — see the
@@ -119,27 +126,56 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/templates.ts` — the template registry: `TEMPLATE_IDS`, `TEMPLATES` (label, icon,
   blurb, build), `buildTemplate` (null, never a throw). Adding a template is one entry
   here plus its own pure module.
+- `lib/folderboard.ts` — the folder import: `scanPaths`, `defaultIncluded`,
+  `countIncludedFiles`, `includedFilePaths`, `buildFolderBoard` (phase 1's structure-only
+  build, plus phase 2's optional third `enrich?: FolderEnrich` arg — summaries and import
+  edges folded in as the board is born). Pure, node-free, deterministic (code-point sort);
+  reads path strings only, never file contents itself — the AI pass reads contents in the
+  modal and hands back the enrich payload, so an omitted `enrich` is byte-equal to phase 1.
+  `lib/webkit.d.ts` holds the one ambient (`webkitdirectory`) the picker needs.
+- `lib/importgraph.ts` — the folder import's AI pass, client-side half (phase 2): import
+  links extracted and resolved **locally, for free** (`extractImports`, `resolveImport`,
+  `buildImportEdges`), and summary eligibility (`partitionSummaries`, `chunkSummaries`,
+  `estTokens`) — the numbers the consent screen shows before anything ships. Pure,
+  node-free; also owns the secrets ruling (`isSecretFile`: `.env*`, `.pem`/`.key`/`.p12`/
+  `.pfx` never ship, consent or no consent — links still read them, locally).
+- `lib/ai/folder-prompt.ts` — the AI pass's system prompt and JSONL wire contract
+  (`folderInstruction`, `summaryFromLine`, `summaryMaxTokens`), the idea generator's
+  shape-mate: no structured output, one path-keyed line per file, everything unusable
+  dropped in silence. See `app/api/folder-ai/route.ts`.
 - `lib/transfer.ts` — boards as files: `fileNameFor`, `boardToFile`, `looksLikeBoard`,
   `readTransfer`, `declaredNodeCount`. Pure, node-free; the index and the tests import it.
 - `lib/download.ts` — the one DOM line (`downloadJson`), kept out of `lib/transfer.ts` so
   that stays pure. Untested by design: the filename is where the logic is.
 - `components/canvas/` — `Board` (pan/zoom/drag), `NodeCard`, `GhostCard`, `EdgeLayer`,
   `PresentOverlay` (the v1.13 presentation chrome), `useSync` (the autosave seam: debounce,
-  indicator, retry, flush — sending ops since v3.6, and holding the room's stream since v4.0).
+  indicator, retry, flush — sending ops since v3.6, holding the room's stream since v4.0, and
+  since v4.2 falling back to the long poll when that stream proves to be buffered).
 - `app/api/boards/route.ts` — the collection: list (`?full=1` for the export bundle),
   create, and import.
 - `app/api/boards/[id]/` — `route.ts` (whole-board GET/PUT, archive, delete),
   `sync/route.ts` (the canvas's write path: POST a batch of ops, merged per node; GET the
-  room's SSE stream — `hello`, `ops`, `ghost`, `ping`),
+  room's SSE stream — `hello`, `ops`, `ghost`, `ping` — or, with `?since=`, the same frames as
+  a long poll, which is the delivery a Cloudflare tunnel can carry),
   `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator),
   `share/route.ts` (mint / revoke / list the board's link and this machine's addresses).
+- `app/api/tunnel/route.ts` — the tunnel (v4.2): GET state / POST open / DELETE close, all
+  three install-scoped behind `guardManage`.
+- `app/api/folder-ai/route.ts` — the folder import's AI pass (phase 2): the ideas route's
+  idiom, install-scoped (no board exists yet, so no privacy check — the modal's consent
+  screen is the gate). One batch of file contents in, streamed SSE `summary`/`done`/`error`
+  frames out, or a plain-JSON `no_api_key` refusal.
 - `app/api/settings/` — `route.ts` (GET masked / PUT / DELETE), `test/route.ts` (the connection
   check), `models/route.ts` (the provider's model list, for the Model dropdown).
 - `components/SettingsPanel.tsx` — the provider modal (⚙ / ⌘,).
 - `components/ShareDialog.tsx` — the share modal (the Share button): start/stop, one link per
   address, and the three caveats that are true the moment you press it.
-- `app/page.tsx` + `components/index/` — the project library, its minimaps, and the
-  Template library modal (`TemplateLibrary.tsx`).
+- `app/page.tsx` + `components/index/` — the project library, its minimaps, the
+  Template library modal (`TemplateLibrary.tsx`), and the folder import
+  (`FolderImport.tsx`: pick or drop a folder, checklist with junk dirs
+  pre-unchecked, warn past 300 files / stop past 1500 — client-side by doctrine;
+  an optional AI pass on top — consent screen with real numbers, links then
+  streamed summaries staged in the modal, Apply/Discard as the one accept/reject).
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
@@ -164,7 +200,7 @@ These come from the brief and are not open to reinterpretation while implementin
 
 ## v1 scope
 
-Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. The one *user-invoked* behavior is the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below).
+Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. Two *user-invoked* behaviors sit beside it: the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below) and the folder import's AI pass (phase 2, see `folder-import-plan.md`) — import links (read locally, free) and per-file summaries (egress, on the user's key), offered only inside the folder-import modal and gated by its own consent screen rather than Privacy Mode, since it runs before any board exists.
 
 Out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. Do not build toward these speculatively.
 
@@ -991,6 +1027,78 @@ like a collaborator or a paperclip. Both are now settled:
   **Written down because it is the one genuinely new exposure in this release:** the app now
   holds an open port on the LAN at every launch where before it held none, and raises a firewall
   prompt the first time. Gated is not the same as absent.
+
+- **Beyond this network** (v4.2, **⏸ paused pending re-evaluation** — see `v4.2-tunnel.md`):
+  the second tier of sharing. v4.1's link reaches somebody who can already reach the machine;
+  this opens a `cloudflared` quick tunnel and gives the install a public
+  `https://<random>.trycloudflare.com` address a phone on cellular can open. Built and passing
+  its automated (curl-driven) verification, but the one real test — a guest opening the public
+  link in an actual browser — failed: the shared board answered HTTP 500, not a board, and the
+  cause is not yet isolated (a curl repro against the same live tunnel does not reproduce it).
+  `components/ShareDialog.tsx` no longer offers the button for this tier; `lib/tunnel.ts` and
+  `/api/tunnel` are untouched and still reachable directly. Everything below describes the
+  design and the (still-believed-correct) transport fix as built. **No AI
+  behavior, no new persisted state, no board-schema change, no migration, never a token: still
+  exactly one unsolicited and one user-invoked.**
+  **A tunnel forwards bytes and holds nothing**, which is the whole reason one is admitted here
+  where a hosted service is not: lose Cloudflare and only *reach* is lost, and nothing about the
+  board leaves the host's SQLite file. **The tunnel is per install; the token is per board** —
+  `lib/tunnel.ts` never hears about a board, `/api/tunnel` is install-scoped behind
+  `guardManage`, and what keeps a guest to one board is `lib/access.ts` exactly as on the LAN.
+  **A bare tunnel URL with no `#s=…` reaches nothing.** `guardManage` also refuses every proxied
+  request for free (rule 1 of `decideAccess`), so **you cannot open a tunnel through a tunnel**.
+  **It dies with the process** — v2.5's "a network decision belongs to the invocation, not the
+  install" applied a third time, so there is no setting, no column and no migration, and quitting
+  is how a tunnel is closed. **And never a download**: `resolveBinary` reads `SMARTI_CLOUDFLARED`
+  then `PATH` with a filesystem look (not a spawn — running somebody else's executable to decide
+  whether a button is greyed out is the wrong trade), and absent means the tier greys out with
+  one sentence, never a download prompt. An idea board does not fetch executables on a button
+  press.
+  **The finding that shaped the release: a quick tunnel buffers a response body until it ends.**
+  Measured against a probe route and confirmed against a raw Node server with no Next involved —
+  frames 1.5s apart arrive together after a minute, and no content-type, padding, compression
+  setting, HTTP version or frame size (64KB each, ~590KB total) changes it. It is Cloudflare's
+  edge, not our code. The same rig measured the other half: a request that *ends* is delivered at
+  once, ~47ms of overhead on a warm connection. **So the answer is not to make the stream survive,
+  it is to stop needing one.** `GET …/sync?since=<seq>` returns `{frames}` the moment the room
+  speaks, or `[]` after `LONGPOLL_MS` (20s), which is that transport's heartbeat.
+  **It is a second delivery, not a second feature** — the room, the `Frame` union and `handle()`
+  are the stream's, unchanged, so a polling client hears `ops`, `hello`, `ghost` and `ping`
+  identically and the shared ghost needs no special case. Two rules inside it: the batch **flushes
+  a tick after the first frame**, because one POST can publish ops *and* the ghost frame riding it
+  and v4.0 forbids any client seeing "the ghost is gone" before "the node arrived"; and the poll
+  **subscribes before it decides what to answer**, because joining first creates the room, so a
+  frame published while we look lands in the log and a room is left behind for the *next* poll —
+  without it a lone poller finds no room every time, is told `null`, and is answered with the whole
+  board on a loop. That spin was real, and caught by hand.
+  **`lib/hub.ts` gained a log and a grace, both about the gap a poll has and a stream does not.**
+  `framesSince` answers `[]` for "nothing happened" and `null` for "I cannot account for the gap"
+  (no room, a `seq` from a previous process, or more than `LOG_MAX = 256` frames missed), and the
+  route answers `null` with `hello` — the same whole-board resync a reconnecting stream already
+  got, which is why **losing the log is safe** and it is a plain capped array. `ROOM_GRACE_MS`
+  (60s) makes `sweep` defer rather than delete, because a room swept between two polls takes its
+  log and its counter with it and the next poll resyncs the whole board and finds an empty room
+  again — a full board per remote edit, forever.
+  **The client falls back by silence, not by error** (`useSync`): a buffered stream opens, is
+  accepted, and delivers nothing, so `STREAM_PROBE_MS` (5s) of *nothing at all* is the signal —
+  `hello` lands the instant the route subscribes, so the probe never fires on loopback or the LAN,
+  and both keep the transport they shipped with. The fallback is **per board and one-way**, since
+  retrying a stream already proved buffered would spend 5s blind each time and nothing about a
+  tunnel changes while a board is open. `POLL_MIN_MS` floors an *empty* answer only, so a server
+  answering "nothing" instantly cannot become a spin while a real frame still reconnects at once.
+  **The dialog carries the three caveats rather than the README**, because they are true the
+  moment the button is pressed: Cloudflare terminates TLS so the board's text crosses their edge
+  in readable form (nothing is blocked — it is their board, their call); a quick tunnel is not a
+  paid service and can slow or stop, which is their doing rather than a fault here; and the tunnel
+  is open for the whole app, with the link being what keeps a guest to one board. Tier 2 renders
+  only once tier 1 is live, because a public address carrying no token is a link to a refusal, and
+  the public URL is composed **client-side** from an install-scoped origin and a board-scoped token
+  through the pure `shareUrl`, which is what keeps `/api/tunnel` from ever hearing about a board.
+  `*.trycloudflare.com` joins `allowedDevOrigins` — public space, unlike everything else in that
+  list, but the entry means nothing unless a tunnel *this install opened* is running.
+  **Deferred to its own pass:** bundling `cloudflared` into the Electron installers. The seam
+  (`SMARTI_CLOUDFLARED`) exists and is documented; until then a desktop build uses one on `PATH`
+  and greys the tier out otherwise, which is the designed fallback rather than a broken state.
 
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
