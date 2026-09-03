@@ -30,7 +30,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { posix } from 'node:path';
 
 /**
  * The two variables the lookup reads.
@@ -101,10 +101,15 @@ export function resolveBinary(
   const explicit = (env.SMARTI_CLOUDFLARED ?? '').trim();
   if (explicit) return exists(explicit) ? explicit : null;
 
+  const delim = platform === 'win32' ? ';' : ':';
   const name = platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
-  for (const dir of (env.PATH ?? '').split(delimiter)) {
+  for (const dir of (env.PATH ?? '').split(delim)) {
     if (!dir) continue;
-    const candidate = join(dir, name);
+    // `posix.join`, not the host's own `path.join`: it normalizes slashes but
+    // never rewrites them to backslashes, so a `PATH` entry keeps its own
+    // separator style — and Windows itself accepts forward slashes in a path,
+    // so this still resolves correctly against a real Windows `PATH`.
+    const candidate = posix.join(dir, name);
     if (exists(candidate)) return candidate;
   }
   return null;
