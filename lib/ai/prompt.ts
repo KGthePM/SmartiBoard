@@ -107,21 +107,71 @@ export const PROPOSAL_SCHEMA = {
  * The objective leads it when there is one, so every behavior is framed by the
  * person's own statement of intent before it sees a single idea.
  */
-export function serializeBoardContent(board: Board): string {
+/**
+ * Scale knobs for callers with bigger boards than the ghost ever sees (a
+ * folder import can carry 300+ summarized file cards). Both default off, and
+ * with them off the output is byte-identical to what it has always been —
+ * the ghost's prompt is not changed by a ride-along on a scale fix.
+ */
+export type SerializeOpts = {
+  /**
+   * Render edge endpoints as node ids instead of node text. The ids are on
+   * every node line, so the model is asked to do a join it is perfectly able
+   * to do — which is what makes a folder map's import graph affordable to
+   * send. Text-rendered edges reprint both endpoints' full text on every
+   * line, which at folder scale is ~72% of the payload.
+   */
+  edgesById?: boolean;
+  /**
+   * Keep only the first N substantive nodes, prune edges that pointed at
+   * dropped ones, and say how many were dropped. Silence about a truncated
+   * board is the failure mode to avoid — the caller needs to be able to say
+   * so, which is the find bar's ruling about a match it counted but never
+   * showed.
+   */
+  maxNodes?: number;
+};
+
+export function serializeBoardContent(board: Board, opts: SerializeOpts = {}): string {
   // Markers are stripped: the model reasons about ideas, not emphasis, and
   // never seeing markers means it never echoes them back in proposals.
-  const plain = (t: string) => stripMarks(t).trim();
+  // Interior whitespace is collapsed too: every section below is a
+  // one-item-per-line list, and a card that arrives with an embedded newline
+  // (a folder import's name + summary) would otherwise occupy two lines of
+  // it — a list the prompt implies is not the list the model receives.
+  // The fingerprint does its own stripping and never passes through here,
+  // so this cannot wake a ghost that would not have fired.
+  const plain = (t: string) => stripMarks(t).replace(/\s+/g, ' ').trim();
+
+  const substantive = board.nodes.filter((n) => plain(n.text).length > 0);
+  const cap = opts.maxNodes === undefined ? substantive.length : Math.max(0, opts.maxNodes);
+  const truncating = substantive.length > cap;
+  const kept = truncating ? substantive.slice(0, cap) : substantive;
+  const dropped = substantive.length - kept.length;
+  const keptIds = new Set(kept.map((n) => n.id));
 
   // Done rides along as an annotation, not a filter: a finished idea is still
   // on the board, still a valid anchor, and still fair game for a connection.
-  const nodes = board.nodes
-    .filter((n) => plain(n.text).length > 0)
+  // Read off the kept cards, so a truncation that drops every done card does
+  // not ship a legend explaining cards that are not in the list.
+  const nodes = kept
     .map((n) => `- ${n.id} [${n.layer}${n.done ? ', done' : ''}]: ${plain(n.text)}`)
     .join('\n');
 
-  const byId = new Map(board.nodes.map((n) => [n.id, plain(n.text)]));
-  const edges = board.edges
-    .map((e) => `- ${byId.get(e.from) ?? e.from} — ${byId.get(e.to) ?? e.to}`)
+  // Under truncation an edge survives only when both endpoints are among the
+  // kept cards. Without truncation the list is untouched — including edges
+  // that touch empty cards, which render exactly as they always have.
+  const keptEdges = truncating
+    ? board.edges.filter((e) => keptIds.has(e.from) && keptIds.has(e.to))
+    : board.edges;
+
+  // With edgesById the map is never built; `?.` falls through to the id,
+  // which is the entire point of the option.
+  const byId = opts.edgesById
+    ? undefined
+    : new Map(board.nodes.map((n) => [n.id, plain(n.text)]));
+  const edges = keptEdges
+    .map((e) => `- ${byId?.get(e.from) ?? e.from} — ${byId?.get(e.to) ?? e.to}`)
     .join('\n');
 
   const parts: string[] = [];
@@ -138,7 +188,11 @@ export function serializeBoardContent(board: Board): string {
 
   parts.push('Ideas on the board:', nodes || '(none)');
 
-  if (board.nodes.some((n) => n.done && plain(n.text).length > 0)) {
+  if (dropped > 0) {
+    parts.push(`(${dropped} more card${dropped === 1 ? '' : 's'} not shown)`);
+  }
+
+  if (kept.some((n) => n.done)) {
     parts.push(
       '',
       'Nodes marked done are ideas the person considers finished — completed, not deleted.',
