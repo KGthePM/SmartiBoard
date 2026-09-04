@@ -39,9 +39,18 @@ export type OpenAiConfig = {
   model: string;
 };
 
+/** One conversation turn. Ask is the first multi-turn caller on this flavor. */
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+
 export type ChatRequest = {
   system: string;
-  user: string;
+  user?: string;
+  /**
+   * The multi-turn shape: the full prior exchange plus the new user turn.
+   * Replaces `user` when present — the single-turn callers (/suggest,
+   * /ideas, the settings test) are unchanged.
+   */
+  messages?: ChatMessage[];
   maxTokens: number;
   /** Ask for guaranteed-JSON output where the server supports it. */
   json?: boolean;
@@ -67,7 +76,7 @@ function buildRequest(cfg: OpenAiConfig, req: ChatRequest, stream: boolean): Req
       model: cfg.model,
       messages: [
         { role: 'system', content: req.system },
-        { role: 'user', content: req.user },
+        ...(req.messages ?? [{ role: 'user', content: req.user ?? '' }]),
       ],
       max_tokens: req.maxTokens,
       stream,

@@ -59,6 +59,29 @@ export type PanelIdea = IdeaDraft & {
   added: boolean;
 };
 
+/** The Ask panel's launch states — the ideas statuses, minus none of them. */
+export type AskStatus =
+  | 'idle'
+  | 'streaming'
+  | 'done'
+  | 'no_key'
+  | 'private'
+  | 'too_thin'
+  | 'error';
+
+/**
+ * One question and its answer, as the Ask thread holds it (v5.4). The turn is
+ * session-only and read-only: it never becomes a node, never joins the undo
+ * stack, and never bumps the mutation clock. `status` is per-turn so the
+ * in-flight one can stream into its own answer while finished ones sit still.
+ */
+export type AskTurn = {
+  id: string;
+  question: string;
+  answer: string;
+  status: 'streaming' | 'done' | 'error' | 'cancelled';
+};
+
 export type State = {
   /**
    * The board the session is currently pointed at. It is set by `beginLoad`
@@ -98,6 +121,20 @@ export type State = {
   ideasStatus: IdeasStatus;
   ideasFingerprint: string | null;
   ideasSeedId: NodeId | null;
+  /**
+   * The Ask panel (v5.4): questions about the board, answered read-only.
+   * Everything here is the ideas panel's tier — session UI that spends no undo
+   * snapshot, no redo stack, no lastMutationAt, and never a token on open.
+   * `askFingerprint` is the board the last finished answer was about, for the
+   * same "the board has changed since this" note; `askContext` is the route's
+   * honest count when the answer was cut to a budget ("answered from N of M
+   * cards") — the route sent it, so the route says what it was.
+   */
+  askOpen: boolean;
+  askTurns: AskTurn[];
+  askStatus: AskStatus;
+  askFingerprint: string | null;
+  askContext: { kept: number; total: number } | null;
   /**
    * The Settings modal. Global like the settings themselves — provider config
    * belongs to the install, not to a board — but it still closes on board
@@ -279,6 +316,13 @@ export type State = {
   cancelIdeas: () => void;
   addIdea: (localId: string) => void;
 
+  setAskOpen: (open: boolean) => void;
+  beginAsk: (question: string) => void;
+  receiveAskDelta: (text: string) => void;
+  finishAsk: (fingerprint: string, context: { kept: number; total: number } | null) => void;
+  failAsk: (reason: string) => void;
+  cancelAsk: () => void;
+
   undo: () => void;
   redo: () => void;
 };
@@ -308,6 +352,11 @@ export const useBoard = create<State>((set, get) => ({
   ideasStatus: 'idle',
   ideasFingerprint: null,
   ideasSeedId: null,
+  askOpen: false,
+  askTurns: [],
+  askStatus: 'idle',
+  askFingerprint: null,
+  askContext: null,
   settingsOpen: false,
   objectiveOpen: false,
   searchOpen: false,
@@ -363,6 +412,14 @@ export const useBoard = create<State>((set, get) => ({
       ideasStatus: 'idle',
       ideasFingerprint: null,
       ideasSeedId: null,
+      // The Ask thread is per-board with everything else derived from one:
+      // a question about board A has no answer on board B, and a stream that
+      // outlived the switch is cancelled by the panel unmounting, not carried.
+      askOpen: false,
+      askTurns: [],
+      askStatus: 'idle',
+      askFingerprint: null,
+      askContext: null,
       settingsOpen: false,
       objectiveOpen: false,
       searchOpen: false,
@@ -649,6 +706,11 @@ export const useBoard = create<State>((set, get) => ({
         // been finished on it. The binned cards stay off the projected canvas,
         // because presentation folds.
         binOpen: false,
+        // And not the question thread. The find bar's and the bin's tier, not
+        // the ideas cache's: the panel unmounting cancels a live stream, and
+        // presenting a room is not the moment to reopen a private Q&A beside
+        // the projector.
+        askOpen: false,
       };
     }),
 
@@ -871,7 +933,16 @@ export const useBoard = create<State>((set, get) => ({
       };
     }),
 
-  setIdeasOpen: (open) => set({ ideasOpen: open }),
+  /**
+   * The three fixed right-edge drawers — Ideas, the Done bin, Ask — all live
+   * at the same z-index over the same edge, so opening one closes the other
+   * two. Opening only: closing a drawer never opens anything, and a drawer
+   * closing itself on unmount must not race the next one open. (Ideas and the
+   * bin could stack before Ask existed; that was never a choice, just two
+   * drawers that had never met.)
+   */
+  setIdeasOpen: (open) =>
+    set((s) => (open ? { ideasOpen: true, binOpen: false, askOpen: false } : { ideasOpen: false })),
 
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
@@ -888,9 +959,14 @@ export const useBoard = create<State>((set, get) => ({
    * The Done bin drawer. It has no action of its own beyond opening: restoring
    * a card is `toggleExpanded` (the same peek that opens a dot) and un-crossing
    * one is `toggleNodeDone`, so the bin adds no way to change a board that the
-   * board did not already have.
+   * board did not already have. The drawer mutex above applies, as everywhere.
    */
-  setBinOpen: (open) => set({ binOpen: open }),
+  setBinOpen: (open) =>
+    set((s) => (open ? { binOpen: true, ideasOpen: false, askOpen: false } : { binOpen: false })),
+
+  /** The Ask drawer. Same mutex as the other two right-edge drawers. */
+  setAskOpen: (open) =>
+    set((s) => (open ? { askOpen: true, ideasOpen: false, binOpen: false } : { askOpen: false })),
 
   // A changed query or option makes the old ordinal meaningless — back to the
   // first match, the way the switcher's cursor resets as you type.
@@ -1034,6 +1110,90 @@ export const useBoard = create<State>((set, get) => ({
         lastMutationAt: Date.now(),
       };
     }),
+
+  /**
+   * Ask (v5.4): the question is asked, the turn exists before the fetch does —
+   * so an answer streams into a place already on screen. The ideas doctrine
+   * throughout: nothing here is board content, so no snapshot, no redo spend,
+   * no lastMutationAt, and every mutator below is guarded on streaming, which
+   * makes a frame that outlived a board switch structurally a no-op.
+   */
+  beginAsk: (question) =>
+    set((s) => ({
+      askTurns: [...s.askTurns, { id: newId('q'), question, answer: '', status: 'streaming' }],
+      askStatus: 'streaming',
+    })),
+
+  receiveAskDelta: (text) =>
+    set((s) =>
+      s.askStatus === 'streaming' && s.askTurns.at(-1)?.status === 'streaming'
+        ? {
+            askTurns: s.askTurns.map((t, i) =>
+              i === s.askTurns.length - 1 ? { ...t, answer: t.answer + text } : t,
+            ),
+          }
+        : s,
+    ),
+
+  finishAsk: (fp, context) =>
+    set((s) =>
+      s.askStatus === 'streaming'
+        ? {
+            askTurns: s.askTurns.map((t, i) =>
+              i === s.askTurns.length - 1 && t.status === 'streaming'
+                ? { ...t, status: 'done' }
+                : t,
+            ),
+            askStatus: 'done',
+            askFingerprint: fp,
+            askContext: context,
+          }
+        : s,
+    ),
+
+  // The reason mapping mirrors failIdeas exactly, because the refusal ladder
+  // the routes share is the same ladder: no_api_key → no_key, privacy →
+  // private, too_thin → too_thin, everything else → error. The failed turn
+  // stays in the thread — the question was real, and the note under it says
+  // why it went unanswered.
+  failAsk: (reason) =>
+    set((s) =>
+      s.askStatus === 'streaming'
+        ? {
+            askTurns: s.askTurns.map((t, i) =>
+              i === s.askTurns.length - 1 && t.status === 'streaming'
+                ? { ...t, status: 'error' }
+                : t,
+            ),
+            askStatus:
+              reason === 'no_api_key'
+                ? 'no_key'
+                : reason === 'privacy'
+                  ? 'private'
+                  : reason === 'too_thin'
+                    ? 'too_thin'
+                    : 'error',
+          }
+        : s,
+    ),
+
+  // Closing the panel mid-stream is a cancellation, not a failure — the ideas
+  // ruling, adapted: the thread stays (it is the session's memory), the
+  // streaming turn is marked cancelled rather than left hanging, and the
+  // launcher returns to idle so reopening offers the input again.
+  cancelAsk: () =>
+    set((s) =>
+      s.askStatus === 'streaming'
+        ? {
+            askTurns: s.askTurns.map((t, i) =>
+              i === s.askTurns.length - 1 && t.status === 'streaming'
+                ? { ...t, status: 'cancelled' }
+                : t,
+            ),
+            askStatus: 'idle',
+          }
+        : s,
+    ),
 
   undo: () =>
     set((s) => {

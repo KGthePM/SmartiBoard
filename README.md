@@ -5,6 +5,8 @@ connections as you work — rather than responding to prompts on demand.
 One deliberate exception: **⌘.** opens an ideas panel where one click asks for a handful of
 candidate ideas — for the whole board, or branching off the card you have selected. They
 stage in the panel until you add the ones that land; nothing reaches the board on its own.
+A second: **⌘/** opens **Ask** — questions about the board, answered read-only. The answer
+cites the cards it drew on as clickable chips; nothing is added, changed, or proposed.
 
 The board is a **typed graph** (nodes + edges), not a pixel canvas. That's what makes the
 AI behavior tractable, and it's what everything else is built on.
@@ -269,8 +271,14 @@ layer.
 - **⌘. / Ctrl+.** (or the **Ideas** button) asks for a few candidate ideas, listed with
   their reasons as they arrive. Each has one **Add**; nothing is on the board until you
   click it, and adding is undoable. Select a card first and it branches off that idea instead
+- **⌘/ / Ctrl+/** (or the **Ask** button) answers questions about the board, read-only:
+  the answer streams in and cites the cards it drew on — click a citation and the canvas
+  shows you the card. Ask never writes anything: no idea is added, nothing is proposed, the
+  board is untouched. Select cards first and the question is answered from them and their
+  neighbours; with nothing selected, from the whole board. The thread lasts as long as the
+  board is open
 - **⌘⇧P / Ctrl+Shift+P** (or the **Private** button) turns Privacy Mode on for this board:
-  no suggestions, no ideas, nothing sent to a model. Per-board, so the rest keep working
+  no suggestions, no ideas, no answers, nothing sent to a model. Per-board, so the rest keep working
 - **⌘⇧F / Ctrl+Shift+F** (or the **Present** button) puts the board on a screen for a room:
   fullscreen, read-only, everything fitted to view. Pan and zoom still work; **Esc** exits
   and you come back exactly where you were

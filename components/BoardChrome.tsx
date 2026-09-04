@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { canGenerateIdeas } from '@/lib/ai/trigger';
+import { canAsk, canGenerateIdeas } from '@/lib/ai/trigger';
 import { binnedNodes } from '@/lib/collapse';
 import { boardTitle } from '@/lib/boards';
 import { downloadJson } from '@/lib/download';
@@ -14,6 +14,7 @@ import { BoardSwitcher } from './BoardSwitcher';
 import { ObjectivePanel } from './ObjectivePanel';
 import { SettingsPanel } from './SettingsPanel';
 import { IdeasPanel } from './IdeasPanel';
+import { AskPanel } from './AskPanel';
 import { SearchPanel } from './SearchPanel';
 import { DoneBinPanel } from './DoneBinPanel';
 import { ShareDialog } from './ShareDialog';
@@ -33,6 +34,8 @@ export function BoardChrome() {
   const setTitle = useBoard((s) => s.setTitle);
   const ideasOpen = useBoard((s) => s.ideasOpen);
   const setIdeasOpen = useBoard((s) => s.setIdeasOpen);
+  const askOpen = useBoard((s) => s.askOpen);
+  const setAskOpen = useBoard((s) => s.setAskOpen);
   const settingsOpen = useBoard((s) => s.settingsOpen);
   const setSettingsOpen = useBoard((s) => s.setSettingsOpen);
   const objectiveOpen = useBoard((s) => s.objectiveOpen);
@@ -101,6 +104,12 @@ export function BoardChrome() {
         // spoken for by rich-text formatting inside a card.
         e.preventDefault();
         useBoard.getState().setIdeasOpen(!useBoard.getState().ideasOpen);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        // Ask — read-only, so a guest may ask exactly as they may use ⌘.; the
+        // drawer mutex handles whichever right-edge drawer is already open.
+        // `/` is claimed nowhere else in the app.
+        e.preventDefault();
+        useBoard.getState().setAskOpen(!useBoard.getState().askOpen);
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         if (guestHere) return;
         e.preventDefault();
@@ -148,6 +157,11 @@ export function BoardChrome() {
   // is exactly when generating is worth most. Privacy Mode is inside the
   // predicate and refuses absolutely — this ships the board upstream.
   const canGenerate = loaded && canGenerateIdeas(board);
+
+  // Ask's own floor, deliberately higher than ideas': a question about a board
+  // with nothing to read has no answer, objective included. Same privacy rule,
+  // same three places gated (this button, the panel, the route).
+  const canAskNow = loaded && canAsk(board);
 
   // A name the board gave itself (or no name at all) is provisional; one that
   // was typed is the author's. The muted style draws that line.
@@ -271,6 +285,25 @@ export function BoardChrome() {
           onClick={() => setIdeasOpen(!ideasOpen)}
         >
           Ideas
+        </button>
+
+        {/* Beside Ideas, its read-only mirror: questions in, citations out,
+            nothing onto the board. No guest early-return — a guest may ask,
+            exactly as they may use ⌘.. */}
+        <button
+          className={`chrome-ask${askOpen ? ' on' : ''}`}
+          title={
+            canAskNow
+              ? 'Ask about this board (⌘/)'
+              : privacy
+                ? 'Privacy Mode is on'
+                : 'Needs at least one idea'
+          }
+          aria-pressed={askOpen}
+          disabled={!canAskNow}
+          onClick={() => setAskOpen(!askOpen)}
+        >
+          Ask
         </button>
 
         {/* Center: the same fit presentation opens with, asked for on demand.
@@ -406,6 +439,7 @@ export function BoardChrome() {
             <span>Click a line to select it</span>
             <span>⌘Z / ⌘⇧Z to undo &amp; redo</span>
             <span>⌘F to find &amp; replace</span>
+            <span>⌘/ to ask about the board</span>
             <span>⌘P to print</span>
           </div>
         </div>
@@ -415,6 +449,7 @@ export function BoardChrome() {
       {searchOpen ? <SearchPanel /> : null}
       {binOpen && collapseMode === 'bin' ? <DoneBinPanel /> : null}
       {ideasOpen ? <IdeasPanel /> : null}
+      {askOpen ? <AskPanel /> : null}
       {objectiveOpen ? <ObjectivePanel onClose={() => setObjectiveOpen(false)} /> : null}
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
       {shareOpen ? <ShareDialog boardId={board.id} onClose={() => setShareOpen(false)} /> : null}

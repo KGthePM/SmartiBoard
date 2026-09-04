@@ -139,6 +139,21 @@ export function canGenerateIdeas(board: Board): boolean {
   return board.objective.trim().length > 0 || substantiveNodes(board).length > 0;
 }
 
+/**
+ * May the Ask panel answer questions about this board? (v5.4)
+ *
+ * Deliberately NOT canGenerateIdeas, which admits a non-empty objective with
+ * no cards: generating is worth most on an empty board, where the objective
+ * is the only raw material. A *question* about a board with nothing on it has
+ * no answer — Ask reads the board, so it needs at least one substantive card
+ * to read. Privacy first, as everywhere, and gated in the same three places
+ * the ideas floor is: the chrome button, the panel, and the route.
+ */
+export function canAsk(board: Board): boolean {
+  if (board.privacy) return false;
+  return substantiveNodes(board).length > 0;
+}
+
 export function shouldRequest(
   board: Board,
   state: TriggerState,

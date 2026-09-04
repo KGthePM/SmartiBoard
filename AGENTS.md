@@ -143,7 +143,7 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
 - **Data model:** the board is a structured graph of typed nodes and edges, not a freeform pixel canvas. All features — especially AI behavior — build on the graph representation.
 - **Trust model:** AI output lives in a visually distinct "ghost" layer; every AI proposal must be previewable and reversible via a single accept/reject action. Never silently merge AI edits into user content, even in later versions. Concretely: a proposal lives in `store.proposal`, never in `board.nodes`; accepting constructs a *new* node and discards the proposal object.
 - **Latency:** local interactions (drag, type, snap) must never block on AI/LLM reasoning. LLM responses stream back asynchronously.
-- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 added the idea generator as a *user-invoked* behavior (it replaced the read-only board summary that held that slot from v1.3), and the folder import's AI pass (phase 2 — import links plus per-file summaries, offered only inside the folder-import modal on its own consent screen) joined it as a second. Two user-invoked behaviors now; still exactly one unsolicited. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
+- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 added the idea generator as a *user-invoked* behavior (it replaced the read-only board summary that held that slot from v1.3), the folder import's AI pass (phase 2 — import links plus per-file summaries, offered only inside the folder-import modal on its own consent screen) joined it as a second, and Ask (v5.4 — questions about a board, answered read-only; see `private/ask-plan.md`) is the third. Three user-invoked behaviors now; still exactly one unsolicited. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
   choice is now in — see Environment. It adds no AI behavior; it only says who answers.)
 
 ## Settled decisions — do not re-litigate
@@ -239,7 +239,7 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   and the ghost is told not to propose it back as an idea; the cap is what keeps it short, not
   a model. `serializeBoardContent` leads with it only when non-empty (an empty header would
   invite the model to fill it), and the idea generator aims at it — which is what makes an
-  otherwise empty board a board it can work from. Still exactly one unsolicited AI behavior and one user-invoked.
+  otherwise empty board a board it can work from. Still exactly one unsolicited AI behavior and three user-invoked.
   Not a node: it never satisfies the 3-idea floor and never becomes the derived title.
   `parseBoard` defaults it to `''`, so pre-v1.8 rows load unchanged — and `savePayload` in
   `components/canvas/Board.tsx` must carry it, since a PUT is a full replace.
@@ -512,7 +512,7 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   host's key spent twice, so a room-wide ghost is a correctness requirement of step one.
   **Nothing widens the network** — loopback, or the LAN under `--lan`, exactly as before;
   `lib/access.ts`, `lib/share.ts` and the desktop binding are v4.1. **No board-schema change,
-  no migration, no new table**, and still one unsolicited AI behavior and one user-invoked one
+  no migration, no new table**, and still one unsolicited AI behavior and three user-invoked ones
   — with *fewer* calls per change, not more.
   **`lib/hub.ts`**: in-process pub/sub, `Map<boardId, Room>` on `globalThis` (HMR would orphan
   subscribers otherwise), no broker because one process is already the assumption `sync`'s
@@ -550,7 +550,22 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
 ## Sharing on a network (v4.1)
 
 A link hands one board to one person, live. **No AI behavior, no board-schema change, no
-migration, no new table, never a token.** Still one unsolicited behavior and one user-invoked.
+migration, no new table, never a token.** Still one unsolicited behavior and three user-invoked.
+
+- **Ask — questions about a board, answered read-only** (v5.4, `private/ask-plan.md`): the third
+  user-invoked behavior, earned by the folder import — a board of 300+ AI-summarized cards the
+  person has never read is the board worth asking about. ⌘/ or the Ask button opens the drawer;
+  answers stream in prose with `[[nodeId]]` citations rendered as chips that reveal (peeking
+  first, if the card is folded or binned) the card they point at. **Read-only is the whole
+  design:** no bridge onto the board, no undo snapshot, not in the fingerprint, and
+  `boards.updated_at` unchanged by a run — the model is told the same rule. The question is the
+  first untrusted free-text string to reach a model turn, so `QUESTION_MAX` is enforced on both
+  sides of the wire, and the posted history and scope are re-fitted server-side. Depends on
+  v5.3's serializer knobs (`edgesById`/`maxNodes`) — the 40K context budget only works because
+  edges render by id. `canAsk` (privacy first, then one substantive card — not the objective
+  alone) gates the button, the panel, and the route in that order, like ideas. Session-only and
+  per board: `beginLoad` clears the thread, presenting closes it, opening spends nothing. The
+  three right-edge drawers (Ideas, Done bin, Ask) close each other on open.
 
 - **`local` is proved, never inferred.** Next's App Router does not expose the socket, and
   `Host` is forgeable from the LAN — read naively that inverts the strictest tier into the

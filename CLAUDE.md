@@ -82,6 +82,14 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/ai/prompt.ts` — system prompt (wedge-tuned) and the response schema. `serializeBoardContent` is the shared model's-eye view of the board.
 - `lib/ai/ideas.ts` — the idea generator's JSONL wire format: `ideaFromLine`, `splitLines`, `ideaKey`. Pure.
 - `lib/ai/ideas-prompt.ts` — the generator's prompt, token budget, and JSONL contract (no schema, by design).
+- `lib/ai/ask.ts` — Ask's wire format (v5.4): `clampQuestion`/`QUESTION_MAX` (the first untrusted
+  free-text string to reach a model turn), `splitAnswer`/`parseAnswer` (the `[[nodeId]]` citation
+  markers), and `scopeBoard` (a selection narrowed to itself plus one hop). Pure, node-free.
+- `lib/ai/ask-prompt.ts` — Ask's prompt, budgets (`ASK_MAX_TOKENS`, `ASK_MAX_CONTEXT_TOKENS`,
+  `ASK_HISTORY_TURNS`), `fitHistory` (the client history re-fitted server-side), `fitMaxNodes`
+  (the 40K walk that derives the serializer's `maxNodes`), and `askInstruction`. Mirrors
+  `ideas-prompt.ts`. Pure, node-free; imports `estTokens` so the bytes÷4 heuristic stays one
+  number in the codebase.
 - `lib/search.ts` — find & replace: `findMatches`, `planReplaceAll`, `markMatches`. Pure.
 - `lib/sync.ts` — the save path as a diff (v3.6): the `Op` union, `diffBoards`, `applyOps`.
   Pure, node-free; the hook and the sync route import the same functions. The node is the
@@ -158,6 +166,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   room's SSE stream — `hello`, `ops`, `ghost`, `ping` — or, with `?since=`, the same frames as
   a long poll, which is the delivery a Cloudflare tunnel can carry),
   `suggest/route.ts` (the ghost call), `ideas/route.ts` (the streamed idea generator),
+  `ask/route.ts` (the v5.4 Ask call — the ideas route's refusal ladder and dual abort, prose
+  `delta`/`done`/`error` frames, and a `done` frame carrying the card counts it actually sent),
   `share/route.ts` (mint / revoke / list the board's link and this machine's addresses).
 - `app/api/tunnel/route.ts` — the tunnel (v4.2): GET state / POST open / DELETE close, all
   three install-scoped behind `guardManage`.
@@ -178,6 +188,9 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   streamed summaries staged in the modal, Apply/Discard as the one accept/reject).
 - `components/BoardChrome.tsx`, `components/BoardSwitcher.tsx` — board name, the Home button (to the index), and ⌘K switcher.
 - `components/IdeasPanel.tsx` — the ideas drawer: SSE consumption, abort-on-close, fingerprint cache, per-idea Add.
+- `components/AskPanel.tsx` — the Ask drawer (v5.4): the ideas drawer's whole lifecycle, plus a
+  question input, a streaming multi-turn thread, and citation chips that reveal (and, if needed,
+  peek) the card they point at. Deliberately no bridge onto the board.
 - `components/ObjectivePanel.tsx` — the objective popover (⌘J): one textarea bound to `board.objective`.
 - `components/SearchPanel.tsx` — the find bar (⌘F), plus `useSearchMatches`, which the canvas
   also reads to tint the hits.
@@ -200,7 +213,7 @@ These come from the brief and are not open to reinterpretation while implementin
 
 ## v1 scope
 
-Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. Two *user-invoked* behaviors sit beside it: the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below) and the folder import's AI pass (phase 2, see `private/folder-import-plan.md`) — import links (read locally, free) and per-file summaries (egress, on the user's key), offered only inside the folder-import modal and gated by its own consent screen rather than Privacy Mode, since it runs before any board exists.
+Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. Three *user-invoked* behaviors sit beside it: the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below), the folder import's AI pass (phase 2, see `private/folder-import-plan.md`) — import links (read locally, free) and per-file summaries (egress, on the user's key), offered only inside the folder-import modal and gated by its own consent screen rather than Privacy Mode, since it runs before any board exists — and Ask (v5.4, see the invariant below and `private/ask-plan.md`): questions about a board, answered read-only, which folder-import boards made honest — a board holding 300+ cards the person has never read is exactly the board worth asking about.
 
 Out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. Do not build toward these speculatively.
 
@@ -287,8 +300,8 @@ like a collaborator or a paperclip. Both are now settled:
   Everything else is the summary's discipline, kept: session-only and never persisted, cached
   by board fingerprint, `beginLoad` closes the panel which aborts the stream, an interrupted
   run is cancelled back to idle, and the panel never spends a token on its own — no fetch on
-  mount (which also keeps it StrictMode-safe). Still exactly one unsolicited behavior and one
-  user-invoked one.
+  mount (which also keeps it StrictMode-safe). Still exactly one unsolicited behavior and three
+  user-invoked ones.
 - **Node resize** (v1.5, functional not flourish): drag a card's bottom-right corner to set
   width and height (`clampSize` minimums in `lib/graph.ts`; `resizeNode` in the store).
   Size follows the `moveNode` doctrine — presentation, not content: no undo snapshot, no
@@ -305,7 +318,7 @@ like a collaborator or a paperclip. Both are now settled:
   propose it back as an idea. The cap is the whole "keep it short for the AI's sake"
   mechanism; a condense-button would have been a third AI behavior. What the AI gains is that
   `serializeBoardContent` leads with it (only when non-empty) and the idea generator aims
-  *at* it — still exactly one unsolicited behavior and one user-invoked one. Not a node,
+  *at* it — still exactly one unsolicited behavior and three user-invoked ones. Not a node,
   so it never counts toward the 3-idea floor and never becomes the derived title; it rides in
   the board JSON like `title`, and `parseBoard` defaults it to `''` so older rows load fine.
 
@@ -327,8 +340,8 @@ like a collaborator or a paperclip. Both are now settled:
   on clears a live ghost without routing it through `rejectedByBoard` — the user silenced the
   board, they did not turn that idea down. `parseBoard` defaults it to `false` (strictly
   `=== true`, so junk off the wire never reads as private) so older rows load fine, and it
-  rides the board JSON like `title`. Still exactly one unsolicited behavior and one
-  user-invoked one.
+  rides the board JSON like `title`. Still exactly one unsolicited behavior and three
+  user-invoked ones.
 
 - **Themes** (v2.2): three appearances — Light (default), Dark, and Neon — chosen in
   Settings and stored as `theme` in the settings row. **Install-level, like the provider
@@ -348,7 +361,7 @@ like a collaborator or a paperclip. Both are now settled:
   lands without a reload. That attribute is the entire client-side surface of the feature.
   **This is not the "flourish" the brief rejects** — that rules out skeuomorphic decoration
   (marker animations, chalk texture, wobble), and a theme is legibility under different
-  lighting. Still exactly one unsolicited AI behavior and one user-invoked one.
+  lighting. Still exactly one unsolicited AI behavior and three user-invoked ones.
   **Every color in `app/globals.css` now lives in a token block**, which is the only reason
   a palette override is enough — a new hardcoded `#fff` is a hole in two themes at once, so
   add a token instead. **And each theme owes an explicit answer to the three-layer
@@ -387,7 +400,7 @@ like a collaborator or a paperclip. Both are now settled:
   here unasked is the best demonstration the product has, and one card says so. Its objective
   is load-bearing rather than decorative — a non-empty one is what satisfies `canGenerateIdeas`,
   so ⌘. is live on it from the first second. It spends no tokens on its own and adds no AI
-  behavior: still exactly one unsolicited and one user-invoked.
+  behavior: still exactly one unsolicited and three user-invoked.
 
 - **Search and Replace** (v2.4): ⌘F opens a find bar over the board — every card and the
   objective, never the title. **Finding spends nothing**: no undo snapshot, no redo spend, no
@@ -420,7 +433,7 @@ like a collaborator or a paperclip. Both are now settled:
   three-theme answer: amber against Light's blue ghost, amber on the raised card in Dark where
   the ghost is recessed, and in Neon a flat magenta **fill** — never a bloom, because glow is
   the one property that marks a proposal as provisional. No model call anywhere in it: still
-  exactly one unsolicited AI behavior and one user-invoked one.
+  exactly one unsolicited AI behavior and three user-invoked ones.
 
 - **LAN access is opt-in per run** (v2.5): `./start.sh --lan` (or `SMARTI_LAN=1`) binds the dev
   server to every interface and prints the machine's LAN address, so a phone or tablet on the
@@ -448,7 +461,7 @@ like a collaborator or a paperclip. Both are now settled:
   unconditionally because it affects `next dev` and nothing else, and a config that differed
   between the bound run and the unbound one would be a second thing to get wrong. Public ranges
   are deliberately absent: a tunnel or a port forward is a different decision than this one.
-  No AI behavior, no new state, no token: still exactly one unsolicited and one user-invoked.
+  No AI behavior, no new state, no token: still exactly one unsolicited and three user-invoked.
 
 - **Touch** (v2.6): the same board, reached with a finger — the other half of LAN access, since
   what a phone on the network opens is a canvas built for a mouse. **It adds no gesture that a
@@ -496,7 +509,7 @@ like a collaborator or a paperclip. Both are now settled:
   out skeuomorphic decoration, and this is reaching the controls that already exist. It spends
   nothing — no undo snapshot, no `lastMutationAt` bump, not in the fingerprint, never a token, no
   store field and no persisted state — and adds no AI behavior: still exactly one unsolicited and
-  one user-invoked.
+  three user-invoked.
 
 - **Card reactions** (v2.7): a fixed set of five marks — ❤️ 🔥 ❗ 😂 👎 — several at once
   per card (`node.reactions`, `lib/reactions.ts`), toggled from a strip below the card or
@@ -504,7 +517,7 @@ like a collaborator or a paperclip. Both are now settled:
   deliberately user↔board and not user↔AI**, and that is the whole design: the model never
   sees a reaction. It is absent from `fingerprint` and absent from `serializeBoardContent`,
   so reacting cannot wake the ghost, cannot change a proposal, and cannot spend a token.
-  Still exactly one unsolicited AI behavior and one user-invoked one — this adds neither.
+  Still exactly one unsolicited AI behavior and three user-invoked ones — this adds neither.
   **It takes the title's doctrine, which nothing else had needed yet**: one undo snapshot
   per toggle (a misclick on an 18px target must be recoverable, so unlike a drag it is
   undoable) and the redo stack spent, but **no `lastMutationAt` bump** — the exact inverse
@@ -548,7 +561,7 @@ like a collaborator or a paperclip. Both are now settled:
   `'line' | 'dot' | null`. So it spends nothing: no undo snapshot, no redo spend, no
   `lastMutationAt` bump, not in the fingerprint, not in `serializeBoardContent`, never a token.
   `toggleNodeDone` keeps its own doctrine untouched, because `done` *is* content the model
-  reads. Still exactly one unsolicited AI behavior and one user-invoked one.
+  reads. Still exactly one unsolicited AI behavior and three user-invoked ones.
   **The two halves sit on opposite sides of `beginLoad`**: `collapseMode` is install-level and
   deliberately absent from it, exactly like `ghostDelayMs`; `expandedIds` is cleared by it,
   beside the selection, because a peek at one board's folded card means nothing on the next —
@@ -613,7 +626,7 @@ like a collaborator or a paperclip. Both are now settled:
   column. (The codec's one demand on the future: append to `COLLAPSE_MODES`, never reorder
   it — the array *is* the wire format.) It spends nothing: no undo snapshot, no redo spend,
   no `lastMutationAt` bump, not in the fingerprint, not in `serializeBoardContent`, never a
-  token. Still exactly one unsolicited AI behavior and one user-invoked one.
+  token. Still exactly one unsolicited AI behavior and three user-invoked ones.
   **Hiding is not moving, and that distinction is the whole feature.** A binned card keeps
   its `x`/`y`, its size, its edges and its reactions; turning the setting back to `full` puts
   every one of them back untouched. Moving cards the user placed is the one action the brief
@@ -679,7 +692,7 @@ like a collaborator or a paperclip. Both are now settled:
   starter (v3.4 moved that tile into the Template library modal); the tutorial link stays a
   quiet line in the header, because it is a door. ⌘K's
   create is deliberately left blank-only. No AI behavior, no new state, no token: still exactly
-  one unsolicited and one user-invoked.
+  one unsolicited and three user-invoked.
 
 - **The SWOT and Mind map templates** (v3.2): the third and fourth boards you can start from,
   both `lib/kanban.ts`'s doctrine exactly — pure `(id) => Board` modules registered in
@@ -766,7 +779,7 @@ like a collaborator or a paperclip. Both are now settled:
   `GET /api/boards/[id]` already returns the whole thing. **No schema change, no migration,
   no store field, no new board type, no undo/redo/`lastMutationAt`/fingerprint impact** — an
   import happens before that board's first `beginLoad` and an export is a read — and **no
-  model is ever involved**: still exactly one unsolicited AI behavior and one user-invoked one.
+  model is ever involved**: still exactly one unsolicited AI behavior and three user-invoked ones.
   **The format has no envelope, and the shape is the whole grammar: an object is a board, an
   array is boards.** `parseBoard`'s per-era tolerance *is* the versioning strategy — a file
   written today opens in a future version exactly the way an old row does — so a
@@ -829,7 +842,7 @@ like a collaborator or a paperclip. Both are now settled:
   silently** — last writer wins, whole document. That is a single-user bug (a second tab, a
   second monitor) before it is a multiplayer blocker, which is why it ships alone as a fix
   and not as a feature. No UI, no networking, no security surface, no AI behavior, never a
-  token: still exactly one unsolicited and one user-invoked.
+  token: still exactly one unsolicited and three user-invoked.
   **`lib/graph.ts` is untouched and so are the tables** — the ops are a wire format, not a
   schema, which is the whole reason there is no migration and `parseBoard`, import and export
   are unaffected.
@@ -888,7 +901,7 @@ like a collaborator or a paperclip. Both are now settled:
   must never exist a build where something binds wide and the gate isn't there.
   **Unchanged:** `lib/graph.ts` (no board-schema change), both tables (no migration), the `Op`
   union, `PUT /api/boards/[id]`, `lib/transfer.ts`, `lib/ai/trigger.ts`, `lib/ai/prompt.ts`.
-  Still exactly one unsolicited AI behavior and one user-invoked one — and *fewer* calls per
+  Still exactly one unsolicited AI behavior and three user-invoked ones — and *fewer* calls per
   change than before, not more.
   **`lib/hub.ts` is in-process pub/sub and there is no broker**, because one process is
   already a given: `sync/route.ts` leans on the same fact for its merge, and arrival order at
@@ -963,7 +976,7 @@ like a collaborator or a paperclip. Both are now settled:
 - **Sharing on a network** (v4.1): a board you can hand someone with a link. They open it in a
   browser, on your machine's own page, and edit it with you live — the thing v3.6's merge and
   v4.0's stream were built for. **No AI behavior, no new state, no board-schema change, no
-  migration, never a token: still exactly one unsolicited and one user-invoked.**
+  migration, never a token: still exactly one unsolicited and three user-invoked.**
   **`local` is proved, never inferred, and that is the ruling the whole release turns on.**
   `private/collaboration-plan.md` drafted the gate as reading the peer address; **Next's App Router
   does not expose the socket**, and the `Host` header is not a substitute — a machine on the
@@ -1039,7 +1052,7 @@ like a collaborator or a paperclip. Both are now settled:
   `/api/tunnel` are untouched and still reachable directly. Everything below describes the
   design and the (still-believed-correct) transport fix as built. **No AI
   behavior, no new persisted state, no board-schema change, no migration, never a token: still
-  exactly one unsolicited and one user-invoked.**
+  exactly one unsolicited and three user-invoked.**
   **A tunnel forwards bytes and holds nothing**, which is the whole reason one is admitted here
   where a hosted service is not: lose Cloudflare and only *reach* is lost, and nothing about the
   board leaves the host's SQLite file. **The tunnel is per install; the token is per board** —
@@ -1100,6 +1113,40 @@ like a collaborator or a paperclip. Both are now settled:
   (`SMARTI_CLOUDFLARED`) exists and is documented; until then a desktop build uses one on `PATH`
   and greys the tier out otherwise, which is the designed fallback rather than a broken state.
 
+- **Ask — questions about a board, answered read-only** (v5.4, see `private/ask-plan.md`): the
+  third *user-invoked* behavior, and the one the folder import earned — until v5.0 every board
+  held cards the person wrote themselves, which is precisely why v2.0 cut the v1.3 board summary
+  ("describing a board you had just written was the weaker half"). A folder-import board arrives
+  holding 300+ cards the person has never read, and "where does auth happen?" becomes an honest
+  question. ⌘/ or the Ask button opens the drawer; answers stream in prose with the cards they
+  drew on cited inline as clickable chips. **Read-only is the invariant**: nothing is proposed,
+  nothing is accepted, nothing lands on the canvas — no "add as card" bridge (Ideas owns putting
+  things on a board), no store action that writes, not in the undo stack, not in the fingerprint,
+  `boards.updated_at` untouched by a run. The model is told the same rule in its own prompt:
+  answer only from what is on the board, say so plainly when it doesn't say, cite as `[[nodeId]]`,
+  and never propose a change.
+  **The question is the first untrusted free-text string to reach a model turn**, so it is capped
+  (`QUESTION_MAX = 500`, `clampQuestion`) on both sides of the wire, and the posted history and
+  scope are re-fitted server-side (`fitHistory`, `parseScope`) because a client is only a client.
+  The context is the whole board capped by `ASK_MAX_CONTEXT_TOKENS` (40K) via `fitMaxNodes` —
+  which exists only because the serializer gained `edgesById`/`maxNodes` first (v5.3); edges
+  rendered by id are what make a folder map's import graph affordable to send — and a live
+  selection narrows it (`scopeBoard`: the selected cards plus one hop), the ideas branch gesture
+  applied to reading. The route is the ideas route's refusal ladder in order (`guardBoard` →
+  privacy, stored then posted → `no_api_key` → `canAsk` → empty question), with `canAsk`
+  deliberately *not* `canGenerateIdeas`: a question about a board with no cards has no answer, so
+  the objective alone doesn't open the door. Privacy Mode gates it like the others, server-side
+  against the stored board; a guest may ask, exactly as they may use ⌘., and spends the host's
+  key under the same warning.
+  Session-only, per board: `beginLoad` clears the thread, `setPresenting(true)` closes the drawer,
+  opening spends no token. The three fixed right-edge drawers (Ideas, the Done bin, Ask) close
+  each other on open — they share one z-index and one edge, and Ideas and the bin could already
+  overlap, which this fixes rather than compounds. A `done` frame carries the counts actually
+  sent, so the panel can say "answered from N of M cards" without re-deriving a budget it was
+  never the authority on; the route holds back a trailing partial `[[…` marker (`splitAnswer`) so
+  the panel never renders half a citation, the same holdback `splitLines` gives half a JSON line.
+
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
 trust-breaking action available, and outside the one-unsolicited-behavior rule.
+

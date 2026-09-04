@@ -8,7 +8,7 @@ A web-based idea board that looks and feels like a whiteboard, where an AI activ
 
 ## The core idea
 
-Most "AI whiteboard" tools today are prompt-and-response: you ask for a diagram or summary, the AI generates a block, you accept or reject it. Smarti Board is meant to work differently — as a standing collaborator that's continuously reading the board and proposing structure, connections, and missing pieces in real time, while the user keeps full authorship and control over what actually gets kept.
+Most "AI whiteboard" tools today are prompt-and-response: you ask for a diagram or summary, the AI generates a block, you accept or reject it. Smarti Board is meant to work differently — as a standing collaborator that's continuously reading the board and proposing structure, connections, and missing pieces in real time, while the user keeps full authorship and control over what actually gets kept. *(One carve-out, added later and deliberately narrow: Ask (⌘/) answers questions about the board read-only — no block is generated, nothing lands on the canvas, the board is untouched. It exists because a folder import can deliver a board of hundreds of summarized cards the person has never read, which makes "where does X happen?" an honest question. The differentiator — the standing collaborator — is untouched.)*
 
 The differentiator isn't the canvas. It's an AI that treats the board as a living document it's co-writing, not a static file it summarizes on request.
 

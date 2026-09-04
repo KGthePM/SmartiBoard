@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, emptyBoard, newId, type Board } from '../graph';
 import {
+  canAsk,
   canGenerateIdeas,
   DEBOUNCE_MS,
   FAILURE_COOLDOWN_MS,
@@ -282,5 +283,27 @@ describe('canGenerateIdeas', () => {
     const b = { ...board(['pricing', 'onboarding', 'churn']), privacy: true };
     expect(canGenerateIdeas(b)).toBe(false);
     expect(canGenerateIdeas({ ...b, objective: 'ship by Q3' })).toBe(false);
+  });
+});
+
+describe('canAsk', () => {
+  it('refuses a board with nothing to read — unlike ideas, the objective alone is not enough', () => {
+    // Ask reads the board; a question about an empty board has no answer,
+    // even a well-aimed one. This is the deliberate split from
+    // canGenerateIdeas, where the objective is the cold-start raw material.
+    expect(canAsk(emptyBoard('x'))).toBe(false);
+    expect(canAsk({ ...emptyBoard('x'), objective: 'Understand this codebase.' })).toBe(false);
+  });
+
+  it('answers from one substantive card', () => {
+    expect(canAsk(board(['one card']))).toBe(true);
+  });
+
+  it('does not count empty or marker-only cards', () => {
+    expect(canAsk(board(['', '   ', '****']))).toBe(false);
+  });
+
+  it('refuses a private board however much is on it', () => {
+    expect(canAsk({ ...board(['pricing', 'churn']), privacy: true })).toBe(false);
   });
 });
