@@ -40,3 +40,6 @@ npm-debug.log*
 
 # website — local-only marketing site, uploaded to Netlify directly
 landing/
+
+# private — internal docs and anything with personal info (release runbook, plans)
+private/

@@ -200,7 +200,7 @@ These come from the brief and are not open to reinterpretation while implementin
 
 ## v1 scope
 
-Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. Two *user-invoked* behaviors sit beside it: the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below) and the folder import's AI pass (phase 2, see `folder-import-plan.md`) — import links (read locally, free) and per-file summaries (egress, on the user's key), offered only inside the folder-import modal and gated by its own consent screen rather than Privacy Mode, since it runs before any board exists.
+Narrow by design. In scope: draggable text nodes on an infinite canvas, one relationship type, instant autosave (no save button), and exactly one *unsolicited* AI behavior — propose a gap-fill or connection as a ghost node with one-click accept/dismiss. Two *user-invoked* behaviors sit beside it: the idea generator (v2.0, replacing the read-only board summary that held the slot from v1.3 — see below) and the folder import's AI pass (phase 2, see `private/folder-import-plan.md`) — import links (read locally, free) and per-file summaries (egress, on the user's key), offered only inside the folder-import modal and gated by its own consent screen rather than Privacy Mode, since it runs before any board exists.
 
 Out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. Do not build toward these speculatively.
 
@@ -965,7 +965,7 @@ like a collaborator or a paperclip. Both are now settled:
   v4.0's stream were built for. **No AI behavior, no new state, no board-schema change, no
   migration, never a token: still exactly one unsolicited and one user-invoked.**
   **`local` is proved, never inferred, and that is the ruling the whole release turns on.**
-  `collaboration-plan.md` drafted the gate as reading the peer address; **Next's App Router
+  `private/collaboration-plan.md` drafted the gate as reading the peer address; **Next's App Router
   does not expose the socket**, and the `Host` header is not a substitute — a machine on the
   LAN can send `Host: localhost`, and read naively that inverts the strictest tier into the
   most permissive one. So `local` became something a request must carry a **per-run secret**
@@ -1028,7 +1028,7 @@ like a collaborator or a paperclip. Both are now settled:
   holds an open port on the LAN at every launch where before it held none, and raises a firewall
   prompt the first time. Gated is not the same as absent.
 
-- **Beyond this network** (v4.2, **⏸ paused pending re-evaluation** — see `v4.2-tunnel.md`):
+- **Beyond this network** (v4.2, **⏸ paused pending re-evaluation** — see `private/v4.2-tunnel.md`):
   the second tier of sharing. v4.1's link reaches somebody who can already reach the machine;
   this opens a `cloudflared` quick tunnel and gives the install a public
   `https://<random>.trycloudflare.com` address a phone on cellular can open. Built and passing

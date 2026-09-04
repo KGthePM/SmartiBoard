@@ -594,7 +594,7 @@ migration, no new table, never a token.** Still one unsolicited behavior and one
 
 ## v4.2 — Beyond this network (the tunnel)
 
-**⏸ Paused, pending re-evaluation** — see `v4.2-tunnel.md`. Built and passing the automated
+**⏸ Paused, pending re-evaluation** — see `private/v4.2-tunnel.md` (gitignored, local only). Built and passing the automated
 (curl-only) verification below, but the guest-facing path failed its first real browser test:
 opening the public link gets HTTP 500 on the shared board, not the board, and the cause isn't
 isolated (a curl repro against the same live tunnel does not reproduce it). The dialog's

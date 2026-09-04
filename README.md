@@ -518,7 +518,7 @@ once and flip the flag:
 
 ```bash
 xcrun notarytool store-credentials smarti \
-  --apple-id <your-apple-id> --team-id 4CC8W8RW2F --password <app-specific-password>
+  --apple-id <your-apple-id> --team-id <your-team-id> --password <app-specific-password>
 
 APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
 ```
@@ -527,7 +527,7 @@ APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
 find the profile, logs `skipped macOS notarization`, and hands back a signed but un-notarized
 `.dmg` that looks fine. Always confirm with
 `spctl -a -vvv -t install "dist/mac-arm64/Smarti Board.app"` — it must say
-`source=Notarized Developer ID`. Full runbook: **[docs/mac-release.md](docs/mac-release.md)**.
+`source=Notarized Developer ID`. (The full release runbook is kept locally, outside the repo.)
 
 **`GH_TOKEN` must not be in the environment of a build, and `"publish": null` is in the config
 for the same reason.** electron-builder reads that variable as "you intend to publish": it then
