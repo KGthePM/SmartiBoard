@@ -2248,26 +2248,6 @@ html, body {
 
 /* ---------- folder import — the AI pass (phase 2) ---------- */
 
-/* Sits beside .fi-build in the same .fi-actions row; its own wrapper keeps
-   the two buttons' 8px gap independent of the row's space-between, which
-   would otherwise spread all three children evenly. */
-.fie-buttons { display: flex; align-items: center; gap: 8px; }
-/* Secondary to .fi-build's primary: the index-border recipe .fi-choose
-   already uses, not the accent-border one Build gets. */
-.fie-ai {
-  padding: 6px 14px;
-  border: 1px solid var(--index-border);
-  border-radius: 5px;
-  background: var(--user-bg);
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  cursor: pointer;
-  transition: border-color 150ms ease;
-}
-.fie-ai:hover:not(:disabled) { border-color: var(--index-accent); }
-.fie-ai:disabled { opacity: 0.5; cursor: default; }
-
 .fie-consent, .fie-run { padding: 13px; }
 .fie-facts p {
   margin: 0 0 8px;
@@ -2321,7 +2301,7 @@ html, body {
   justify-content: flex-end;
   gap: 8px;
 }
-.fie-back, .fie-retry {
+.fie-back, .fie-retry, .fie-skip {
   padding: 6px 14px;
   border: 1px solid var(--index-border);
   border-radius: 5px;
@@ -2332,7 +2312,8 @@ html, body {
   cursor: pointer;
   transition: border-color 150ms ease;
 }
-.fie-back:hover, .fie-retry:hover { border-color: var(--index-accent); }
+.fie-back:hover, .fie-retry:hover, .fie-skip:hover:not(:disabled) { border-color: var(--index-accent); }
+.fie-skip:disabled { opacity: 0.5; cursor: default; }
 .fie-start {
   padding: 6px 14px;
   border: 1px solid var(--index-accent);

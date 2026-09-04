@@ -34,11 +34,13 @@ import type { Board } from '@/lib/graph';
  * per-file summaries, which leave the machine on the user's key). See
  * folder-import-plan.md for the full design.
  *
- * Stages: `pick` (no tree yet) → `review` (the checklist; "Build board" is
- * always here and is the zero-AI path) → `consent` (the egress moment, in
- * plain words, before anything is sent) → `running` (links first, then
- * summaries streamed into a staging list) → Apply (through the same
- * `onCreate` the zero-AI path uses) or Discard (back to `review`).
+ * Stages: `pick` (no tree yet) → `review` (the checklist; "Build board…"
+ * opens the pre-build choice) → `consent` (the egress moment, in plain
+ * words, before anything is sent — both of its exits end in a board:
+ * "Build with AI pass", or "Build without AI", the zero-AI, keyless path)
+ * → `running` (links first, then summaries streamed into a staging list) →
+ * Apply (through the same `onCreate` both paths use) or Discard (back to
+ * `review`).
  *
  * Same lifecycle as the template library: Escape / backdrop / × to close —
  * closing while a pass is running aborts it, nothing is left behind.
@@ -477,8 +479,19 @@ export function FolderImport({
               <button className="fie-back" onClick={() => setEnrichStage(null)}>
                 Back
               </button>
-              <button className="fie-start" disabled={nothingToRun} onClick={() => void runPass()}>
-                Start pass
+              <button
+                className="fie-skip"
+                disabled={busy}
+                onClick={() => tree && onCreate(buildFolderBoard(tree, included))}
+              >
+                Build without AI
+              </button>
+              <button
+                className="fie-start"
+                disabled={busy || nothingToRun}
+                onClick={() => void runPass()}
+              >
+                Build with AI pass
               </button>
             </div>
           </div>
@@ -580,18 +593,13 @@ export function FolderImport({
                       ? ' — a dense board, but it works'
                       : ''}
               </span>
-              <div className="fie-buttons">
-                <button className="fie-ai" disabled={busy || scanning || none || overCap} onClick={openConsent}>
-                  AI pass…
-                </button>
-                <button
-                  className="fi-build"
-                  disabled={busy || scanning || none || overCap}
-                  onClick={() => tree && onCreate(buildFolderBoard(tree, included))}
-                >
-                  Build board
-                </button>
-              </div>
+              <button
+                className="fi-build"
+                disabled={busy || scanning || none || overCap}
+                onClick={openConsent}
+              >
+                Build board…
+              </button>
             </div>
           </>
         )}
