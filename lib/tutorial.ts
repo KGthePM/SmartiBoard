@@ -17,6 +17,14 @@
  * a proposal is never a node. The board *describes* the ghost and *shows* the
  * accepted layer.
  *
+ * Refreshed at v5.6 with lessons for everything shipped since the board was
+ * born at v2.3 that lives *on* a board — Search & Replace, reactions, Ask, and
+ * Share/live sync each get their own card, the same one-gesture-per-card
+ * doctrine as the original set. Settings-level things with no board position
+ * to teach from (themes, the Completed-cards fold, the Template library) get
+ * a passing mention folded into an existing card instead of a card of their
+ * own; install-level things (desktop, import/export, LAN) stay out entirely.
+ *
  * Pure — no db, no DOM — so the seed path and the tests both import it.
  */
 
@@ -107,10 +115,10 @@ export function tutorialBoard(id: string): Board {
   const alreadyDone = card({
     x: 600,
     y: 350,
-    w: 240,
-    h: 110,
+    w: 280,
+    h: 140,
     done: true,
-    text: 'Like this. Crossed off, still on the board, still read by the AI.',
+    text: 'Like this. Crossed off, still on the board, still read by the AI. Fold cards like me down to a line or a dot in Settings → Completed cards.',
   });
 
   const accepted = card({
@@ -138,12 +146,46 @@ export function tutorialBoard(id: string): Board {
     text: 'Press **⌘.** to ask for candidates. They stream into a side panel and stay there — nothing reaches the board until you add it.',
   });
 
-  const chrome = card({
+  const reactions = card({
     x: 0,
     y: 700,
-    w: 620,
-    h: 110,
-    text: '**⌘J** says what this board is for · **⌘⇧P** keeps it away from the AI entirely · **⌘Z** / **⌘⇧Z** undo and redo · **Home** starts a board of your own.',
+    w: 260,
+    h: 130,
+    text: "Select me alone, then press **1**–**5** to react: ❤️ 🔥 ❗ 😂 👎. They're for you — the AI never sees them.",
+  });
+
+  // A deliberate plant: "wreck" already appears once in `welcome`'s text, so
+  // searching for it here turns up exactly two hits.
+  const search = card({
+    x: 300,
+    y: 700,
+    w: 300,
+    h: 130,
+    text: 'Press **⌘F** and search for "wreck" — it\'s in two cards, this one included. Try Replace All.',
+  });
+
+  const ask = card({
+    x: 660,
+    y: 700,
+    w: 320,
+    h: 160,
+    text: 'Press **⌘/** and ask something like "what\'s in the accepted layer?" — Ask answers only from what\'s on this board and cites the cards it used, but never writes back.',
+  });
+
+  const share = card({
+    x: 0,
+    y: 900,
+    w: 320,
+    h: 140,
+    text: 'Press **Share** to hand this board to someone on your network. Open it in two tabs yourself first — edits, and the ghost, sync between them live.',
+  });
+
+  const chrome = card({
+    x: 380,
+    y: 900,
+    w: 700,
+    h: 170,
+    text: '**⌘F** finds & replaces text · **⌘J** says what this board is for · **⌘⇧P** keeps it away from the AI entirely · **⌘Z** / **⌘⇧Z** undo and redo · **Home** starts a board of your own — or a Kanban, SWOT, or Mind map from its Template library · **⚙** Settings also holds themes and how long the ghost waits before speaking.',
   });
 
   const nodes = [
@@ -158,6 +200,10 @@ export function tutorialBoard(id: string): Board {
     accepted,
     ghost,
     ideas,
+    reactions,
+    search,
+    ask,
+    share,
     chrome,
   ];
 
@@ -171,7 +217,11 @@ export function tutorialBoard(id: string): Board {
     edge(resize, accepted),
     edge(accepted, ghost),
     edge(ghost, ideas),
-    edge(accepted, chrome),
+    edge(ideas, reactions),
+    edge(reactions, search),
+    edge(search, ask),
+    edge(ask, share),
+    edge(share, chrome),
   ];
 
   return {

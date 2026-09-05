@@ -1146,6 +1146,30 @@ like a collaborator or a paperclip. Both are now settled:
   never the authority on; the route holds back a trailing partial `[[…` marker (`splitAnswer`) so
   the panel never renders half a citation, the same holdback `splitLines` gives half a JSON line.
 
+- **The tutorial board, refreshed** (v5.6): `lib/tutorial.ts` was written at v2.3 and had gone
+  stale — Search & Replace, reactions, done-card folding and the Done bin, live multi-tab sync,
+  Share, and Ask all shipped afterward, and none of them had a lesson. The fix keeps the board's
+  original doctrine rather than replacing it: still an ordinary board, still no coach-mark layer,
+  still one card per gesture, positioned so reading the card *is* performing the gesture — the
+  new `reactions` card teaches **1**–**5** the way `done` already teaches **D**, `search` plants a
+  second copy of the word "wreck" (the first already sits in `welcome`'s text) so **⌘F** has
+  something real to find on arrival, `ask` and `share` describe **⌘/** and the Share button the
+  same plain way `ghost` and `ideas` already describe theirs.
+  **Scope stops at things a board position can teach.** Themes, the Completed-cards fold, and the
+  Template library are Settings- or index-level — there is no card position on *this* board whose
+  reading teaches a setting that lives outside it — so each gets one folded-in sentence on an
+  existing card instead of a card of its own: the fold onto `alreadyDone` (which was already
+  the card explaining what a crossed-off card looks like), themes and the Template library onto
+  `chrome` (which was already the shortcuts summary). Desktop, import/export, folder import, and
+  the LAN flag stay out entirely — install-level, not board-level, and the tutorial board has
+  never taught those.
+  **No schema change, no migration, no new test.** `lib/tutorial.test.ts` asserts structural
+  invariants only (one accepted card, one deliberately unconnected card, no dangling edges, every
+  card on the font ladder, the undersized resize card, id/createdAt ordering, a clean save/load
+  round-trip) and the refreshed board — 16 nodes now, still one spanning tree off `welcome` plus
+  the one lonely `connectTo` — satisfies all of them unchanged, the same way adding a Kanban row
+  never touched `lib/kanban.test.ts`'s assertions about columns.
+
 Also: the brief's pitch line about "reorganizing ideas as you add them" is **not** built and
 should be cut from the pitch. Reorganizing means moving nodes the user placed — the most
 trust-breaking action available, and outside the one-unsolicited-behavior rule.

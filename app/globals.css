@@ -983,6 +983,10 @@ html, body {
 }
 .chrome-switch:hover { color: var(--ink); }
 .chrome-home {
+  /* An <a>, not a <button>: the browser centers button text for free, so the
+     link has to center its own line box or "Home" rides the top of the box. */
+  display: flex;
+  align-items: center;
   color: var(--muted);
   border-color: var(--user-border);
   background: var(--surface);

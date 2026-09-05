@@ -7,6 +7,7 @@ import {
   edgeExists,
   edgePair,
   emptyBoard,
+  fitViewport,
   newId,
   OBJECTIVE_MAX,
   removeNodes,
@@ -449,7 +450,14 @@ export const useBoard = create<State>((set, get) => ({
       // A slow response for a board we already left must not clobber this one.
       s.boardId && s.boardId !== board.id
         ? s
-        : { board, loaded: true, lastMutationAt: Date.now() },
+        : {
+            board,
+            loaded: true,
+            lastMutationAt: Date.now(),
+            // beginLoad already parked the camera at the origin; center it on
+            // the board's actual content the moment that content arrives.
+            viewport: fitViewport(board.nodes, s.surface),
+          },
     ),
 
   setTitle: (title) =>

@@ -3,6 +3,7 @@ import {
   createNode,
   edgePair,
   emptyBoard,
+  fitViewport,
   NODE_MIN_H,
   NODE_MIN_W,
   OBJECTIVE_MAX,
@@ -241,6 +242,31 @@ describe('hydrate', () => {
     expect(s().board.id).toBe('stale-b');
     expect(s().board.nodes).toEqual([]);
     expect(s().loaded).toBe(false);
+  });
+
+  it('centers the camera on the board’s content as it arrives', () => {
+    // beginLoad parks the viewport at the origin; a board whose cards sit
+    // away from (0,0) — every template does — must not stay pinned there.
+    s().beginLoad('center-a');
+    s().setSurface({ w: 1000, h: 700 });
+
+    const withNodes = emptyBoard('center-a');
+    withNodes.nodes = [
+      createNode({ x: 400, y: 300, text: 'a' }),
+      createNode({ x: 700, y: 600, text: 'b' }),
+    ];
+    s().hydrate(withNodes);
+
+    expect(s().viewport).toEqual(fitViewport(withNodes.nodes, { w: 1000, h: 700 }));
+  });
+
+  it('leaves the camera at the origin for a board with no content', () => {
+    s().beginLoad('center-b');
+    s().setSurface({ w: 1000, h: 700 });
+
+    s().hydrate(emptyBoard('center-b'));
+
+    expect(s().viewport).toEqual({ x: 0, y: 0, scale: 1 });
   });
 });
 
