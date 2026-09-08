@@ -191,7 +191,7 @@ export function Board({ boardId }: { boardId: string }) {
       useBoard.getState().setJarvisGain(normalizeJarvisGain(Number(raw)));
     }
   }, []);
-  const { status: jarvisStatus, tracking: jarvisTracking } = useHandNav(
+  const { status: jarvisStatus, tracking: jarvisTracking, zooming: jarvisZooming } = useHandNav(
     jarvisOn,
     surfaceRef,
     () => useBoard.getState().viewport,
@@ -315,14 +315,15 @@ export function Board({ boardId }: { boardId: string }) {
 
   // A rAF of our own reads the frame the hand loop wrote and answers with
   // style writes only — transform for position, one data attribute for pinch,
-  // one for presence, and an opacity the edge factor drives. No React state,
-  // no re-render, per the same doctrine that keeps per-frame positions out
-  // of the store.
+  // one for presence, one for zoom mode, and an opacity the edge factor
+  // drives. No React state, no re-render, per the same doctrine that keeps
+  // per-frame positions out of the store.
   useEffect(() => {
     if (!jarvisOn) return;
     let raf = 0;
     let pinching = false;
     let present = false;
+    let zooming = false;
     let opacity = '';
     const paint = () => {
       raf = requestAnimationFrame(paint);
@@ -335,6 +336,11 @@ export function Board({ boardId }: { boardId: string }) {
         pinching = f.pinching;
         if (pinching) el.setAttribute('data-pinch', '');
         else el.removeAttribute('data-pinch');
+      }
+      if (f.zoom !== zooming) {
+        zooming = f.zoom;
+        if (zooming) el.setAttribute('data-zoom', '');
+        else el.removeAttribute('data-zoom');
       }
       if (f.present !== present) {
         present = f.present;
@@ -1114,7 +1120,7 @@ export function Board({ boardId }: { boardId: string }) {
               onClick={() => setJarvisOn((on) => !on)}
               disabled={jarvisStatus === 'loading' || jarvisStatus === 'asking'}
             >
-              {statusLabel(jarvisStatus, jarvisTracking)}
+              {statusLabel(jarvisStatus, jarvisTracking, jarvisZooming)}
             </button>
           </div>
         </>

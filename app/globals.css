@@ -928,6 +928,13 @@ button.jarvis-toggle.on {
   background: var(--accent, var(--muted));
   border-color: var(--accent, var(--muted));
 }
+/* Phase 4: two-hand zoom mode. A dashed ring — the one state a solid fill
+   (pinch/pan) and a plain ring (tracking) cannot be mistaken for, in the
+   same accent, so all three themes answer it via the token. */
+.hand-cursor[data-zoom] {
+  border-style: dashed;
+  background: transparent;
+}
 
 .legend {
   position: fixed;

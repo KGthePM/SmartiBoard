@@ -165,13 +165,107 @@ pinch-pan with pinch-fill feedback is intact.
   writer and reader agree, and a prop/state snapshot version of the same
   value is a divergence waiting to ship.
 
+## Phase 4 — two-hand zoom (shipped, 2026-09-08)
+
+The gesture the touch layer already taught the board — pinch to spread —
+done in air. **One pinched hand pans exactly as before; BOTH hands pinched
+for three consecutive frames is zoom**, and zoom fully owns the gesture
+while it lasts: pan is suppressed, the pill reads *"zoom: spread hands to
+zoom, release to stop"*, and the cursor ring turns dashed (the one state a
+solid fill and a plain ring cannot be mistaken for — accent token, all
+three themes answer it).
+
+| Gesture | Effect |
+|---|---|
+| One hand pinch + move | Pan (unchanged from v0.1) |
+| Both hands pinch, hold 3 frames | Zoom mode: spread apart to zoom in, together to zoom out |
+| Either pinch releases | Zoom ends; ~200ms cooldown, then pan is eligible again |
+
+**Design decisions:**
+
+- **Hand identity is proximity, never array order.** MediaPipe's
+  `landmarks[]` swaps order between frames — trusting the index would read
+  hand A's landmarks as hand B's mid-spread and spike the distance.
+  `matchHands` assigns each frame's hands to the previous frame's by
+  nearest midpoint (greedy closest pair), and pinch hysteresis runs per
+  matched SLOT, so a mid-zoom swap reads as hands holding still, because
+  they are.
+- **The zoom signal is aspect-corrected.** MediaPipe normalizes x by frame
+  width and y by height, so on 16:9 an uncorrected spread is stretched
+  ~1.8× horizontally. `zoomDistance` multiplies x by width/height (read
+  off the video element) before the hypot.
+- **One Euro on ln(dist)** — a scalar variant (`OneEuroScalar`) of the same
+  filter, because the zoom signal is one number. Log space is the natural
+  home: ratios become differences, so the filter treats a 2× spread the
+  same whether the hands sit near or far apart.
+- **Ratio from the entry baseline, never accumulated.** `TwoHandZoom`
+  baselines on the entry frame (the entry frame carries ratio exactly 1),
+  and each frame's ratio is `exp(s_now − s_entry)` — the same anti-ratchet
+  doctrine as the touch pinch (`pinchViewport` scales from the START
+  distance). Unspread to where you began and the scale comes home.
+- **Per-frame clamp ±2% (log space).** Not a dead zone — a rate limit. A
+  trembling hold hovers at the baseline and zooms nothing; a hard yank
+  travels at the tracker's top speed, not the arm's.
+- **Zoom-and-pan jointly**, mirroring the touch pinch: anchored at the
+  ENTRY midpoint (mapped to surface coords like pan's cursor), with the
+  midpoint's travel since entry added on top (`twoHandZoomViewport`).
+  The board point between your hands stays between them.
+- **Every entry re-baselines, by construction.** Zoom exits on either
+  pinch release OR any hand dropout, and baseline is taken only at entry —
+  there is no code path that can carry a stale baseline across a gap. A
+  200ms pan cooldown after exit stops the surviving pinched hand from
+  yanking the board the instant zoom hands the gesture back.
+
+**The frame-edge caveat:** hands spreading wide leave the camera frame —
+zoom-out is bounded by how far apart two hands can be while still seen.
+The noted fallback is a one-hand vertical zoom (pinch held, hand raised or
+lowered); deliberately **not built** — two gestures were enough for this
+phase, and a one-hand vertical drag is uncomfortably close to the pan
+gesture it would have to coexist with.
+
+**Files:** `lib/hand.ts` (TwoHandZoom, matchHands, zoomDistance,
+OneEuroScalar, twoHandZoomViewport — all pure, all tested), the
+`numHands: 2` landmarker option and its dispatch in
+`components/canvas/useHandNav.ts`, the `zoom` flag on `HandCursorFrame` +
+`statusLabel` line + `data-zoom` paint in `Board.tsx`, and the dashed-ring
+rule in `app/globals.css`. Zero per-frame React state held: the only new
+React state is the zoom-mode flip (`zooming`), which changes about as
+often as `tracking` does.
+
+## Phase 4 verification record
+
+707 → **729 tests** (+22 in `lib/hand.test.ts`: mode machine, aspect-
+corrected distance, scalar filter, ratio-from-baseline, per-frame clamp,
+re-baseline after dropout, no-ratchet round trip, viewport anchor and
+clamp bounds), `tsc --noEmit` clean. Kyle's live two-hand test is still
+owed — the mode machine is tested as arithmetic, but whether three frames
+feels like "a beat" and whether the 2%/frame rate limit feels right at
+arm's length is a body question no test suite answers.
+
+## Phase 4 lessons
+
+- **A "3 consecutive frames" gate that counts the seeding frame is 3
+  frames total, not 3 after the first.** The first frame a hand pair is
+  seen both-pinched IS stability frame one — the test that assumed
+  otherwise was wrong, not the machine. Say what counts as frame one.
+- **A One Euro filter has a fixed TIME lag, not a fixed percentage lag.**
+  On a steady ramp the output sits ~150ms behind the target forever, so
+  "90% of travel" is not a property of the filter — it is a property of
+  how long the test's ramp runs. The 2D filter's test passes at 30 frames
+  and its scalar sibling needed 60 for the same contract.
+- **Write the no-ratchet test as a round trip with a HOLD.** Returning to
+  the baseline for a single frame cannot undo the accumulated walk (the
+  ±2% cap is doing its job); holding at the baseline until the applied
+  value converges is what proves the walk comes home at all.
+
 ## Verification record
 
-Per AGENTS.md (no browser/screenshot testing), phase 3 as shipped:
-707/707 vitest (35 files; +9 in `lib/hand.test.ts`), `tsc --noEmit` clean,
-working tree clean — plus Kyle's live hand test, which is the one check no
-test suite replaces. (Phase 1 originally verified 691 tests + dev-server
-200s on vendored assets; phase 2 added 7 presence tests.)
+Per AGENTS.md (no browser/screenshot testing), phase 4 as shipped:
+729/729 vitest (35 files; +22 in `lib/hand.test.ts`), `tsc --noEmit` clean,
+working tree clean — plus the live two-hand test Kyle still owes the
+feature. Earlier phases: phase 3 verified 707 tests (+9), phase 2 added 7
+presence tests, phase 1 originally 691 + dev-server 200s on vendored
+assets.
 
 **Run it:** check out `jarvis/webcam-hand-nav`, `./start.sh` (or
 `./start.sh --lan`), open a board, click **Hand control** in the status row,

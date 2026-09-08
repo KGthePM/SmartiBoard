@@ -161,14 +161,297 @@ export function panViewport(start: DragStart, cursor: Point): Viewport {
 }
 
 /**
- * The viewport for a pinch held while the second consideration applies:
- * zoom. Jarvis zooms by *holding* the pinch and dwelling — but for v1 the
- * closed pinch is one gesture only (pan), and zoom stays on the wheel and
- * touch pinch. Kept here so the doctrine has one home when zoom-by-hand
- * lands: always through `zoomAround`, anchored under the cursor.
+ * The single-hand zoom seam: zoom around a point the hand is holding.
+ *
+ * Phase 4 zooms with TWO hands (see `TwoHandZoom` below); a lone pinched
+ * hand remains pan only, so this stands as the seam where a future one-hand
+ * zoom would land. Kept and used by its test so the doctrine keeps one
+ * home: zoom by hand goes through `zoomAround`, anchored under the gesture.
  */
 export function handZoomViewport(v: Viewport, at: Point, ratio: number): Viewport {
   return zoomAround(v, at, clampScale(v.scale * ratio));
+}
+
+/* ------------------------------------------------------------------------- *
+ * Phase 4: two-hand zoom.
+ *
+ * Two pinched hands that spread apart are a zoom — the touch pinch's own
+ * gesture, done in air. The same doctrine applies as everywhere else in this
+ * file: the ratio is taken from an ENTRY baseline, never accumulated per
+ * frame, so hands that return to their starting spread return the scale with
+ * them and the clamp cannot ratchet.
+ * ------------------------------------------------------------------------- */
+
+/** Consecutive frames with both hands pinched before zoom engages. */
+export const ZOOM_ENTER_FRAMES = 3;
+
+/**
+ * After zoom ends, this long passes before a pinch may pan again — so the
+ * hand that stays pinched when its partner lets go does not yank the board
+ * the instant zoom hands the gesture back.
+ */
+export const ZOOM_PAN_COOLDOWN_MS = 200;
+
+/**
+ * The most the applied zoom may move per frame, in log space (±2% of scale).
+ * A rate limit, not a dead zone: a trembling hold hovers at the baseline and
+ * zooms nothing, while a deliberate spread still travels — at the tracker's
+ * top speed, not the arm's.
+ */
+export const ZOOM_LOG_STEP_MAX = 0.02;
+
+/** One hand as the loop sees it: pinch midpoint plus the raw pinch ratio. */
+export type HandObservation = { mid: Point; ratio: number };
+
+/** A persistent hand slot the tracker matches observations into. */
+export type HandSlotState = { seen: boolean; mid: Point; pinching: boolean };
+
+/** The zoom signal for one frame, relative to the entry baseline. */
+export type ZoomFrame = {
+  /** exp(applied − baseline): 1 at entry, ~2 after hands spread to double. */
+  ratio: number;
+  /** The two-hand midpoint in RAW normalized camera coords (not mapped). */
+  mid: Point;
+};
+
+/** Everything the loop needs from the two-hand tracker, per frame. */
+export type TwoHandFrame = {
+  /** For each observation this frame, the slot index it was matched to. */
+  map: number[];
+  /** The two persistent slots. `seen` gates everything a slot answers for. */
+  slots: [HandSlotState, HandSlotState];
+  mode: 'idle' | 'zoom';
+  zoom: ZoomFrame | null;
+  /** True while zoom owns the gesture or the post-zoom cooldown is running. */
+  panBlocked: boolean;
+};
+
+/**
+ * Assign this frame's hands to the previous frame's, by proximity.
+ *
+ * MediaPipe's `landmarks[]` order swaps between frames — trusting the index
+ * would read hand A's landmarks as hand B's mid-spread and spike the
+ * distance. Each next hand goes to its nearest previous hand, greedily
+ * closest pair first; the result maps next-index → prev-index.
+ */
+export function matchHands(prev: Point[], next: Point[]): number[] {
+  const result = new Array<number>(next.length).fill(-1);
+  const used = new Set<number>();
+  const pairs: { d: number; i: number; j: number }[] = [];
+  for (let i = 0; i < next.length; i++) {
+    for (let j = 0; j < prev.length; j++) {
+      pairs.push({ d: distance(next[i], prev[j]), i, j });
+    }
+  }
+  pairs.sort((a, b) => a.d - b.d);
+  for (const p of pairs) {
+    if (result[p.i] !== -1 || used.has(p.j)) continue;
+    result[p.i] = p.j;
+    used.add(p.j);
+  }
+  return result;
+}
+
+/**
+ * Distance between two pinch midpoints, aspect-corrected.
+ *
+ * MediaPipe normalizes x by frame WIDTH and y by frame HEIGHT, so on 16:9 an
+ * uncorrected distance is stretched ~1.8× along x and a horizontal spread
+ * reads as far more zoom than the same spread vertically. Multiplying x by
+ * width/height puts both axes in the same units before the hypot.
+ */
+export function zoomDistance(a: Point, b: Point, aspect: number): number {
+  return Math.hypot((a.x - b.x) * aspect, a.y - b.y);
+}
+
+/**
+ * The One Euro filter on a scalar — the same adaptive jitter killing as
+ * `OneEuro`, one axis fewer. The zoom signal is a single number
+ * (ln of the two-hand distance), so it gets a single filter.
+ */
+export class OneEuroScalar {
+  private prev: number | null = null;
+  private prevD = 0;
+  private t: number | undefined;
+
+  constructor(
+    private minCutoff = 1.0,
+    private beta = 0.02,
+    private dCutoff = 1.0,
+  ) {}
+
+  private alpha(cutoff: number, dt: number): number {
+    const tau = 1 / (2 * Math.PI * cutoff);
+    return 1 / (1 + tau / dt);
+  }
+
+  filter(x: number, tMs: number): number {
+    if (this.prev === null || this.t === undefined) {
+      this.prev = x;
+      this.prevD = 0;
+      this.t = tMs;
+      return x;
+    }
+    const dt = Math.max((tMs - this.t) / 1000, 1e-6);
+    const d = (x - this.prev) / dt;
+    this.prevD += this.alpha(this.dCutoff, dt) * (d - this.prevD);
+    const a = this.alpha(this.minCutoff + this.beta * Math.abs(this.prevD), dt);
+    this.prev += a * (x - this.prev);
+    this.t = tMs;
+    return this.prev;
+  }
+
+  reset(): void {
+    this.prev = null;
+    this.prevD = 0;
+    this.t = undefined;
+  }
+}
+
+/** What the zoom gesture remembers from the moment it engaged. */
+export type ZoomStart = {
+  /** The viewport as it stood. */
+  viewport: Viewport;
+  /** The two-hand midpoint at entry, in surface coordinates. */
+  mid: Point;
+};
+
+/**
+ * The viewport for a two-hand zoom in progress — the touch pinch's
+ * zoom-and-pan-jointly semantics (`pinchViewport`) done with hands.
+ *
+ * The zoom anchors on the START midpoint so the board point between the
+ * hands stays between them; the midpoint's travel since entry is added on
+ * top. `ratio` arrives already taken from the entry baseline and already
+ * rate-limited, so a pinch that unspreads back to where it began hands the
+ * scale back exactly, and the clamp cannot ratchet.
+ */
+export function twoHandZoomViewport(
+  start: ZoomStart,
+  now: { ratio: number; mid: Point },
+): Viewport {
+  const zoomed = zoomAround(start.viewport, start.mid, start.viewport.scale * now.ratio);
+  return {
+    scale: zoomed.scale,
+    x: zoomed.x + (now.mid.x - start.mid.x),
+    y: zoomed.y + (now.mid.y - start.mid.y),
+  };
+}
+
+type ZoomTrack = { mid: Point; seen: boolean; pinch: PinchDetector };
+
+/**
+ * The two-hand zoom machine: identity, mode, baseline, rate limit.
+ *
+ * Per frame the loop hands in up to two raw observations and gets back the
+ * matched slots, the mode, and (in zoom) the baseline-relative ratio.
+ * Pinch hysteresis runs per SLOT, not per observation — the detector a hand
+ * feeds must survive the landmarker shuffling its output order, which is
+ * what `matchHands` is for. Baseline is taken only at zoom entry, and any
+ * dropout ends zoom, so every entry re-baselines: the anti-ratchet rule
+ * holds by construction, not by discipline.
+ */
+export class TwoHandZoom {
+  private tracks: ZoomTrack[] = [];
+  private mode: 'idle' | 'zoom' = 'idle';
+  private stable = 0;
+  private dist = new OneEuroScalar();
+  private baseline = 0;
+  private applied = 0;
+  private blockedUntil = -Infinity;
+
+  get isZooming(): boolean {
+    return this.mode === 'zoom';
+  }
+
+  update(obs: HandObservation[], aspect: number, nowMs: number): TwoHandFrame {
+    const map: number[] = [];
+    if (obs.length === 0) {
+      // Nothing seen: the slots die — a hand re-entering anywhere must seed
+      // fresh, not match a stale midpoint — and zoom ends, which is also the
+      // re-baseline after dropout: the next entry measures the distance anew.
+      this.tracks = [];
+      if (this.mode === 'zoom') this.exitZoom(nowMs);
+      this.stable = 0;
+    } else if (this.tracks.length === 0) {
+      this.tracks = obs.slice(0, 2).map((o) => ({
+        mid: o.mid,
+        seen: true,
+        pinch: new PinchDetector(),
+      }));
+      for (let i = 0; i < this.tracks.length; i++) {
+        this.tracks[i].pinch.update(obs[i].ratio);
+        map[i] = i;
+      }
+    } else {
+      for (const tr of this.tracks) tr.seen = false;
+      const assign = matchHands(
+        this.tracks.map((tr) => tr.mid),
+        obs.map((o) => o.mid),
+      );
+      for (let i = 0; i < obs.length; i++) {
+        const tr = this.tracks[assign[i]];
+        tr.seen = true;
+        tr.mid = obs[i].mid;
+        tr.pinch.update(obs[i].ratio);
+        map[i] = assign[i];
+      }
+    }
+
+    const state = (i: number): HandSlotState =>
+      this.tracks[i]
+        ? { seen: this.tracks[i].seen, mid: this.tracks[i].mid, pinching: this.tracks[i].pinch.isOn }
+        : { seen: false, mid: { x: 0, y: 0 }, pinching: false };
+    const s0 = state(0);
+    const s1 = state(1);
+    const both = s0.seen && s1.seen && s0.pinching && s1.pinching;
+
+    let zoom: ZoomFrame | null = null;
+    if (this.mode === 'idle') {
+      this.stable = both ? this.stable + 1 : 0;
+      if (this.stable >= ZOOM_ENTER_FRAMES) {
+        this.mode = 'zoom';
+        // Entry baseline: reset filter, feed the entry distance — the first
+        // call passes it through, so baseline IS the entry measurement and
+        // the ratio starts at exactly 1.
+        this.dist.reset();
+        this.baseline = this.dist.filter(Math.log(zoomDistance(s0.mid, s1.mid, aspect)), nowMs);
+        this.applied = 0;
+      }
+    }
+    if (this.mode === 'zoom') {
+      if (!both) {
+        // Either pinch released, or a hand dropped out. Cooldown gates pan.
+        this.exitZoom(nowMs);
+      } else {
+        const target = Math.log(zoomDistance(s0.mid, s1.mid, aspect));
+        const s = this.dist.filter(target, nowMs);
+        // Walk `applied` toward the measured log distance, at most
+        // ZOOM_LOG_STEP_MAX per frame — always measured from the baseline,
+        // never added onto the previous ratio.
+        const delta = Math.max(
+          -ZOOM_LOG_STEP_MAX,
+          Math.min(ZOOM_LOG_STEP_MAX, s - this.baseline - this.applied),
+        );
+        this.applied += delta;
+        zoom = { ratio: Math.exp(this.applied), mid: midpoint(s0.mid, s1.mid) };
+      }
+    }
+
+    return {
+      map,
+      slots: [s0, s1],
+      mode: this.mode,
+      zoom,
+      panBlocked: this.mode === 'zoom' || nowMs < this.blockedUntil,
+    };
+  }
+
+  private exitZoom(nowMs: number): void {
+    this.mode = 'idle';
+    this.stable = 0;
+    this.blockedUntil = nowMs + ZOOM_PAN_COOLDOWN_MS;
+  }
 }
 
 /** The gain `mapToSurface` ships with, and the middle rung of the sensitivity ladder. */
