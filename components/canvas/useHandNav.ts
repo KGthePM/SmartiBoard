@@ -6,6 +6,7 @@ import {
   HandPresence,
   OneEuro,
   PinchDetector,
+  edgeFactor,
   mapToSurface,
   panViewport,
   pinchState,
@@ -44,6 +45,12 @@ export type HandCursorFrame = {
   pinching: boolean;
   /** A hand was seen within the lost-hand grace window. */
   present: boolean;
+  /**
+   * How deep in the camera frame the hand sits, 0 at an edge to 1 in — the
+   * RAW landmark's distance from the frame edge, before any mapping, so the
+   * cursor can dim as tracking is about to drop (Ultraleap's affordance).
+   */
+  edge: number;
 };
 
 const JARVIS_BTN = 'jarvis-toggle';
@@ -71,21 +78,26 @@ export function useHandNav(
   getViewport: () => Viewport,
   setViewport: (v: Viewport) => void,
   cursorRef?: React.RefObject<HandCursorFrame | null>,
+  jarvisGain?: number,
 ) {
   const [status, setStatus] = useState<JarvisStatus>('off');
   // Rare state, deliberately: the status pill reads it, and it changes only
   // when a hand appears or stays gone past the grace window — not per frame.
   const [tracking, setTracking] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
-  // Latest-callback refs: the loop reads this render's functions without the
+  // Latest-value refs: the loop reads this render's functions without the
   // effect depending on them. Inline arrows from the caller are new objects
   // every render — deps on them would tear the camera down and re-request it
   // on every board re-render (autosave flips, ghost ticks), which reads to
-  // the user as the webcam disconnecting in a loop.
+  // the user as the webcam disconnecting in a loop. `jarvisGain` rides the
+  // same rail (phase 3): the sensitivity setting lands live, within a tick,
+  // without ever re-arming the effect.
   const getViewRef = useRef(getViewport);
   const setViewRef = useRef(setViewport);
+  const gainRef = useRef(jarvisGain);
   getViewRef.current = getViewport;
   setViewRef.current = setViewport;
+  gainRef.current = jarvisGain;
 
   useEffect(() => {
     if (!active) return;
@@ -156,10 +168,14 @@ export function useHandNav(
           if (hand && box) {
             presence.mark(t);
             // Index tip (8) drives the cursor; wrist (0) and middle MCP (9)
-            // size the hand for the pinch ratio.
+            // size the hand for the pinch ratio. The RAW point also feeds
+            // the edge factor — distance from the frame edge is a camera-
+            // frame question, not a surface one, so it is answered before
+            // any mapping.
             const raw = { x: hand[8].x, y: hand[8].y };
             const smoothed = filter.filter(raw, t);
-            const cursor = mapToSurface(smoothed, { w: box.width, h: box.height });
+            const cursor = mapToSurface(smoothed, { w: box.width, h: box.height }, gainRef.current ?? 1.6);
+            const edge = edgeFactor(raw);
 
             const ratio = pinchState({
               thumb: { x: hand[4].x, y: hand[4].y },
@@ -177,7 +193,7 @@ export function useHandNav(
             }
 
             if (cursorRef) {
-              cursorRef.current = { x: cursor.x, y: cursor.y, pinching, present: true };
+              cursorRef.current = { x: cursor.x, y: cursor.y, pinching, present: true, edge };
             }
           } else {
             // Lost frame: the drag holds for the grace window instead of
@@ -196,6 +212,7 @@ export function useHandNav(
                 y: prev?.y ?? 0,
                 pinching: false,
                 present: presence.present(t),
+                edge: prev?.edge ?? 0,
               };
             }
           }

@@ -13,6 +13,20 @@ import {
   normalizeCollapseMode,
   type CollapseMode,
 } from '@/lib/collapse';
+import {
+  JARVIS_DEFAULT_GAIN,
+  JARVIS_GAIN_STEPS,
+  normalizeJarvisGain,
+} from '@/lib/hand';
+
+/** Rung labels for the hand-control sensitivity select, keyed by gain. */
+const JARVIS_GAIN_LABELS: Record<number, string> = {
+  1.0: 'Precise — 1:1',
+  1.3: 'Gentle',
+  [JARVIS_DEFAULT_GAIN]: 'Default',
+  2.0: 'Quick',
+  2.5: 'Very quick',
+};
 
 /**
  * Where the user says which model co-authors their boards.
@@ -83,6 +97,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [ghostDelay, setGhostDelay] = useState<number>(DEBOUNCE_MS);
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [collapseMode, setCollapseMode] = useState<CollapseMode>(DEFAULT_COLLAPSE_MODE);
+  const [jarvisGain, setJarvisGain] = useState<number>(JARVIS_DEFAULT_GAIN);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
@@ -112,6 +127,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           setGhostDelay(d.settings.ghostDelayMs);
           setTheme(d.settings.theme);
           setCollapseMode(d.settings.collapseMode);
+        }
+        // Not a server setting: sensitivity lives in localStorage (the Board
+        // is its source of truth). Read here so the select shows what is
+        // actually in force rather than a stale default.
+        try {
+          setJarvisGain(normalizeJarvisGain(Number(window.localStorage.getItem('jarvis-gain'))));
+        } catch {
+          /* No storage (private mode etc.): the default stands. */
         }
         setReady(true);
       })
@@ -250,6 +273,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       // geometry the cards and the edges between them are drawn at.
       if (typeof d.settings?.collapseMode === 'string') {
         useBoard.getState().setCollapseMode(normalizeCollapseMode(d.settings.collapseMode));
+      }
+      // The sensitivity select persists in localStorage, not the settings
+      // row, so it rides the same save but never reaches the server: write
+      // the store (the loop's channel — it re-reads gain every tick) and the
+      // value the Board seeded itself from, so they cannot disagree.
+      if (typeof jarvisGain === 'number') {
+        window.localStorage.setItem('jarvis-gain', String(jarvisGain));
+        useBoard.getState().setJarvisGain(jarvisGain);
+        setJarvisGain(normalizeJarvisGain(jarvisGain));
       }
       onClose();
     } catch {
@@ -474,6 +506,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               a dot wearing just the ▸. Either way it is only a way of looking at the board: the card
               keeps its text, its size, and its place, and the ▸ on it opens it again. Like the theme,
               this is every board on this machine.
+            </span>
+          </label>
+
+          <label className="settings-field">
+            <span className="settings-label">Hand control sensitivity</span>
+            <select
+              className="settings-select"
+              value={String(jarvisGain)}
+              onChange={(e) => setJarvisGain(normalizeJarvisGain(Number(e.target.value)))}
+            >
+              {JARVIS_GAIN_STEPS.map((g) => (
+                <option key={g} value={String(g)}>
+                  {JARVIS_GAIN_LABELS[g]}
+                </option>
+              ))}
+            </select>
+            <span className="settings-hint">
+              How far the cursor travels for a given hand motion, when Hand control is on. Higher is
+              faster but twitchier; Precise maps your reach one-to-one. Saved on this machine in the
+              browser, not in the settings file.
             </span>
           </label>
 

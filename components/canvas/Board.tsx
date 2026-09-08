@@ -25,6 +25,7 @@ import {
   type PinchStart,
 } from '@/lib/gesture';
 import { REACTIONS } from '@/lib/reactions';
+import { normalizeJarvisGain } from '@/lib/hand';
 import {
   cardView,
   isBinned,
@@ -173,12 +174,25 @@ export function Board({ boardId }: { boardId: string }) {
   // style. Board re-renders only when the pill's tracking word flips.
   const handCursorRef = useRef<HandCursorFrame | null>(null);
   const handCursorElRef = useRef<HTMLDivElement | null>(null);
+  // Hand-control sensitivity: persisted per install in localStorage (the
+  // settings row would want a new column for it), read once at mount, written
+  // by the panel's save through the store. The loop reads it via a
+  // latest-value ref, so a change lands within a tick and the camera — whose
+  // effect depends on [active] ONLY — never tears down.
+  const [jarvisGain, setJarvisGain] = useState(() =>
+    normalizeJarvisGain(
+      typeof window === 'undefined'
+        ? undefined
+        : Number(window.localStorage.getItem('jarvis-gain')),
+    ),
+  );
   const { status: jarvisStatus, tracking: jarvisTracking } = useHandNav(
     jarvisOn,
     surfaceRef,
     () => useBoard.getState().viewport,
     (v) => useBoard.getState().setViewport(v),
     handCursorRef,
+    jarvisGain,
   );
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
@@ -296,13 +310,15 @@ export function Board({ boardId }: { boardId: string }) {
 
   // A rAF of our own reads the frame the hand loop wrote and answers with
   // style writes only — transform for position, one data attribute for pinch,
-  // one for presence (the fade is CSS). No React state, no re-render, per the
-  // same doctrine that keeps per-frame positions out of the store.
+  // one for presence, and an opacity the edge factor drives. No React state,
+  // no re-render, per the same doctrine that keeps per-frame positions out
+  // of the store.
   useEffect(() => {
     if (!jarvisOn) return;
     let raf = 0;
     let pinching = false;
     let present = false;
+    let opacity = '';
     const paint = () => {
       raf = requestAnimationFrame(paint);
       const el = handCursorElRef.current;
@@ -319,6 +335,17 @@ export function Board({ boardId }: { boardId: string }) {
         present = f.present;
         if (present) el.setAttribute('data-present', '');
         else el.removeAttribute('data-present');
+      }
+      // Edge fade (phase 3): while a hand is present, the ring's opacity IS
+      // the edge factor — dimming as the hand nears the camera frame's edge,
+      // warning before tracking drops. The base rule keeps opacity 0 and the
+      // 150ms transition smooths both the presence fade and the per-frame
+      // edge changes; the >0.02 threshold keeps us from churning the style
+      // at 30Hz for a change nobody can see.
+      const next = f.present ? String(f.edge) : '0';
+      if (next !== opacity) {
+        opacity = next;
+        el.style.opacity = next;
       }
     };
     raf = requestAnimationFrame(paint);

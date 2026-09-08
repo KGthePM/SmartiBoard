@@ -902,8 +902,11 @@ button.jarvis-toggle.on {
 /* Project Jarvis: the hand cursor. A small ring on the surface at the
    filtered cursor position, written imperatively from the loop's frame —
    this element never re-renders. Tokens only, so all three themes answer
-   it. Hidden until a hand is present (the fade is the only animation),
-   and filled when the pinch is on — the visible "panning now" state. */
+   it. Hidden until a hand is present; opacity itself is JS-written (the
+   loop's edge factor — the ring dims as the hand nears the camera frame's
+   edge), with this 150ms transition smoothing both the presence fade and
+   the per-frame edge changes. Filled when the pinch is on — the visible
+   "panning now" state. */
 .hand-cursor {
   position: absolute;
   top: 0;
@@ -921,7 +924,6 @@ button.jarvis-toggle.on {
   /* A view, not a pointer: above the cards, below the fixed chrome. */
   z-index: 4;
 }
-.hand-cursor[data-present] { opacity: 1; }
 .hand-cursor[data-pinch] {
   background: var(--accent, var(--muted));
   border-color: var(--accent, var(--muted));

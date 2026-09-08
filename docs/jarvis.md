@@ -97,17 +97,41 @@ Squad-built (Scout research + Forge implementation), verified independently:
 698/698 tests (+7 presence tests), typecheck clean, build clean, dev server
 200 on `/board/demo`, and Kyle's live hand test — passed.
 
-## Phase 3 — queue (next session)
+## Phase 3 — shipped (2026-09-08)
 
-1. **Direction inversion fix** — Kyle reports hand left → cursor right and
-   vice versa. The mirroring in `mapToSurface` is backwards in practice;
-   flip the x mapping and re-test live.
-2. **Sensitivity setting** — gain is fixed at 1.6 and feels quick. Expose it
-   (Settings? query param? dev panel — same options as the tuning pass) so
-   it can be tuned per user.
-3. **Edge fading** — fade the cursor as the hand nears the camera frame
-   edge, warning before tracking drops (Scout's research: Ultraleap ships
-   this exact affordance).
+All three queue items done, verified: 707/707 tests (+9 new in
+`lib/hand.test.ts`), `tsc --noEmit` clean.
+
+1. ✅ **Direction inversion fix** — Kyle's phase-1 live test showed hand
+   left → cursor right. The lesson: the camera sees the room as an
+   *onlooker* does, but the user reads their own hand as in a *mirror* —
+   that expectation is what the mapping must answer, and the v0.1 "mirror"
+   comment had it backwards. `mapToSurface` now flips x (`1 - nx`) before
+   gain; y untouched. The direction test was rewritten for the new intent
+   (`mirrors camera x so left is left (inverted)`), and the old
+   "gain increases x" test was inverted with it, since gain now amplifies
+   the flipped direction.
+2. ✅ **Sensitivity setting** — gain is a five-rung select in the Settings
+   panel: Precise 1:1 (1.0) / Gentle (1.3) / Default (1.6) / Quick (2.0) /
+   Very quick (2.5). `JARVIS_GAIN_STEPS` and `normalizeJarvisGain`
+   (nearest-rung snapping, `normalizeGhostDelay` doctrine) live in
+   `lib/hand.ts`. The loop reads gain through a latest-value ref — the same
+   rail as `getViewport` — so a save applies within a tick and the camera's
+   effect still depends on `[active]` alone. **Persistence is
+   localStorage (`jarvis-gain`), not the settings row**: that table is
+   column-per-field, so a new column + migration was more than this knob
+   earns. Delivery through the store (`store.jarvisGain` +
+   `setJarvisGain`, install-level like `ghostDelayMs`); the Board seeds
+   itself from localStorage at mount and is the source of truth.
+3. ✅ **Edge fading** — `edgeFactor(p, band = 0.15)` in `lib/hand.ts`: the
+   RAW landmark's distance from the camera frame's edge, fading linearly
+   over the outer 15% (the same figure as the mapping margin). The loop
+   ships it as `edge` on every cursor frame; the Board's paint rAF writes
+   it to `el.style.opacity` (only on >0.02 changes, to spare the style
+   system churn at 30Hz). The `.hand-cursor[data-present] { opacity: 1 }`
+   CSS rule is gone — the base rule stays at opacity 0 and the existing
+   150ms transition now smooths both the presence fade and the per-frame
+   edge changes. Ultraleap's affordance, as Scout's research flagged.
 
 ## Verification record
 

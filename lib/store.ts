@@ -26,6 +26,7 @@ import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import { toggleReaction as toggleIn, type ReactionKey } from './reactions';
 import { cardView, DEFAULT_COLLAPSE_MODE, viewRect, type CollapseMode } from './collapse';
+import { JARVIS_DEFAULT_GAIN } from './hand';
 import { applyOps, type Op } from './sync';
 import type { Proposal, ProposalDraft } from './proposal';
 
@@ -227,6 +228,17 @@ export type State = {
    */
   collapseMode: CollapseMode;
   /**
+   * Hand-control sensitivity (Jarvis phase 3), as the Settings panel holds
+   * it — one rung of JARVIS_GAIN_STEPS. Install-level exactly like
+   * ghostDelayMs and collapseMode: no undo snapshot, no lastMutationAt bump,
+   * never a token, deliberately absent from beginLoad. The webcam loop reads
+   * it through a latest-value ref every frame, so a save lands within a tick
+   * without re-arming the camera. Persisted in localStorage, not the settings
+   * row — the settings table is column-per-field and a migration is more
+   * than this knob earns.
+   */
+  jarvisGain: number;
+  /**
    * Which collapsed cards the person has peeked at, this session. The mirror
    * of the selection and it lives beside it: never persisted, never in the
    * board JSON, cleared by beginLoad, and a reload re-folds them — `done` is
@@ -278,6 +290,8 @@ export type State = {
   setGhostDelay: (ms: number) => void;
   /** Install-level: the Settings panel writes it, the canvas reads it. */
   setCollapseMode: (v: CollapseMode) => void;
+  /** Install-level: the Settings panel writes it, the webcam loop reads it. */
+  setJarvisGain: (g: number) => void;
   /** Session-only: unfold one collapsed card, or fold it back. */
   toggleExpanded: (id: NodeId) => void;
   markRequested: (fingerprint: string) => void;
@@ -379,6 +393,7 @@ export const useBoard = create<State>((set, get) => ({
   lastRequestedFingerprint: null,
   ghostDelayMs: DEBOUNCE_MS,
   collapseMode: DEFAULT_COLLAPSE_MODE,
+  jarvisGain: JARVIS_DEFAULT_GAIN,
   expandedIds: [],
   suggestFailedAt: null,
   lastTextEditId: null,
@@ -725,6 +740,7 @@ export const useBoard = create<State>((set, get) => ({
   setSuggesting: (v) => set({ suggesting: v }),
   setGhostDelay: (ms) => set({ ghostDelayMs: ms }),
   setCollapseMode: (v) => set({ collapseMode: v }),
+  setJarvisGain: (g) => set({ jarvisGain: g }),
   /**
    * The cheapest action in the store, below even a reaction: no undo snapshot,
    * no redo spend, no lastMutationAt bump, and nothing the model could see. It

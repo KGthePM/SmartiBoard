@@ -171,19 +171,57 @@ export function handZoomViewport(v: Viewport, at: Point, ratio: number): Viewpor
   return zoomAround(v, at, clampScale(v.scale * ratio));
 }
 
+/** The gain `mapToSurface` ships with, and the middle rung of the sensitivity ladder. */
+export const JARVIS_DEFAULT_GAIN = 1.6;
+
+/** The sensitivity rungs the Settings panel offers, low (1:1) to high. */
+export const JARVIS_GAIN_STEPS = [1.0, 1.3, JARVIS_DEFAULT_GAIN, 2.0, 2.5] as const;
+
+/**
+ * Snap a stored/typed gain onto the ladder. Off-ladder junk lands on the
+ * nearest rung rather than failing — the same doctrine as
+ * `normalizeGhostDelay`: a preference must never wedge the feature it rides
+ * in with. Non-finite input (a corrupted or absent localStorage value) takes
+ * the default.
+ */
+export function normalizeJarvisGain(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return JARVIS_DEFAULT_GAIN;
+  let best = JARVIS_GAIN_STEPS[0] as number;
+  for (const step of JARVIS_GAIN_STEPS) {
+    if (Math.abs(step - v) < Math.abs(best - v)) best = step;
+  }
+  return best;
+}
+
+/**
+ * How deep inside the camera frame the hand sits, 0 at the edge to 1 fully in.
+ *
+ * A band of `band` (the same 15% `mapToSurface`'s margin uses) from each edge
+ * fades linearly, so the cursor dims as tracking is about to drop — the
+ * affordance Ultraleap ships, computed from the RAW landmark before any
+ * mapping so it answers "where in the frame is the hand", not "where on the
+ * board is the cursor".
+ */
+export function edgeFactor(p: Point, band = 0.15): number {
+  const d = Math.min(p.x, 1 - p.x, p.y, 1 - p.y);
+  return Math.min(1, Math.max(0, d / band));
+}
+
 /**
  * Cursor position in surface coordinates from a filtered landmark point.
  *
  * The hand's normalized camera-space x/y (0..1) maps to the surface with a
- * margin, mirrored: moving your hand right moves the cursor right, which a
- * camera's unmirrored feed would otherwise invert. The margin keeps the
- * board reachable without sweeping to the frame's edge, and lets a small
- * hand motion cover the whole surface (gain).
+ * margin, x mirrored: the camera sees the room as an onlooker does, but the
+ * user reads their own hand as in a mirror — hand left must move the cursor
+ * left. Kyle's phase-1 live test found the direct mapping backwards in
+ * practice, so x is flipped (1 - nx) before gain; y is untouched. The margin
+ * keeps the board reachable without sweeping to the frame's edge, and lets a
+ * small hand motion cover the whole surface (gain).
  */
 export function mapToSurface(
   p: Point,
   surface: { w: number; h: number },
-  gain = 1.6,
+  gain = JARVIS_DEFAULT_GAIN,
   margin = 0.15,
 ): Point {
   const span = 1 - 2 * margin;
@@ -192,7 +230,7 @@ export function mapToSurface(
   // Gain > 1 deliberately overshoots the frame's reach — a small hand motion
   // covers the whole surface — so the result is clamped to the surface.
   return {
-    x: Math.min(surface.w, Math.max(0, (0.5 + (nx - 0.5) * gain) * surface.w)),
+    x: Math.min(surface.w, Math.max(0, (0.5 + (1 - nx - 0.5) * gain) * surface.w)),
     y: Math.min(surface.h, Math.max(0, (0.5 + (ny - 0.5) * gain) * surface.h)),
   };
 }

@@ -3,14 +3,17 @@ import type { Viewport } from './graph';
 import { VIEW_MAX_SCALE, VIEW_MIN_SCALE } from './graph';
 import {
   HAND_LOST_GRACE_MS,
+  JARVIS_DEFAULT_GAIN,
   PINCH_OFF,
   PINCH_ON,
   OneEuro,
   PinchDetector,
   HandPresence,
+  edgeFactor,
   handPresent,
   handZoomViewport,
   mapToSurface,
+  normalizeJarvisGain,
   panViewport,
   pinchState,
 } from './hand';
@@ -131,9 +134,12 @@ describe('mapToSurface', () => {
     expect(mapToSurface({ x: 0.5, y: 0.5 }, surface)).toEqual({ x: 500, y: 250 });
   });
 
-  it('mirrors camera x so right is right', () => {
-    // Camera x=0.35 is left-of-center in the feed; the cursor must land left.
-    expect(mapToSurface({ x: 0.35, y: 0.5 }, surface).x).toBeLessThan(500);
+  it('mirrors camera x so left is left (inverted)', () => {
+    // The camera sees the room like an onlooker; the user reads their own
+    // hand like a mirror. Camera x=0.35 is the user's hand LEFT (in the
+    // mirrored selfie view), so the cursor must land left; x=0.65 is right.
+    expect(mapToSurface({ x: 0.35, y: 0.5 }, surface).x).toBeGreaterThan(500);
+    expect(mapToSurface({ x: 0.65, y: 0.5 }, surface).x).toBeLessThan(500);
   });
 
   it('clamps margin-exceeding hands into range', () => {
@@ -146,10 +152,65 @@ describe('mapToSurface', () => {
   });
 
   it('gain makes a small hand motion cover more surface', () => {
+    // Post-inversion, camera x=0.65 drives the cursor toward x=0; a higher
+    // gain covers MORE of that travel — the magnitude is the point.
     const halfStep = { x: 0.65, y: 0.5 };
-    expect(mapToSurface(halfStep, surface, 1.6).x).toBeGreaterThan(
+    expect(mapToSurface(halfStep, surface, 1.6).x).toBeLessThan(
       mapToSurface(halfStep, surface, 1.0).x,
     );
+  });
+});
+
+describe('edgeFactor', () => {
+  it('is 1 at the center', () => {
+    expect(edgeFactor({ x: 0.5, y: 0.5 })).toBe(1);
+  });
+
+  it('is 1 everywhere past the fade band', () => {
+    expect(edgeFactor({ x: 0.2, y: 0.8 })).toBe(1);
+    expect(edgeFactor({ x: 0.85, y: 0.15 })).toBe(1);
+  });
+
+  it('fades to 0.5 at half the band from the edge', () => {
+    // x=0.075 is 0.075 from the left edge — exactly half of the 0.15 band.
+    expect(edgeFactor({ x: 0.075, y: 0.5 })).toBeCloseTo(0.5);
+  });
+
+  it('is 0 at the edge and stays 0 beyond the frame', () => {
+    expect(edgeFactor({ x: 0, y: 0.5 })).toBe(0);
+    // A landmark can report slightly outside 0..1; clamped, never negative.
+    expect(edgeFactor({ x: -0.05, y: 0.5 })).toBe(0);
+    expect(edgeFactor({ x: 1.05, y: 0.5 })).toBe(0);
+  });
+
+  it('counts the y axis too', () => {
+    // x is deep inside; the 0.05 gap is the bottom edge.
+    expect(edgeFactor({ x: 0.5, y: 0.95 })).toBeCloseTo(0.05 / 0.15);
+  });
+
+  it('honors a custom band', () => {
+    expect(edgeFactor({ x: 0.05, y: 0.5 }, 0.1)).toBeCloseTo(0.5);
+    expect(edgeFactor({ x: 0.05, y: 0.5 }, 0.2)).toBeCloseTo(0.25);
+  });
+});
+
+describe('normalizeJarvisGain', () => {
+  it('keeps a value already on the ladder', () => {
+    expect(normalizeJarvisGain(1.3)).toBe(1.3);
+    expect(normalizeJarvisGain(2.0)).toBe(2);
+  });
+
+  it('snaps off-ladder junk to the nearest rung', () => {
+    expect(normalizeJarvisGain(1.4)).toBe(1.3);
+    expect(normalizeJarvisGain(1.5)).toBe(1.6);
+    expect(normalizeJarvisGain(9)).toBe(2.5);
+    expect(normalizeJarvisGain(0)).toBe(1.0);
+  });
+
+  it('takes the default for non-numeric junk', () => {
+    expect(normalizeJarvisGain(undefined)).toBe(JARVIS_DEFAULT_GAIN);
+    expect(normalizeJarvisGain(NaN)).toBe(JARVIS_DEFAULT_GAIN);
+    expect(normalizeJarvisGain('2')).toBe(JARVIS_DEFAULT_GAIN);
   });
 });
 
