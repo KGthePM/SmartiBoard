@@ -22,9 +22,6 @@ import type { Viewport } from './graph';
 
 export type { Point } from './gesture';
 
-/** A press this long while pinched selects what is under the pinch. */
-export const JARVIS_DWELL_MS = 450;
-
 /**
  * How long a missing hand is forgiven: the cursor stays up and an active pan
  * holds through a dropped frame or two instead of blinking off or ending the

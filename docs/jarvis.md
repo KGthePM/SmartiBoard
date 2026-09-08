@@ -18,7 +18,9 @@ pinched hand pans exactly the way a dragged mouse pans, through the same
 | Hand lost / pinch released | Pan ends; nothing drifts |
 
 Not in v0.1: hand-zoom (the math stub `handZoomViewport` exists in
-`lib/hand.ts` for when it lands), card selection by dwell, click-to-select.
+`lib/hand.ts` for when it lands), click-to-select. **Dwell-to-select was
+axed (2026-09-08, Kyle's call): Jarvis is a NAVIGATION feature — the hand
+moves the board, never manipulates cards.**
 
 ## Architecture
 
@@ -316,6 +318,11 @@ first test was, in fact, one unguarded index away from working.
 
 **Phase 4 is functionally complete.** What remains in the queue is
 dwell-to-select (the last v0.1 stub concept), not zoom.
+
+> **Update (2026-09-08): dwell-to-select axed.** Kyle's ruling after phase
+> 5: Jarvis is a navigation feature — the hand moves the board and never
+> manipulates cards. The dwell stub (`JARVIS_DWELL_MS`) is deleted and the
+> concept is off the roadmap, not deferred. Selection stays a pointer's job.
 
 ## Tuning round 1 lessons
 
