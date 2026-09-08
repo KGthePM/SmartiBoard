@@ -72,6 +72,61 @@ export type PinchStart = {
 };
 
 /**
+ * Edge auto-scroll: the drag that reaches for the edge takes the board with it.
+ *
+ * Holding a card (a marquee, a connect line, a resize) within `EDGE_ZONE_PX` of
+ * the surface's edge pans the viewport, so a board bigger than the screen stays
+ * draggable across it. As arithmetic it is one question per axis — how hard is
+ * the pointer asking this edge to give way — answered here, pure and tested.
+ */
+
+/** How close to the edge a drag must hold before the board starts giving way. */
+export const EDGE_ZONE_PX = 56;
+
+/**
+ * The speed at the very edge, in surface px per second. Inside the zone the
+ * speed ramps linearly from zero at the zone's inner boundary to this at the
+ * edge itself, so brushing the edge drifts and pinning against it travels.
+ */
+export const EDGE_MAX_SPEED = 900;
+
+/**
+ * The auto-scroll velocity for a pointer at surface pixel `p` on a
+ * `surface`-sized canvas: zero more than `zone` from every edge, ramping
+ * linearly to `maxSpeed` at each edge — per axis, independently, so a corner
+ * asks both at once. A pointer carried past the edge (pointer capture lets it
+ * leave the surface) holds full speed rather than ramping back down. A
+ * negative velocity means the left/top edge; positive, right/bottom.
+ */
+export function edgeScrollVelocity(
+  p: Point,
+  surface: { w: number; h: number },
+  zone = EDGE_ZONE_PX,
+  maxSpeed = EDGE_MAX_SPEED,
+): Point {
+  const axis = (at: number, span: number): number => {
+    if (!(span > 0) || !(zone > 0)) return 0;
+    const nearLeft = at < zone;
+    const nearRight = span - at < zone;
+    if (!nearLeft && !nearRight) return 0;
+    const t = nearLeft ? 1 - at / zone : 1 - (span - at) / zone;
+    return (nearLeft ? -1 : 1) * Math.min(1, Math.max(0, t)) * maxSpeed;
+  };
+  return { x: axis(p.x, surface.w), y: axis(p.y, surface.h) };
+}
+
+/**
+ * The viewport after one auto-scroll step: `v` is the velocity from
+ * `edgeScrollVelocity`, `dt` the seconds since the last step. Panning right
+ * (toward content off the right edge) moves the viewport's translate left —
+ * the same arithmetic the drag-pan's client deltas produce, one integration
+ * step of it.
+ */
+export function scrollViewport(v: Viewport, vx: number, vy: number, dt: number): Viewport {
+  return { scale: v.scale, x: v.x - vx * dt, y: v.y - vy * dt };
+}
+
+/**
  * The viewport for a pinch in progress.
  *
  * A pinch zooms *and* pans, because two fingers that spread while sliding are

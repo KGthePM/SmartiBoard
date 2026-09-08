@@ -356,6 +356,63 @@ decay ×2, honest-reset, second-hand slot seeding, over-slot tolerance,
 `cursorObservations` attribution ×4, and the entry-frame test re-anchored),
 `tsc --noEmit` clean.
 
+## Phase 5 — edge auto-scroll for drags (shipped, 2026-09-08)
+
+A drag that reaches the edge of the screen now takes the board with it: hold a
+card, a marquee, a connect line, or a resize within `EDGE_ZONE_PX` (56) of the
+surface's edge and the viewport pans — up to `EDGE_MAX_SPEED` (900 surface px/s)
+at the edge itself, ramping linearly from the zone's inner boundary. The feature
+the canvas never had; without it a board bigger than the screen could not be
+dragged across itself in one gesture.
+
+| Gesture | Effect |
+|---|---|
+| Any editing drag held near an edge | Viewport pans toward the off-screen content |
+| Pan (empty-canvas drag) / two-finger pinch | Never auto-scroll — those gestures ARE the camera |
+| Pointer carried past the edge | Scroll holds full speed (capture keeps the pointer driving) |
+
+**Design decisions:**
+
+- **The arithmetic is `lib/gesture.ts`** (`edgeScrollVelocity`,
+  `scrollViewport`, the two constants), pure and tested — velocity is one
+  question per axis, answered independently so a corner asks both at once;
+  `scrollViewport` is one integration step of the drag-pan's own arithmetic
+  (panning rightward moves the viewport's translate left).
+- **The drag is RE-APPLIED after each scroll step.** The board moved under a
+  pointer that did not; without the reapply the card would slide out from
+  under a stationary pointer — the exact failure auto-scroll exists to
+  prevent. The reapply uses the same arithmetic the pointermove handlers use,
+  computed against the viewport as it now stands (nodes batch, resize deltas
+  rescaled, marquee and connect endpoints recomputed).
+- **Zero React state**, the Jarvis-cursor doctrine: the pointer's client and
+  surface positions ride refs written at `pointerdown` (a press HELD at the
+  edge is as much an ask to scroll as a move there — and writing at down,
+  not at effect start, means a marquee that calls `setDrag` per move can
+  never wipe its own anchor) and updated by `onPointerMove`; an rAF loop,
+  alive only while a scrollable drag is in flight, reads the store via
+  `getState()` and writes through `setViewport` — the same seam the pan,
+  wheel, pinch, and hand pan use. `dt` is capped at 100ms so a stalled frame
+  cannot jump the board.
+- **Pan and pinch are excluded** — the auto-scroll answers drags that need
+  more screen than they have, never the gestures that are themselves the
+  camera. Presenting needs no gate: its CSS already makes cards
+  pointer-events-none and gates the marquee, so no scrollable drag can start.
+- **Not a hand feature, and that is the point.** It ships on the Jarvis
+  branch only because the hand nav made long drags common, but it serves the
+  mouse and the finger identically — per the Touch doctrine, nothing here is
+  a gesture a pointer device does not already get.
+
+**Files:** `lib/gesture.ts` (+ `edgeScrollVelocity`, `scrollViewport`,
+`EDGE_ZONE_PX`, `EDGE_MAX_SPEED`), `lib/gesture.test.ts` (+6 tests), the refs /
+rAF loop / pointer-anchor writes in `components/canvas/Board.tsx`.
+
+**Phase 5 verification:** 737 → **743 tests** (+6 in `lib/gesture.test.ts`:
+dead zone, linear ramp both edges, past-the-edge hold, corner, degenerate
+geometry, integration-step identity), `tsc --noEmit` clean, `next build`
+clean. Kyle's live drag test is owed: whether 56px feels like an edge and
+900 px/s a brisk but controllable pace is a hand question no test suite
+answers — both are one-line constant changes if the body disagrees.
+
 **Run it:** check out `jarvis/webcam-hand-nav`, `./start.sh` (or
 `./start.sh --lan`), open a board, click **Hand control** in the status row,
 allow the camera. Camera access requires `localhost` or HTTPS — a plain LAN

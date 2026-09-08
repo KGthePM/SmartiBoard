@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { VIEW_MAX_SCALE, VIEW_MIN_SCALE, type Viewport } from './graph';
-import { clampScale, distance, midpoint, pinchViewport, zoomAround } from './gesture';
+import {
+  clampScale,
+  distance,
+  edgeScrollVelocity,
+  EDGE_MAX_SPEED,
+  EDGE_ZONE_PX,
+  midpoint,
+  pinchViewport,
+  scrollViewport,
+  zoomAround,
+} from './gesture';
 
 const v = (x: number, y: number, scale: number): Viewport => ({ x, y, scale });
+
+const SCREEN = { w: 1200, h: 800 };
 
 /** Where a board point currently sits on the surface, under a given viewport. */
 const project = (view: Viewport, p: { x: number; y: number }) => ({
@@ -95,5 +107,59 @@ describe('pinchViewport', () => {
     const after = pinchViewport(degenerate, { dist: 0, mid: { x: 130, y: 90 } });
     expect(after.scale).toBe(1);
     expect(after).toEqual({ scale: 1, x: 30, y: -10 });
+  });
+});
+
+describe('edgeScrollVelocity / scrollViewport (edge auto-scroll)', () => {
+  it('answers zero in the middle of the surface', () => {
+    expect(edgeScrollVelocity({ x: 600, y: 400 }, SCREEN)).toEqual({ x: 0, y: 0 });
+    // Just outside the zone on every edge.
+    expect(edgeScrollVelocity({ x: EDGE_ZONE_PX + 1, y: 400 }, SCREEN)).toEqual({ x: 0, y: 0 });
+    expect(edgeScrollVelocity({ x: 600, y: SCREEN.h - EDGE_ZONE_PX - 1 }, SCREEN)).toEqual({
+      x: 0,
+      y: 0,
+    });
+  });
+
+  it('ramps linearly from the zone boundary to full speed at the edge', () => {
+    // Halfway into the left zone: half speed, leftward.
+    const half = edgeScrollVelocity({ x: EDGE_ZONE_PX / 2, y: 400 }, SCREEN);
+    expect(half.x).toBeCloseTo(-EDGE_MAX_SPEED / 2, 6);
+    expect(half.y).toBe(0);
+    // Pinned against the left edge: full leftward speed.
+    expect(edgeScrollVelocity({ x: 0, y: 400 }, SCREEN).x).toBe(-EDGE_MAX_SPEED);
+    // Right edge is positive; bottom edge is positive.
+    expect(edgeScrollVelocity({ x: SCREEN.w, y: 400 }, SCREEN).x).toBe(EDGE_MAX_SPEED);
+    expect(edgeScrollVelocity({ x: 600, y: SCREEN.h }, SCREEN).y).toBe(EDGE_MAX_SPEED);
+    // Halfway into the top zone: half upward speed.
+    expect(edgeScrollVelocity({ x: 600, y: EDGE_ZONE_PX / 2 }, SCREEN).y).toBeCloseTo(
+      -EDGE_MAX_SPEED / 2,
+      6,
+    );
+  });
+
+  it('holds full speed past the edge — capture lets a pointer leave the surface', () => {
+    expect(edgeScrollVelocity({ x: -40, y: 400 }, SCREEN).x).toBe(-EDGE_MAX_SPEED);
+    expect(edgeScrollVelocity({ x: SCREEN.w + 90, y: 400 }, SCREEN).x).toBe(EDGE_MAX_SPEED);
+  });
+
+  it('a corner asks both axes at once', () => {
+    const vel = edgeScrollVelocity({ x: 5, y: 5 }, SCREEN);
+    expect(vel.x).toBeLessThan(0);
+    expect(vel.y).toBeLessThan(0);
+  });
+
+  it('degenerate geometry scrolls nothing rather than dividing by zero', () => {
+    expect(edgeScrollVelocity({ x: 0, y: 0 }, { w: 0, h: 0 })).toEqual({ x: 0, y: 0 });
+    expect(edgeScrollVelocity({ x: 10, y: 10 }, SCREEN, 0)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('scrollViewport is one integration step of the pan the drag would make', () => {
+    const before = v(100, 50, 1);
+    // Auto-pan rightward (velocity positive x) moves the viewport translate left.
+    expect(scrollViewport(before, 100, 0, 0.1)).toEqual({ scale: 1, x: 90, y: 50 });
+    // Zero velocity and zero dt are each the identity; scale never moves.
+    expect(scrollViewport(before, 0, 0, 0.1)).toEqual(before);
+    expect(scrollViewport(before, 500, -500, 0)).toEqual(before);
   });
 });
