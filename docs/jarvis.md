@@ -422,18 +422,16 @@ frame), `components/canvas/Board.tsx` (the paint-rAF
 `data-scroll`/`--scroll-deg` channel), `app/globals.css` (the scroll ring
 state). `lib/gesture.ts` and its tests are untouched from `f76baed`.
 
-**Open tuning questions (owed to Kyle's live test):** the zone (56px) and
-top speed (900 px/s) are shared with the reverted card-drag build and were
-never body-tested; a hand at the edge of the CAMERA frame is also near the
-edge of the SURFACE (the 15% margin maps frame edge to surface edge), so
-the usable hold-zone may feel narrower for hands than it ever would for
-pointers. Both are one-line constants, but the right fix may be
-hand-specific values rather than the shared ones.
+**Tuning questions answered by the live test (2026-09-08):** the shared
+constants held — 56px zone and 900 px/s both felt right on the first pass,
+no hand-specific values needed. The one real finding was DIRECTION, not
+magnitude (see the live test and lessons below).
 
 **Phase 5 verification:** 743 → **749 tests** (+6 in `lib/hand.test.ts`:
-gate closed at the edge, exact-`edgeScrollVelocity` equivalence and corner,
+gate closed at the edge, `edgeScrollVelocity`-equivalence and corner,
 past-the-edge hold, dt integration with sign check, the 100ms cap, additive
-integration over a hold), `tsc --noEmit` clean, `next build` clean, and
+integration over a hold), then 749 → **750** with the inversion (+1 pinning
+grab semantics), `tsc --noEmit` clean, `next build` clean, and
 `git diff 0e7b222 HEAD -- components/canvas/Board.tsx` shows only the
 hand-nav paint channel.
 
@@ -442,7 +440,17 @@ hand-nav paint channel.
 allow the camera. Camera access requires `localhost` or HTTPS — a plain LAN
 IP will not get a permission prompt.
 
-## Phase 5 lesson
+## Phase 5 live test (Kyle, 2026-09-08): PASSED — after one inversion
+
+Tested from a fresh clone on a second machine (the branch was pushed for
+the occasion), which exercised the clone-and-run path too. Pinch-pan, edge
+hold, corners, and release all worked first try — the constants needed no
+tuning. One finding: **the scroll direction was backwards.** Pulling the
+board downward carries the hand toward the TOP edge, and the drag-convention
+scroll answered by panning UP — fighting the pull instead of continuing it.
+Inverted in `278374c`, re-tested: "everything worked great."
+
+## Phase 5 lessons
 
 - **Two writers to one viewport must handshake, or the faster one erases the
   slower one.** `panViewport` writes the viewport ABSOLUTELY from the pan's
@@ -456,3 +464,18 @@ IP will not get a permission prompt.
   a store seam, the absolute writer must re-baseline from the store after
   the incremental one acts — the phase-3 stale-snapshot lesson again, at a
   new altitude (two live writers, not writer-vs-render).
+- **A pinch is a GRAB; a card drag is a REVEAL — edge scrolling inherits
+  the gesture's metaphor.** Dragging a card to the edge asks "show me what
+  lies beyond", so the viewport moves AWAY from the edge (the drag/canvas
+  convention, `edgeScrollVelocity` un-inverted). Pinching the board and
+  riding into the edge asks "keep the pull going", so the board must travel
+  IN the pull's direction — the pinch path negates the same velocity per
+  axis (`pinchEdgeScroll`). Same arithmetic, opposite signs, and the sign
+  is not a tuning detail: it is which metaphor the gesture answers to. A
+  body test catches what code review cannot — every number and gate here
+  was plausible right up against a hand that said "backwards".
+- **Negating a signed value manufactures `-0`.** The inversion's first test
+  run failed on `Object.is(-0, 0)` being false — deep equality AND `toBe`
+  tell them apart. Normalize (`-x || 0`) at the boundary where the negation
+  happens, in the test helper too, and nobody debugs negative zero again.
+
