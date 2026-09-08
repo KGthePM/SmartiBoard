@@ -121,8 +121,11 @@ All three queue items done, verified: 707/707 tests (+9 new in
    localStorage (`jarvis-gain`), not the settings row**: that table is
    column-per-field, so a new column + migration was more than this knob
    earns. Delivery through the store (`store.jarvisGain` +
-   `setJarvisGain`, install-level like `ghostDelayMs`); the Board seeds
-   itself from localStorage at mount and is the source of truth.
+   `setJarvisGain`, install-level like `ghostDelayMs`); Board *subscribes*
+   to it and seeds it from localStorage at mount. An absent key means
+   untouched — the guard matters, because `Number(null)` is 0 and
+   `normalizeJarvisGain` would legally snap that to the 1.0 rung (see
+   Lessons below).
 3. ✅ **Edge fading** — `edgeFactor(p, band = 0.15)` in `lib/hand.ts`: the
    RAW landmark's distance from the camera frame's edge, fading linearly
    over the outer 15% (the same figure as the mapping margin). The loop
@@ -133,12 +136,42 @@ All three queue items done, verified: 707/707 tests (+9 new in
    150ms transition now smooths both the presence fade and the per-frame
    edge changes. Ultraleap's affordance, as Scout's research flagged.
 
+**Live test (Kyle, 2026-09-08): passed.** Direction reads as a mirror,
+sensitivity changes land live without restarting the camera and survive a
+reload, the ring fades before tracking drops at any frame edge, and
+pinch-pan with pinch-fill feedback is intact.
+
+## Phase 3 lessons
+
+- **The user's hand reads as a mirror, not as the camera sees it.** A
+  camera points at the room like an onlooker; the person on the far side
+  of it expects their own left to move things left. When a mapping is
+  "backwards in practice", fix the *expectation model* first — the
+  one-line flip is trivial once you know whose point of view the cursor
+  answers to.
+- **A subagent's "applies live" claim must be traced, not trusted.** The
+  panel wrote the store while Board read a frozen `useState` snapshot —
+  plausible-looking code on both sides, and nothing failed loudly; the
+  setting just silently applied on next reload. Verification = follow the
+  actual data path from writer to reader.
+- **`Number(localStorage.getItem(k))` is 0, not undefined, for an absent
+  key** — and a nearest-rung `normalize*` happily snaps 0 onto a legal
+  rung (here: 1.0 instead of the 1.6 default). Any read of optional
+  storage must distinguish *absent* (`null`) from *present junk* before
+  normalizing.
+- **Client-only settings still want the store as the live channel.** Even
+  when persistence is localStorage, the *runtime* delivery should ride
+  the store (the `ghostDelayMs` doctrine): one subscription makes
+  writer and reader agree, and a prop/state snapshot version of the same
+  value is a divergence waiting to ship.
+
 ## Verification record
 
-Per AGENTS.md (no browser/screenshot testing): 691/691 vitest (15 new in
-`lib/hand.test.ts`), `tsc --noEmit` clean, `next build` clean, dev server
-booted on repo Node 24 with `/board/demo` 200 and all vendored assets 200 —
-plus Kyle's live hand test, which is the one check no test suite replaces.
+Per AGENTS.md (no browser/screenshot testing), phase 3 as shipped:
+707/707 vitest (35 files; +9 in `lib/hand.test.ts`), `tsc --noEmit` clean,
+working tree clean — plus Kyle's live hand test, which is the one check no
+test suite replaces. (Phase 1 originally verified 691 tests + dev-server
+200s on vendored assets; phase 2 added 7 presence tests.)
 
 **Run it:** check out `jarvis/webcam-hand-nav`, `./start.sh` (or
 `./start.sh --lan`), open a board, click **Hand control** in the status row,
