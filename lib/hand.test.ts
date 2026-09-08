@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EDGE_MAX_SPEED, EDGE_ZONE_PX, edgeScrollVelocity } from './gesture';
 import type { Viewport } from './graph';
 import { VIEW_MAX_SCALE, VIEW_MIN_SCALE } from './graph';
 import {
@@ -19,10 +20,12 @@ import {
   edgeFactor,
   handPresent,
   handZoomViewport,
+  integrateEdgeScroll,
   mapToSurface,
   matchHands,
   normalizeJarvisGain,
   panViewport,
+  pinchEdgeScroll,
   pinchState,
   twoHandZoomViewport,
   zoomDistance,
@@ -590,6 +593,69 @@ describe('twoHandZoomViewport', () => {
   it('is a round trip: ratio 1 and no midpoint motion is the entry viewport', () => {
     const startAt = { viewport: v(-120, 80, 1.3), mid: { x: 400, y: 200 } };
     expect(twoHandZoomViewport(startAt, { ratio: 1, mid: startAt.mid })).toEqual(startAt.viewport);
+  });
+});
+
+describe('pinchEdgeScroll / integrateEdgeScroll (phase 5: pinch-pan edge auto-scroll)', () => {
+  const SURFACE = { w: 1200, h: 800 };
+
+  it('answers zero when the pan gate is closed — anywhere, even at the edge', () => {
+    // Gated off (pinch released, or zoom owning the gesture) the cursor
+    // could sit ON the edge and the answer is still stillness.
+    expect(pinchEdgeScroll({ x: 0, y: 0 }, SURFACE, false)).toEqual({ x: 0, y: 0 });
+    expect(pinchEdgeScroll({ x: 1200, y: 800 }, SURFACE, false)).toEqual({ x: 0, y: 0 });
+    expect(pinchEdgeScroll({ x: 3, y: 799 }, SURFACE, false)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('gated on, matches edgeScrollVelocity exactly — no duplicated arithmetic', () => {
+    // Interior: dead zone.
+    expect(pinchEdgeScroll({ x: 600, y: 400 }, SURFACE, true)).toEqual({ x: 0, y: 0 });
+    // Both edges at once: the corner asks both axes.
+    expect(pinchEdgeScroll({ x: 10, y: 10 }, SURFACE, true)).toEqual(
+      edgeScrollVelocity({ x: 10, y: 10 }, SURFACE),
+    );
+    // Mid-ramp and at the edge itself, every axis sign.
+    for (const p of [
+      { x: EDGE_ZONE_PX / 2, y: 400 },
+      { x: 0, y: 400 },
+      { x: 1200, y: 400 },
+      { x: 600, y: 800 },
+      { x: 1195, y: 5 },
+    ]) {
+      expect(pinchEdgeScroll(p, SURFACE, true)).toEqual(edgeScrollVelocity(p, SURFACE));
+    }
+  });
+
+  it('a cursor pinned past the surface bound holds full speed (gated on)', () => {
+    // mapToSurface clamps, but the helper does not depend on that: past the
+    // edge is full speed, the same answer the drag version gives.
+    expect(pinchEdgeScroll({ x: -50, y: 400 }, SURFACE, true).x).toBe(-EDGE_MAX_SPEED);
+    expect(pinchEdgeScroll({ x: 1300, y: 400 }, SURFACE, true).x).toBe(EDGE_MAX_SPEED);
+  });
+
+  it('integrates velocity over dt: pan toward right/bottom moves translate left', () => {
+    // 300 px/s for a 100ms step = 30 surface px of board travel.
+    const out = integrateEdgeScroll(v(0, 0, 1), { x: 300, y: -100 }, 100);
+    expect(out.scale).toBe(1);
+    expect(out.x).toBeCloseTo(-30);
+    expect(out.y).toBeCloseTo(10);
+  });
+
+  it('caps dt at 100ms — a stalled frame cannot jump the board', () => {
+    // 900 px/s at a true 1s step would be 900px; capped it is 90.
+    const capped = integrateEdgeScroll(v(0, 0, 1), { x: EDGE_MAX_SPEED, y: 0 }, 1000);
+    expect(capped.x).toBeCloseTo(-90);
+    // Just under the cap integrates fully.
+    const under = integrateEdgeScroll(v(0, 0, 1), { x: EDGE_MAX_SPEED, y: 0 }, 99);
+    expect(under.x).toBeCloseTo(-89.1);
+  });
+
+  it('a one-minute hold at the edge is the ramp speed times elapsed time', () => {
+    // The integration is the plain Euler step the drag version runs: same
+    // velocity each frame, dt-scaled, additive.
+    let vp = v(0, 0, 1);
+    for (let i = 0; i < 60; i++) vp = integrateEdgeScroll(vp, { x: 0, y: EDGE_MAX_SPEED }, 100);
+    expect(vp.y).toBeCloseTo(-60 * EDGE_MAX_SPEED * 0.1);
   });
 });
 

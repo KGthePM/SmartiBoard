@@ -356,62 +356,86 @@ decay ×2, honest-reset, second-hand slot seeding, over-slot tolerance,
 `cursorObservations` attribution ×4, and the entry-frame test re-anchored),
 `tsc --noEmit` clean.
 
-## Phase 5 — edge auto-scroll for drags (shipped, 2026-09-08)
+## Phase 5 — edge auto-scroll for the pinch pan (shipped, 2026-09-08)
 
-A drag that reaches the edge of the screen now takes the board with it: hold a
-card, a marquee, a connect line, or a resize within `EDGE_ZONE_PX` (56) of the
-surface's edge and the viewport pans — up to `EDGE_MAX_SPEED` (900 surface px/s)
-at the edge itself, ramping linearly from the zone's inner boundary. The feature
-the canvas never had; without it a board bigger than the screen could not be
-dragged across itself in one gesture.
+A pinch held near the edge of the screen now keeps the board panning: hold
+the pinched hand so the CURSOR sits within `EDGE_ZONE_PX` (56) of the
+surface's edge and the viewport pans — up to `EDGE_MAX_SPEED` (900 surface
+px/s) at the edge itself, ramping linearly from the zone's inner boundary.
+A large board is traversed in ONE pinch: no more releasing and re-grabbing
+to cross the screen. The cursor itself does not move — the board moves
+under a stationary cursor, exactly like the drag autoscroll design.
 
 | Gesture | Effect |
 |---|---|
-| Any editing drag held near an edge | Viewport pans toward the off-screen content |
-| Pan (empty-canvas drag) / two-finger pinch | Never auto-scroll — those gestures ARE the camera |
-| Pointer carried past the edge | Scroll holds full speed (capture keeps the pointer driving) |
+| Pinch-pan with the cursor in the edge zone | Viewport pans toward the off-screen content, continuously |
+| Corner (left/right AND top/bottom zone) | Both axes run at once |
+| Pinch released / hand lost | Scroll ends with the pan — no drift |
+| Two-hand zoom | Never scrolls — zoom owns the gesture (phase 4), cooldown included |
+| Mouse / touch drags | Unchanged — see the scope note below |
 
 **Design decisions:**
 
-- **The arithmetic is `lib/gesture.ts`** (`edgeScrollVelocity`,
-  `scrollViewport`, the two constants), pure and tested — velocity is one
-  question per axis, answered independently so a corner asks both at once;
-  `scrollViewport` is one integration step of the drag-pan's own arithmetic
-  (panning rightward moves the viewport's translate left).
-- **The drag is RE-APPLIED after each scroll step.** The board moved under a
-  pointer that did not; without the reapply the card would slide out from
-  under a stationary pointer — the exact failure auto-scroll exists to
-  prevent. The reapply uses the same arithmetic the pointermove handlers use,
-  computed against the viewport as it now stands (nodes batch, resize deltas
-  rescaled, marquee and connect endpoints recomputed).
-- **Zero React state**, the Jarvis-cursor doctrine: the pointer's client and
-  surface positions ride refs written at `pointerdown` (a press HELD at the
-  edge is as much an ask to scroll as a move there — and writing at down,
-  not at effect start, means a marquee that calls `setDrag` per move can
-  never wipe its own anchor) and updated by `onPointerMove`; an rAF loop,
-  alive only while a scrollable drag is in flight, reads the store via
-  `getState()` and writes through `setViewport` — the same seam the pan,
-  wheel, pinch, and hand pan use. `dt` is capped at 100ms so a stalled frame
-  cannot jump the board.
-- **Pan and pinch are excluded** — the auto-scroll answers drags that need
-  more screen than they have, never the gestures that are themselves the
-  camera. Presenting needs no gate: its CSS already makes cards
-  pointer-events-none and gates the marquee, so no scrollable drag can start.
-- **Not a hand feature, and that is the point.** It ships on the Jarvis
-  branch only because the hand nav made long drags common, but it serves the
-  mouse and the finger identically — per the Touch doctrine, nothing here is
-  a gesture a pointer device does not already get.
+- **The arithmetic is the drag version's, reused.** `edgeScrollVelocity` and
+  `scrollViewport` live in `lib/gesture.ts` (pure, tested). `lib/hand.ts`
+  adds only `pinchEdgeScroll` — the mode gate (velocity is zero unless a
+  one-hand pinch pan is live) — and `integrateEdgeScroll` — the dt-capped
+  integration step (100ms cap, so a stalled frame cannot jump the board).
+  No ramp arithmetic is duplicated anywhere.
+- **The velocity integration belongs in `useHandNav`'s rAF**, which already
+  owns the pinch state machine and frame timing. One subtlety: the camera
+  feeds ~30fps but the display runs at its own rate, so the integration is
+  a self-rescheduling step run per DISPLAY frame, gated by `edgeScrollState`
+  — refs the camera branch writes with exactly the pan branch's own
+  condition (pan pinch on, not zoom-blocked). The gate mirrors the branch,
+  so the scroll can never be live when the pan is not. The effect still
+  depends on `[active]` alone; everything else rides refs, the phase-3 rule.
+- **The cursor never moves during edge scroll.** The gate's cursor is the
+  last MAPPED surface point — the point the ring paints — and it holds
+  still while the viewport travels: the board slides under a stationary
+  hand, the mirror of the drag version's "reapply the card under the
+  pointer".
+- **Feedback is functional, not flourish** (the phase-2/4 doctrine: every
+  tracked entity needs its own channel). The cursor frame gained
+  `edgeScroll: Point | null` — the velocity actually applied last step,
+  null when idle. The ring answers with a third state: `data-scroll` swaps
+  its border to `var(--ink)` and raises a direction arrow (a ::before
+  chevron, rotated by the velocity's angle through a `--scroll-deg` custom
+  property). At the edge you see: plain ring = tracking, filled = panning,
+  arrow = the board is scrolling under you. Tokens only (`--ink` with a
+  `--muted` fallback) so all three themes answer it.
+- **Scope: this phase is hand-only — the card-drag variant was built and
+  then reverted (Kyle's call).** `f76baed` shipped edge auto-scroll for
+  card/marquee/connect/resize drags first; the Board.tsx wiring (the
+  drag-scoped rAF, the pointer-anchor refs) has been removed so mouse/touch
+  drag behavior is byte-equivalent to `0e7b222`. The pure arithmetic and
+  its tests STAY in `lib/gesture.ts` — the hand implementation reuses them,
+  and a future re-land of the drag variant is a wiring change, not a math
+  one. **Lesson: confirm which gesture a phase targets before building it**
+  — the arithmetic survived, but a full implement-then-revert round of the
+  wiring was spent finding that out.
 
-**Files:** `lib/gesture.ts` (+ `edgeScrollVelocity`, `scrollViewport`,
-`EDGE_ZONE_PX`, `EDGE_MAX_SPEED`), `lib/gesture.test.ts` (+6 tests), the refs /
-rAF loop / pointer-anchor writes in `components/canvas/Board.tsx`.
+**Files:** `lib/hand.ts` (+ `pinchEdgeScroll`, `integrateEdgeScroll`, the
+`Point` re-export), `lib/hand.test.ts` (+6), `components/canvas/useHandNav.ts`
+(the gate refs + display-rate scroll step + `edgeScroll` on the cursor
+frame), `components/canvas/Board.tsx` (the paint-rAF
+`data-scroll`/`--scroll-deg` channel), `app/globals.css` (the scroll ring
+state). `lib/gesture.ts` and its tests are untouched from `f76baed`.
 
-**Phase 5 verification:** 737 → **743 tests** (+6 in `lib/gesture.test.ts`:
-dead zone, linear ramp both edges, past-the-edge hold, corner, degenerate
-geometry, integration-step identity), `tsc --noEmit` clean, `next build`
-clean. Kyle's live drag test is owed: whether 56px feels like an edge and
-900 px/s a brisk but controllable pace is a hand question no test suite
-answers — both are one-line constant changes if the body disagrees.
+**Open tuning questions (owed to Kyle's live test):** the zone (56px) and
+top speed (900 px/s) are shared with the reverted card-drag build and were
+never body-tested; a hand at the edge of the CAMERA frame is also near the
+edge of the SURFACE (the 15% margin maps frame edge to surface edge), so
+the usable hold-zone may feel narrower for hands than it ever would for
+pointers. Both are one-line constants, but the right fix may be
+hand-specific values rather than the shared ones.
+
+**Phase 5 verification:** 743 → **749 tests** (+6 in `lib/hand.test.ts`:
+gate closed at the edge, exact-`edgeScrollVelocity` equivalence and corner,
+past-the-edge hold, dt integration with sign check, the 100ms cap, additive
+integration over a hold), `tsc --noEmit` clean, `next build` clean, and
+`git diff 0e7b222 HEAD -- components/canvas/Board.tsx` shows only the
+hand-nav paint channel.
 
 **Run it:** check out `jarvis/webcam-hand-nav`, `./start.sh` (or
 `./start.sh --lan`), open a board, click **Hand control** in the status row,

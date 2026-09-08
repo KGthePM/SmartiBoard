@@ -19,13 +19,10 @@ import {
   LONG_PRESS_MS,
   LONG_PRESS_SLOP,
   distance,
-  edgeScrollVelocity,
   midpoint,
   pinchViewport,
-  scrollViewport,
   zoomAround,
   type PinchStart,
-  type Point,
 } from '@/lib/gesture';
 import { REACTIONS } from '@/lib/reactions';
 import { normalizeJarvisGain } from '@/lib/hand';
@@ -168,76 +165,6 @@ export function Board({ boardId }: { boardId: string }) {
    */
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
-
-  /* ---------- edge auto-scroll (phase 5) ---------- */
-
-  // While an editing drag (nodes, marquee, connect, resize) holds within
-  // EDGE_ZONE_PX of the surface's edge, the viewport pans so the board keeps
-  // coming — a board bigger than the screen stays draggable across it. The
-  // pointer's position rides refs written by `onPointerMove`; this rAF
-  // integrates velocity into viewport writes through `setViewport`, the same
-  // seam the pan and the wheel use, then RE-APPLIES the drag under the moved
-  // viewport — or the card would slide out from under a stationary pointer,
-  // the one thing auto-scroll exists to prevent. Zero React state, per the
-  // same doctrine that keeps the Jarvis cursor out of the render path.
-  const dragClientRef = useRef<Point | null>(null);
-  const dragPointerSurfaceRef = useRef<Point | null>(null);
-  const lastScrollAtRef = useRef(0);
-  // The rAF reads the drag in flight; a closure would freeze the first one.
-  const dragRef = useRef<Drag>(null);
-  dragRef.current = drag;
-  useEffect(() => {
-    // Pan is the surface's own gesture and the pinch owns two pointers; the
-    // auto-scroll answers drags that need more screen than they have.
-    if (!drag || drag.kind === 'pan' || drag.kind === 'pinch') {
-      dragClientRef.current = null;
-      dragPointerSurfaceRef.current = null;
-      return;
-    }
-    let raf = 0;
-    lastScrollAtRef.current = performance.now();
-    const step = (now: number) => {
-      raf = requestAnimationFrame(step);
-      const at = dragPointerSurfaceRef.current;
-      const d = dragRef.current;
-      if (!at || !d) return;
-      const dt = Math.min((now - lastScrollAtRef.current) / 1000, 0.1);
-      lastScrollAtRef.current = now;
-      const s = useBoard.getState();
-      const vel = edgeScrollVelocity(at, s.surface);
-      if (vel.x === 0 && vel.y === 0) return;
-      s.setViewport(scrollViewport(s.viewport, vel.x, vel.y, dt));
-      // The board moved under a pointer that did not. Carry the drag with it,
-      // with the same arithmetic the pointermove handlers use, computed
-      // against the viewport as it now stands.
-      const c = dragClientRef.current;
-      if (!c) return;
-      const v = useBoard.getState().viewport;
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      const p = {
-        x: (c.x - (rect?.left ?? 0) - v.x) / v.scale,
-        y: (c.y - (rect?.top ?? 0) - v.y) / v.scale,
-      };
-      if (d.kind === 'nodes') {
-        s.moveNodes(
-          d.items.map((it) => ({
-            id: it.id,
-            x: p.x - d.dx + it.ox - d.gx,
-            y: p.y - d.dy + it.oy - d.gy,
-          })),
-        );
-      } else if (d.kind === 'resize') {
-        s.resizeNode(d.id, d.startW + (c.x - d.startX) / v.scale, d.startH + (c.y - d.startY) / v.scale);
-      } else if (d.kind === 'marquee') {
-        setDrag({ ...d, cx: p.x, cy: p.y });
-      } else if (d.kind === 'connect') {
-        setDrag({ ...d, to: p });
-      }
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [drag]);
-
   // Project Jarvis: hand control, off until asked. The camera and the model
   // live inside the hook; the board only sees a status word and a viewport
   // arriving through the same setViewport the wheel uses.
@@ -416,8 +343,8 @@ export function Board({ boardId }: { boardId: string }) {
     // data attribute + opacity exactly like phase 3; `null` hands[1] hides
     // ring two entirely.
     const rings = [
-      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '' },
-      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '' },
+      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '', scrollKey: '' },
+      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '', scrollKey: '' },
     ];
     let debugText = '';
     const paintRing = (r: (typeof rings)[number], f: HandCursorFrame | null) => {
@@ -429,8 +356,10 @@ export function Board({ boardId }: { boardId: string }) {
           el.removeAttribute('data-present');
           el.removeAttribute('data-pinch');
           el.removeAttribute('data-zoom');
+          el.removeAttribute('data-scroll');
           r.pinching = false;
           r.zooming = false;
+          r.scrollKey = '';
           el.style.opacity = '0';
           r.opacity = '0';
         }
@@ -450,6 +379,27 @@ export function Board({ boardId }: { boardId: string }) {
         r.zooming = f.zoom;
         if (f.zoom) el.setAttribute('data-zoom', '');
         else el.removeAttribute('data-zoom');
+      }
+      // Edge auto-scroll (phase 5 hand half): the ring carries the direction
+      // the board is scrolling in a CSS custom property (degrees for the
+      // rotating arrow) and raises `data-scroll` only while a velocity is
+      // actually being applied. The cursor does NOT move — the board moves
+      // under it — so this attribute IS the feedback that scrolling is why
+      // the board travels while the hand holds still. Compare by the packed
+      // string: one comparison per frame, three per attribute churn.
+      const scrollKey = f.edgeScroll ? `${f.edgeScroll.x},${f.edgeScroll.y}` : '';
+      if (scrollKey !== r.scrollKey) {
+        r.scrollKey = scrollKey;
+        if (f.edgeScroll) {
+          el.setAttribute('data-scroll', '');
+          el.style.setProperty(
+            '--scroll-deg',
+            `${(Math.atan2(f.edgeScroll.y, f.edgeScroll.x) * 180) / Math.PI}deg`,
+          );
+        } else {
+          el.removeAttribute('data-scroll');
+          el.style.removeProperty('--scroll-deg');
+        }
       }
       // Edge fade (phase 3): while a hand is present, the ring's opacity IS
       // the edge factor — dimming as the hand nears the camera frame's edge,
@@ -690,12 +640,6 @@ export function Board({ boardId }: { boardId: string }) {
     const down = pointersRef.current.get(e.pointerId);
     if (down) {
       pointersRef.current.set(e.pointerId, { ...down, x: e.clientX, y: e.clientY });
-      // Edge auto-scroll reads the dragging pointer's client and surface
-      // positions; the rAF loop below consults these every frame. Capture
-      // keeps a pointer that slides past the edge driving it, so the scroll
-      // holds full speed while the press is pinned just outside the window.
-      dragClientRef.current = { x: e.clientX, y: e.clientY };
-      dragPointerSurfaceRef.current = toSurface(e.clientX, e.clientY);
       // Carried far enough to be a gesture rather than a click: now the surface
       // takes the pointer, which keeps a finger that slides off the edge
       // driving it and guarantees the matching pointerup arrives here. Held
@@ -922,13 +866,6 @@ export function Board({ boardId }: { boardId: string }) {
         ref={surfaceRef}
         className={`viewport ${drag?.kind === 'pan' ? 'panning' : ''} ${presenting ? 'presenting' : ''}`}
         onPointerDown={(e) => {
-          // The auto-scroll loop's anchor: where this press sits. Every drag
-          // below begins here — the handler sees card presses by bubbling —
-          // and a press HELD at the edge is as much an ask to scroll as a
-          // move there. A second finger (the pinch) supersedes it: the effect
-          // above nulls the refs for `pinch`.
-          dragClientRef.current = { x: e.clientX, y: e.clientY };
-          dragPointerSurfaceRef.current = toSurface(e.clientX, e.clientY);
           // A second finger anywhere on the surface is a pinch, whatever it
           // landed on and whatever was in flight — including a card drag, which
           // it supersedes. Registered before the target gate below for exactly

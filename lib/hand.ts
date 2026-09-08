@@ -1,4 +1,12 @@
-import { distance, midpoint, zoomAround, clampScale, type Point } from './gesture';
+import {
+  clampScale,
+  distance,
+  edgeScrollVelocity,
+  midpoint,
+  scrollViewport,
+  zoomAround,
+  type Point,
+} from './gesture';
 import type { Viewport } from './graph';
 
 /**
@@ -11,6 +19,8 @@ import type { Viewport } from './graph';
  * component stays a thin translation of landmarks into them, exactly the
  * division `lib/gesture.ts` drew for touch.
  */
+
+export type { Point } from './gesture';
 
 /** A press this long while pinched selects what is under the pinch. */
 export const JARVIS_DWELL_MS = 450;
@@ -158,6 +168,48 @@ export function panViewport(start: DragStart, cursor: Point): Viewport {
     x: start.viewport.x + (cursor.x - start.at.x),
     y: start.viewport.y + (cursor.y - start.at.y),
   };
+}
+
+/* ------------------------------------------------------------------------- *
+ * Phase 5 (hand half): edge auto-scroll for the pinch pan.
+ *
+ * The card-drag half of phase 5 (`lib/gesture.ts`) already answers "how
+ * hard is this edge being asked"; the pinch pan asks the same question of
+ * the CURSOR. Holding a pinched hand inside EDGE_ZONE_PX of the surface's
+ * edge keeps the board panning that way, so a large board is traversed in
+ * ONE pinch — the cursor itself never moves (the board moves under it,
+ * exactly as the drag version holds a card under a stationary pointer).
+ * The arithmetic is the drag version's, reused, never duplicated; the only
+ * new pieces are the mode gate and the dt-capped integration step.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The edge auto-scroll velocity for a pinch pan in progress.
+ *
+ * `panning` is the loop's gate — a live ONE-hand pinch pan, which excludes
+ * the pinch being released AND the two-hand zoom (zoom owns the gesture,
+ * phase 4; the post-zoom cooldown blocks pan with it). Gated off, the
+ * answer is zero everywhere; gated on, it is exactly `edgeScrollVelocity`
+ * — per-axis, a corner runs both, a cursor pinned past the surface bound
+ * holds full speed.
+ */
+export function pinchEdgeScroll(
+  cursor: Point,
+  surface: { w: number; h: number },
+  panning: boolean,
+): Point {
+  return panning ? edgeScrollVelocity(cursor, surface) : { x: 0, y: 0 };
+}
+
+/**
+ * One integration step of the edge auto-scroll, with the drag version's dt
+ * cap: a stalled frame (tab switch, GC pause) may not jump the board — past
+ * 100ms the step is computed as if 100ms had passed. Same sign arithmetic
+ * as `scrollViewport`: velocity toward the right/bottom edge moves the
+ * viewport's translate left.
+ */
+export function integrateEdgeScroll(v: Viewport, vel: Point, dtMs: number): Viewport {
+  return scrollViewport(v, vel.x, vel.y, Math.min(dtMs / 1000, 0.1));
 }
 
 /**

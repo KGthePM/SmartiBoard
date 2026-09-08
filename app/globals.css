@@ -936,6 +936,30 @@ button.jarvis-toggle.on {
   background: transparent;
 }
 
+/* Phase 5 (hand half): edge auto-scroll feedback. While the board pans
+   under a STATIONARY cursor — pinch held in the edge zone — the ring gets
+   an arrow (a chevron built from two borders on a ::before, rotated by the
+   velocity's angle through --scroll-deg) and its border reads var(--ink):
+   the one foreground token every theme defines at full strength, so the
+   third state (tracking / panning / SCROLLING) answers in light, dark and
+   neon alike. The arrow is drawn inside .hand-cursor's own box — the ring
+   never grows, never animates anything but its paint. */
+.hand-cursor[data-scroll] {
+  border-color: var(--ink, var(--muted));
+}
+.hand-cursor[data-scroll]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-left: 7px solid var(--ink, var(--muted));
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(var(--scroll-deg, 0deg));
+}
+
 /* Hand 2's ring (tuning round 1): the second tracked hand, so zoom is
    readable at a glance — two filled rings = both pinched = zoom entering or
    active. Same language (accent token, pinch fill, zoom dash), slightly

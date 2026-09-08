@@ -10,11 +10,14 @@ import {
   ZOOM_ENTER_FRAMES,
   cursorObservations,
   edgeFactor,
+  integrateEdgeScroll,
   mapToSurface,
   panViewport,
+  pinchEdgeScroll,
   pinchState,
   twoHandZoomViewport,
   type DragStart,
+  type Point,
   type ZoomStart,
 } from '@/lib/hand';
 import type { Viewport } from '@/lib/graph';
@@ -62,6 +65,14 @@ export type HandCursorFrame = {
   edge: number;
   /** Two-hand zoom mode is active — the ring and the pill both say so. */
   zoom: boolean;
+  /**
+   * Edge auto-scroll is engaged: the board is panning under a STATIONARY
+   * cursor at this velocity (surface px/s, toward the edge the hand holds),
+   * phase 5. `null` when the cursor is out of the edge zone, the pinch is
+   * released, or zoom owns the gesture. The ring's feedback channel for the
+   * scroll — every tracked entity needs its own (phase-2/4 doctrine).
+   */
+  edgeScroll: Point | null;
 };
 
 /**
@@ -185,6 +196,15 @@ export function useHandNav(
         let raf = 0;
         let trackingNow = false;
         let zoomingNow = false;
+        // Edge auto-scroll (phase 5 hand half): the camera feeds ~30fps but
+        // the display runs at its own rate, so velocity is integrated per
+        // DISPLAY frame against the viewport as it stands — the same
+        // dt-capped rAF shape the drag version used. `scrollAt` timestamps
+        // the last step; a stalled stretch past 100ms integrates as 100ms
+        // (the cap lives in `integrateEdgeScroll`). The cursor frame reports
+        // the velocity so the ring can say "the board is scrolling, not you
+        // moving".
+        let scrollAt = performance.now();
         // Opt-in diagnostics (?jarvis-debug=1): when set, every cursor frame
         // carries the zoom machine's readout for Board's paint rAF to copy
         // into the chip. Absent param → an empty string, no other behavior.
@@ -194,8 +214,45 @@ export function useHandNav(
 
         const surfaceBox = () => surfaceRef.current?.getBoundingClientRect();
 
+        // One integration step of the edge auto-scroll, in a rAF the tick
+        // re-arms: gated on the pan branch's own condition, so the scroll
+        // cannot outrun the pinch (released → dead; zoom owns → dead).
+        // Returns the velocity applied so the cursor frame can carry it.
+        // The surface size comes from surfaceBox() — the same rect the
+        // mapped cursor lives in — so this hook never needs the store.
+        const scrollStep = (panning: boolean, cursor: Point): Point => {
+          const box = surfaceBox();
+          const surface = box ? { w: box.width, h: box.height } : null;
+          const vel = surface ? pinchEdgeScroll(cursor, surface, panning) : { x: 0, y: 0 };
+          if (vel.x !== 0 || vel.y !== 0) {
+            const now = performance.now();
+            setViewRef.current(
+              integrateEdgeScroll(getViewRef.current(), vel, now - scrollAt),
+            );
+            scrollAt = now;
+          } else {
+            // Reset the clock while idle, so engagement never integrates the
+            // whole gap since the last time the cursor happened to leave.
+            scrollAt = performance.now();
+          }
+          lastVel = vel;
+          return vel;
+        };
+        // What the most recent scroll step applied — the cursor frame reads
+        // it, so the ring reports a scroll that actually happened.
+        let lastVel: Point = { x: 0, y: 0 };
+
+        // Edge auto-scroll's per-frame gate inputs, written by the camera
+        // branch below and read by the display-rate scroll rAF above (a
+        // latest-value rail — the camera and the display tick at different
+        // rates). `pan` is the SAME condition the pan branch uses, so the
+        // scroll can never be live when the pan is not; the cursor holds the
+        // last MAPPED surface position, exactly the point the user sees.
+        const edgeScrollState = { pan: false, cursor: { x: 0, y: 0 } as Point };
+
         const tick = () => {
           raf = requestAnimationFrame(tick);
+          scrollStep(edgeScrollState.pan, edgeScrollState.cursor);
           if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
           lastVideoTime = video.currentTime;
 
@@ -276,14 +333,23 @@ export function useHandNav(
                 }),
               );
               drag = null;
+              // Zoom owns the gesture (phase 4), so the edge scroll is dead
+              // with the pan — the gate mirrors the branch condition.
+              edgeScrollState.pan = false;
             } else if (panPinch && !two.panBlocked) {
               if (!drag) drag = { at: cursor, viewport: getViewRef.current() };
               setViewRef.current(panViewport(drag, cursor));
               zoomDrag = null;
+              // One-hand pinch pan is live: the scroll gate arms, and the
+              // gate's cursor is exactly the mapped point the ring paints.
+              edgeScrollState.pan = true;
+              edgeScrollState.cursor = cursor;
             } else {
               // Open hands, or the post-zoom cooldown holding pan off.
               drag = null;
               zoomDrag = null;
+              // Pinch released (or cooldown): the scroll dies with it.
+              edgeScrollState.pan = false;
             }
 
             if (cursorRef) {
@@ -310,9 +376,16 @@ export function useHandNav(
                         present: true,
                         edge: edgeFactor(raw2),
                         zoom: two.mode === 'zoom',
+                        // Edge scroll is hand 1's story — only the pan hand
+                        // drives the viewport.
+                        edgeScroll: null,
                       };
                     })()
                   : null;
+              // The frame's velocity is what the scroll rAF last APPLIED (the
+              // gate may have armed this very frame and the step already ran,
+              // or disarmed and zeroed) — the ring reports the scroll that is
+              // real, not the one about to be.
               cursorRef.current = {
                 hands: [
                   {
@@ -322,6 +395,10 @@ export function useHandNav(
                     present: true,
                     edge,
                     zoom: two.mode === 'zoom',
+                    edgeScroll:
+                      lastVel && (lastVel.x !== 0 || lastVel.y !== 0)
+                        ? { x: lastVel.x, y: lastVel.y }
+                        : null,
                   },
                   hand2,
                 ],
@@ -343,6 +420,8 @@ export function useHandNav(
             if (!presence.present(t)) {
               drag = null;
               zoomDrag = null;
+              // No hand, no scroll — the gate dies with the presence.
+              edgeScrollState.pan = false;
               filter.reset();
               zoomer.update([], aspect, t);
               if (zoomingNow) {
@@ -362,6 +441,7 @@ export function useHandNav(
                     present: presence.present(t),
                     edge: h0?.edge ?? 0,
                     zoom: false,
+                    edgeScroll: null,
                   },
                   // Both rings fade together once no hand is seen — there
                   // is no frame to attribute a lone second ring into.
