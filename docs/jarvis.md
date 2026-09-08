@@ -307,14 +307,49 @@ This round adds the eyes and fixes what they already show:
   `ZOOM_ENTER_FRAMES`, `ZOOM_ENTER_DECAY`, `ZOOM_PAN_COOLDOWN_MS`,
   `ZOOM_LOG_STEP_MAX` — the next tuning round is a one-line diff each.
 
+## Tuning round 1 live test (Kyle, 2026-09-08): PASSED
+
+Kyle's second two-hand test, after the solo-entry fix and with the second
+ring visible: **"much easier to zoom now with the second hand cursor
+visible plus bug fix."** The gesture that read as broken-by-design in the
+first test was, in fact, one unguarded index away from working.
+
+**Phase 4 is functionally complete.** What remains in the queue is
+dwell-to-select (the last v0.1 stub concept), not zoom.
+
+## Tuning round 1 lessons
+
+- **Instrument before tuning — and notice that the instrument IS a trace.**
+  The bug was found while *building* the debug chip, before the chip ever
+  rendered: making the second hand's data path explicit enough to display
+  forced the `tracks[-1]` hole into the open. A blind tuning pass (lower
+  the frame gate, soften the thresholds) would have shipped constants
+  apologizing for a crash.
+- **A silent per-frame throw reads as "the gesture doesn't work."** An
+  exception in the rAF loop never shows the user an error — it shows a
+  frozen cursor and a feature that fires "occasionally, and hard to do."
+  In a hot loop, fail loudly or structure the code so it cannot throw;
+  every index into a machine's internal slots gets a guard, because the
+  input (how many hands are visible) is the physical world's, not ours.
+- **Every tracked entity needs its own feedback channel.** Phase 2's
+  lesson was "the user must see the cursor"; phase 4's addendum is "the
+  user must see EACH actor." One ring was the pan story; zoom is a
+  two-hand story, and half its state (hand 2) was invisible, so the
+  gesture was unknowable even when it worked. Visibility scales with the
+  number of participants, not the number of features.
+- **Bugs found in live tests should be explained, not just fixed.** "Zoom
+  is hard to do" and "`matchHands` returns −1 unguarded" are the same
+  fact at two altitudes; the fix was one line, but only connecting them
+  confirmed it was THE fix and not A fix. The re-test passing cleanly —
+  no constant changes needed — is what proves the diagnosis.
+
 ## Verification record
 
 Per AGENTS.md (no browser/screenshot testing), phase 4 as shipped:
 729/729 vitest (35 files; +22 in `lib/hand.test.ts`), `tsc --noEmit` clean,
-working tree clean — plus the live two-hand test Kyle still owes the
-feature. Earlier phases: phase 3 verified 707 tests (+9), phase 2 added 7
-presence tests, phase 1 originally 691 + dev-server 200s on vendored
-assets.
+working tree clean. Earlier phases: phase 3 verified 707 tests (+9), phase
+2 added 7 presence tests, phase 1 originally 691 + dev-server 200s on
+vendored assets.
 
 Tuning round 1: **737/737 vitest** (+8 in `lib/hand.test.ts`: dropout
 decay ×2, honest-reset, second-hand slot seeding, over-slot tolerance,
