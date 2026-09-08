@@ -598,6 +598,8 @@ describe('twoHandZoomViewport', () => {
 
 describe('pinchEdgeScroll / integrateEdgeScroll (phase 5: pinch-pan edge auto-scroll)', () => {
   const SURFACE = { w: 1200, h: 800 };
+  // Same -0 normalization as the implementation: negating 0 yields -0.
+  const neg = (p: { x: number; y: number }) => ({ x: -p.x || 0, y: -p.y || 0 });
 
   it('answers zero when the pan gate is closed — anywhere, even at the edge', () => {
     // Gated off (pinch released, or zoom owning the gesture) the cursor
@@ -607,12 +609,12 @@ describe('pinchEdgeScroll / integrateEdgeScroll (phase 5: pinch-pan edge auto-sc
     expect(pinchEdgeScroll({ x: 3, y: 799 }, SURFACE, false)).toEqual({ x: 0, y: 0 });
   });
 
-  it('gated on, matches edgeScrollVelocity exactly — no duplicated arithmetic', () => {
+  it('gated on, is edgeScrollVelocity INVERTED — no duplicated arithmetic', () => {
     // Interior: dead zone.
     expect(pinchEdgeScroll({ x: 600, y: 400 }, SURFACE, true)).toEqual({ x: 0, y: 0 });
     // Both edges at once: the corner asks both axes.
     expect(pinchEdgeScroll({ x: 10, y: 10 }, SURFACE, true)).toEqual(
-      edgeScrollVelocity({ x: 10, y: 10 }, SURFACE),
+      neg(edgeScrollVelocity({ x: 10, y: 10 }, SURFACE)),
     );
     // Mid-ramp and at the edge itself, every axis sign.
     for (const p of [
@@ -622,15 +624,29 @@ describe('pinchEdgeScroll / integrateEdgeScroll (phase 5: pinch-pan edge auto-sc
       { x: 600, y: 800 },
       { x: 1195, y: 5 },
     ]) {
-      expect(pinchEdgeScroll(p, SURFACE, true)).toEqual(edgeScrollVelocity(p, SURFACE));
+      expect(pinchEdgeScroll(p, SURFACE, true)).toEqual(neg(edgeScrollVelocity(p, SURFACE)));
     }
+  });
+
+  it('the inversion follows the GRAB, not the REVEAL: hand pulling down keeps the board coming down', () => {
+    // Kyle's live test: pinch and pull the board downward — the hand rides
+    // toward the TOP edge. The drag convention would reveal content ABOVE
+    // (scroll up); a grab must keep the board moving down, the direction of
+    // the pull. Top-edge reach answers a downward pull with downward travel.
+    const atTop = pinchEdgeScroll({ x: 600, y: 5 }, SURFACE, true);
+    expect(atTop.x).toBe(0);
+    expect(atTop.y).toBeGreaterThan(0); // +y velocity = board travel downward
+    // Mirror case: pulling the board up (hand at the bottom edge) keeps
+    // travel upward.
+    const atBottom = pinchEdgeScroll({ x: 600, y: 795 }, SURFACE, true);
+    expect(atBottom.y).toBeLessThan(0);
   });
 
   it('a cursor pinned past the surface bound holds full speed (gated on)', () => {
     // mapToSurface clamps, but the helper does not depend on that: past the
-    // edge is full speed, the same answer the drag version gives.
-    expect(pinchEdgeScroll({ x: -50, y: 400 }, SURFACE, true).x).toBe(-EDGE_MAX_SPEED);
-    expect(pinchEdgeScroll({ x: 1300, y: 400 }, SURFACE, true).x).toBe(EDGE_MAX_SPEED);
+    // edge is full speed, inverted like any other answer.
+    expect(pinchEdgeScroll({ x: -50, y: 400 }, SURFACE, true).x).toBe(EDGE_MAX_SPEED);
+    expect(pinchEdgeScroll({ x: 1300, y: 400 }, SURFACE, true).x).toBe(-EDGE_MAX_SPEED);
   });
 
   it('integrates velocity over dt: pan toward right/bottom moves translate left', () => {

@@ -189,16 +189,28 @@ export function panViewport(start: DragStart, cursor: Point): Viewport {
  * `panning` is the loop's gate — a live ONE-hand pinch pan, which excludes
  * the pinch being released AND the two-hand zoom (zoom owns the gesture,
  * phase 4; the post-zoom cooldown blocks pan with it). Gated off, the
- * answer is zero everywhere; gated on, it is exactly `edgeScrollVelocity`
- * — per-axis, a corner runs both, a cursor pinned past the surface bound
+ * answer is zero everywhere; gated on, it is `edgeScrollVelocity` INVERTED
+ * per axis — a corner runs both, a cursor pinned past the surface bound
  * holds full speed.
+ *
+ * Why inverted when the drag version is not: a card dragged to the edge
+ * asks the edge to REVEAL what lies beyond it, but a pinch is a GRAB. The
+ * board follows the hand, so the direction the scroll must continue is the
+ * direction of the pull — hand pulling the board down, edge reached,
+ * keep the board coming down. Negating the velocity does exactly that
+ * (`scrollViewport` maps velocity toward an edge to a viewport move away
+ * from it; negated, the viewport chases the hand's pull).
  */
 export function pinchEdgeScroll(
   cursor: Point,
   surface: { w: number; h: number },
   panning: boolean,
 ): Point {
-  return panning ? edgeScrollVelocity(cursor, surface) : { x: 0, y: 0 };
+  if (!panning) return { x: 0, y: 0 };
+  const vel = edgeScrollVelocity(cursor, surface);
+  // `|| 0` normalizes -0 (negating a zero velocity) to +0 — deep equality
+  // and Object.is tell them apart, and nobody should have to.
+  return { x: -vel.x || 0, y: -vel.y || 0 };
 }
 
 /**
