@@ -175,17 +175,22 @@ export function Board({ boardId }: { boardId: string }) {
   const handCursorRef = useRef<HandCursorFrame | null>(null);
   const handCursorElRef = useRef<HTMLDivElement | null>(null);
   // Hand-control sensitivity: persisted per install in localStorage (the
-  // settings row would want a new column for it), read once at mount, written
-  // by the panel's save through the store. The loop reads it via a
-  // latest-value ref, so a change lands within a tick and the camera — whose
-  // effect depends on [active] ONLY — never tears down.
-  const [jarvisGain, setJarvisGain] = useState(() =>
-    normalizeJarvisGain(
-      typeof window === 'undefined'
-        ? undefined
-        : Number(window.localStorage.getItem('jarvis-gain')),
-    ),
-  );
+  // settings row would want a new column for it). The STORE is the live
+  // channel, per the ghostDelayMs doctrine: the loop reads this through the
+  // hook via a latest-value ref, so the panel's save lands within a tick and
+  // the camera — whose effect depends on [active] ONLY — never tears down.
+  // Subscribing (not snapshotting) is what makes that true: a one-time
+  // useState here would freeze the loop's gain at the mount value.
+  const jarvisGain = useBoard((s) => s.jarvisGain);
+  useEffect(() => {
+    // Seed the store from localStorage once. Absent key means untouched —
+    // keep the store default. (Number(null) is 0, which normalizeJarvisGain
+    // would legally snap to the 1.0 rung — the guard is load-bearing.)
+    const raw = window.localStorage.getItem('jarvis-gain');
+    if (raw !== null) {
+      useBoard.getState().setJarvisGain(normalizeJarvisGain(Number(raw)));
+    }
+  }, []);
   const { status: jarvisStatus, tracking: jarvisTracking } = useHandNav(
     jarvisOn,
     surfaceRef,

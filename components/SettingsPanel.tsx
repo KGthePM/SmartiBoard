@@ -128,11 +128,16 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           setTheme(d.settings.theme);
           setCollapseMode(d.settings.collapseMode);
         }
-        // Not a server setting: sensitivity lives in localStorage (the Board
-        // is its source of truth). Read here so the select shows what is
+        // Not a server setting: sensitivity lives in localStorage (the store
+        // is its live channel). Read here so the select shows what is
         // actually in force rather than a stale default.
         try {
-          setJarvisGain(normalizeJarvisGain(Number(window.localStorage.getItem('jarvis-gain'))));
+          const raw = window.localStorage.getItem('jarvis-gain');
+          if (raw !== null) {
+            // Absent key means untouched — keep the default. (Number(null)
+            // is 0, which normalizeJarvisGain would legally snap to 1.0.)
+            setJarvisGain(normalizeJarvisGain(Number(raw)));
+          }
         } catch {
           /* No storage (private mode etc.): the default stands. */
         }
