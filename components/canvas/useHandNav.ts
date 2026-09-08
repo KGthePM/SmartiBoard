@@ -55,6 +55,15 @@ export function useHandNav(
 ) {
   const [status, setStatus] = useState<JarvisStatus>('off');
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Latest-callback refs: the loop reads this render's functions without the
+  // effect depending on them. Inline arrows from the caller are new objects
+  // every render — deps on them would tear the camera down and re-request it
+  // on every board re-render (autosave flips, ghost ticks), which reads to
+  // the user as the webcam disconnecting in a loop.
+  const getViewRef = useRef(getViewport);
+  const setViewRef = useRef(setViewport);
+  getViewRef.current = getViewport;
+  setViewRef.current = setViewport;
 
   useEffect(() => {
     if (!active) return;
@@ -139,8 +148,8 @@ export function useHandNav(
           const pinching = pinch.update(ratio);
 
           if (pinching) {
-            if (!drag) drag = { at: cursor, viewport: getViewport() };
-            setViewport(panViewport(drag, cursor));
+            if (!drag) drag = { at: cursor, viewport: getViewRef.current() };
+            setViewRef.current(panViewport(drag, cursor));
           } else {
             drag = null;
           }
@@ -169,8 +178,9 @@ export function useHandNav(
       dead = true;
       stop?.();
       cleanupRef.current = null;
+      setStatus('off');
     };
-  }, [active, surfaceRef, getViewport, setViewport]);
+  }, [active]);
 
   return status;
 }
