@@ -7,6 +7,8 @@ import {
   OneEuro,
   PinchDetector,
   TwoHandZoom,
+  ZOOM_ENTER_FRAMES,
+  cursorObservations,
   edgeFactor,
   mapToSurface,
   panViewport,
@@ -48,9 +50,9 @@ export type HandCursorFrame = {
   /** Cursor position in surface pixels (already filtered and mapped). */
   x: number;
   y: number;
-  /** Pinch is ON — the pan gesture is armed or dragging. */
+  /** Pinch is ON — the pan gesture is armed or dragging (hand 1 only). */
   pinching: boolean;
-  /** A hand was seen within the lost-hand grace window. */
+  /** This hand was seen within the lost-hand grace window. */
   present: boolean;
   /**
    * How deep in the camera frame the hand sits, 0 at an edge to 1 in — the
@@ -60,6 +62,22 @@ export type HandCursorFrame = {
   edge: number;
   /** Two-hand zoom mode is active — the ring and the pill both say so. */
   zoom: boolean;
+};
+
+/**
+ * The per-frame payload for BOTH on-screen cursors (tuning round 1: Kyle
+ * could not tell whether his second hand was tracked or when its pinch
+ * registered, so he never knew when zoom was possible). `hands[0]` is slot
+ * 0 — the primary ring, and the only hand that may pan, exactly as before
+ * phase 4; `hands[1]` is the second slot's ring, `null` whenever that hand
+ * is not tracked this frame. Identity is the zoom machine's slot identity
+ * (`matchHands` proximity), so each ring follows the same physical hand
+ * across the landmarker's array shuffling. One ref, zero React state.
+ */
+export type HandCursorFrames = {
+  hands: [HandCursorFrame | null, HandCursorFrame | null];
+  /** The zoom machine's readout (?jarvis-debug=1); '' when off. */
+  debug: string;
 };
 
 const JARVIS_BTN = 'jarvis-toggle';
@@ -87,7 +105,7 @@ export function useHandNav(
   surfaceRef: React.RefObject<HTMLElement | null>,
   getViewport: () => Viewport,
   setViewport: (v: Viewport) => void,
-  cursorRef?: React.RefObject<HandCursorFrame | null>,
+  cursorRef?: React.RefObject<HandCursorFrames | null>,
   jarvisGain?: number,
 ) {
   const [status, setStatus] = useState<JarvisStatus>('off');
@@ -167,6 +185,12 @@ export function useHandNav(
         let raf = 0;
         let trackingNow = false;
         let zoomingNow = false;
+        // Opt-in diagnostics (?jarvis-debug=1): when set, every cursor frame
+        // carries the zoom machine's readout for Board's paint rAF to copy
+        // into the chip. Absent param → an empty string, no other behavior.
+        const debug =
+          typeof window !== 'undefined' &&
+          new URLSearchParams(window.location.search).get('jarvis-debug') === '1';
 
         const surfaceBox = () => surfaceRef.current?.getBoundingClientRect();
 
@@ -207,12 +231,15 @@ export function useHandNav(
             });
             const two = zoomer.update(observations, aspect, t);
 
-            // The cursor hand is whichever observation matched slot 0 — the
-            // hand the user thinks of as "the" hand, whichever array order
-            // it came back in. If slot 0's hand is gone, the visible one
-            // serves so the cursor never freezes on a vanished hand.
-            let obsIdx = two.map.indexOf(0);
-            if (obsIdx === -1) obsIdx = 0;
+            // Which observation drives each on-screen hand. Hand 1 (the
+            // pan hand, ring one) is slot 0's observation, falling back to
+            // the first visible one when slot 0 went unmatched — the
+            // phase-3 rule, unchanged. Hand 2 (ring two) is slot 1's
+            // observation, −1 (no second ring) when that slot is empty.
+            // Attribution rides the slot machine's proximity matching, so
+            // the landmarker shuffling its array order never swaps which
+            // ring follows which hand.
+            const [obsIdx, obs2Idx] = cursorObservations(two.map);
             const hand = landmarks[obsIdx];
             const cursorSlot = two.map[obsIdx] ?? -1;
 
@@ -260,13 +287,47 @@ export function useHandNav(
             }
 
             if (cursorRef) {
+              // Hand 1's frame is built exactly as always (pan behavior is
+              // bit-identical). Hand 2's ring gets the same mapping — mirror,
+              // margin, gain — from its own observation, its own pinch state
+              // from the matched slot's detector, and the same edge fade.
+              const d = zoomer.debugFrame;
+              const hand2 =
+                obs2Idx >= 0 && landmarks[obs2Idx]
+                  ? (() => {
+                      const h2 = landmarks[obs2Idx];
+                      const raw2 = { x: h2[8].x, y: h2[8].y };
+                      const cursor2 = mapToSurface(
+                        raw2,
+                        { w: box.width, h: box.height },
+                        gainRef.current ?? 1.6,
+                      );
+                      const slot2 = two.map[obs2Idx];
+                      return {
+                        x: cursor2.x,
+                        y: cursor2.y,
+                        pinching: slot2 >= 0 ? two.slots[slot2].pinching : false,
+                        present: true,
+                        edge: edgeFactor(raw2),
+                        zoom: two.mode === 'zoom',
+                      };
+                    })()
+                  : null;
               cursorRef.current = {
-                x: cursor.x,
-                y: cursor.y,
-                pinching: panPinch,
-                present: true,
-                edge,
-                zoom: two.mode === 'zoom',
+                hands: [
+                  {
+                    x: cursor.x,
+                    y: cursor.y,
+                    pinching: panPinch,
+                    present: true,
+                    edge,
+                    zoom: two.mode === 'zoom',
+                  },
+                  hand2,
+                ],
+                debug: debug
+                  ? `${d.ratios.map((r) => r.toFixed(2)).join(' ')} | f ${d.stable}/${ZOOM_ENTER_FRAMES} | ${d.mode}`
+                  : '',
               };
             }
             if (two.mode === 'zoom' !== zoomingNow) {
@@ -291,13 +352,22 @@ export function useHandNav(
             }
             if (cursorRef) {
               const prev = cursorRef.current;
+              const h0 = prev?.hands[0];
               cursorRef.current = {
-                x: prev?.x ?? 0,
-                y: prev?.y ?? 0,
-                pinching: false,
-                present: presence.present(t),
-                edge: prev?.edge ?? 0,
-                zoom: false,
+                hands: [
+                  {
+                    x: h0?.x ?? 0,
+                    y: h0?.y ?? 0,
+                    pinching: false,
+                    present: presence.present(t),
+                    edge: h0?.edge ?? 0,
+                    zoom: false,
+                  },
+                  // Both rings fade together once no hand is seen — there
+                  // is no frame to attribute a lone second ring into.
+                  null,
+                ],
+                debug: prev?.debug ?? '',
               };
             }
           }

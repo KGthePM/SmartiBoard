@@ -43,7 +43,7 @@ import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
 import { PrintSheets } from './PrintSheets';
 import { useSync } from './useSync';
-import { useHandNav, type HandCursorFrame } from './useHandNav';
+import { useHandNav, type HandCursorFrame, type HandCursorFrames } from './useHandNav';
 import { statusLabel } from './useHandNav';
 
 const TRIGGER_TICK_MS = 1000;
@@ -172,8 +172,26 @@ export function Board({ boardId }: { boardId: string }) {
   // Per-frame hand feedback rides refs, never state: the loop writes the
   // frame here, and a rAF of our own paints it onto the cursor element's
   // style. Board re-renders only when the pill's tracking word flips.
-  const handCursorRef = useRef<HandCursorFrame | null>(null);
+  const handCursorRef = useRef<HandCursorFrames | null>(null);
   const handCursorElRef = useRef<HTMLDivElement | null>(null);
+  // Hand 2's ring (tuning round 1, Kyle's live-test feedback): he could not
+  // tell whether his second hand was tracked or when its pinch registered,
+  // so he never knew when zoom was possible. Painted by the same rAF, same
+  // visual language, `null` frame = hidden.
+  const handCursor2ElRef = useRef<HTMLDivElement | null>(null);
+  // Diagnostics chip (?jarvis-debug=1), phase-4 tuning round 1. Read ONCE in
+  // an effect, never inline in render — the URL never reaches the server, so
+  // an inline read would hydrate mismatched (the isGuest() rule). When on, a
+  // second imperative element joins the paint rAF below: the chip's
+  // textContent is the zoom machine's per-frame readout, nothing else
+  // changes — absent param means zero visual difference anywhere.
+  const [jarvisDebug, setJarvisDebug] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('jarvis-debug') === '1') {
+      setJarvisDebug(true);
+    }
+  }, []);
+  const handDebugElRef = useRef<HTMLDivElement | null>(null);
   // Hand-control sensitivity: persisted per install in localStorage (the
   // settings row would want a new column for it). The STORE is the live
   // channel, per the ghostDelayMs doctrine: the loop reads this through the
@@ -321,31 +339,44 @@ export function Board({ boardId }: { boardId: string }) {
   useEffect(() => {
     if (!jarvisOn) return;
     let raf = 0;
-    let pinching = false;
-    let present = false;
-    let zooming = false;
-    let opacity = '';
-    const paint = () => {
-      raf = requestAnimationFrame(paint);
-      const el = handCursorElRef.current;
+    // Per-ring paint caches, hand 1 then hand 2. Each ring's presence is a
+    // data attribute + opacity exactly like phase 3; `null` hands[1] hides
+    // ring two entirely.
+    const rings = [
+      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '' },
+      { el: null as HTMLDivElement | null, pinching: false, present: false, zooming: false, opacity: '' },
+    ];
+    let debugText = '';
+    const paintRing = (r: (typeof rings)[number], f: HandCursorFrame | null) => {
+      const el = r.el;
       if (!el) return;
-      const f = handCursorRef.current;
-      if (!f) return;
+      if (!f || !f.present) {
+        if (r.present) {
+          r.present = false;
+          el.removeAttribute('data-present');
+          el.removeAttribute('data-pinch');
+          el.removeAttribute('data-zoom');
+          r.pinching = false;
+          r.zooming = false;
+          el.style.opacity = '0';
+          r.opacity = '0';
+        }
+        return;
+      }
       el.style.transform = `translate(${f.x}px, ${f.y}px)`;
-      if (f.pinching !== pinching) {
-        pinching = f.pinching;
-        if (pinching) el.setAttribute('data-pinch', '');
+      if (!r.present) {
+        r.present = true;
+        el.setAttribute('data-present', '');
+      }
+      if (f.pinching !== r.pinching) {
+        r.pinching = f.pinching;
+        if (f.pinching) el.setAttribute('data-pinch', '');
         else el.removeAttribute('data-pinch');
       }
-      if (f.zoom !== zooming) {
-        zooming = f.zoom;
-        if (zooming) el.setAttribute('data-zoom', '');
+      if (f.zoom !== r.zooming) {
+        r.zooming = f.zoom;
+        if (f.zoom) el.setAttribute('data-zoom', '');
         else el.removeAttribute('data-zoom');
-      }
-      if (f.present !== present) {
-        present = f.present;
-        if (present) el.setAttribute('data-present', '');
-        else el.removeAttribute('data-present');
       }
       // Edge fade (phase 3): while a hand is present, the ring's opacity IS
       // the edge factor — dimming as the hand nears the camera frame's edge,
@@ -353,10 +384,27 @@ export function Board({ boardId }: { boardId: string }) {
       // 150ms transition smooths both the presence fade and the per-frame
       // edge changes; the >0.02 threshold keeps us from churning the style
       // at 30Hz for a change nobody can see.
-      const next = f.present ? String(f.edge) : '0';
-      if (next !== opacity) {
-        opacity = next;
+      const next = String(f.edge);
+      if (next !== r.opacity) {
+        r.opacity = next;
         el.style.opacity = next;
+      }
+    };
+    const paint = () => {
+      raf = requestAnimationFrame(paint);
+      rings[0].el = handCursorElRef.current;
+      rings[1].el = handCursor2ElRef.current;
+      const f = handCursorRef.current;
+      if (!f) return;
+      paintRing(rings[0], f.hands[0]);
+      paintRing(rings[1], f.hands[1]);
+      // Diagnostics chip (phase-4 tuning): copy the loop's readout into the
+      // chip's textContent, only when the string actually changed — a
+      // two-decimal ratio changes a few times a second, not every frame.
+      if (debugText !== f.debug) {
+        debugText = f.debug;
+        const chip = handDebugElRef.current;
+        if (chip) chip.textContent = debugText;
       }
     };
     raf = requestAnimationFrame(paint);
@@ -1082,6 +1130,12 @@ export function Board({ boardId }: { boardId: string }) {
             one's events. */}
         {jarvisOn ? (
           <div ref={handCursorElRef} className="hand-cursor" aria-hidden="true" />
+        ) : null}
+        {jarvisOn ? (
+          <div ref={handCursor2ElRef} className="hand-cursor hand-cursor-2" aria-hidden="true" />
+        ) : null}
+        {jarvisOn && jarvisDebug ? (
+          <div ref={handDebugElRef} className="jarvis-debug" aria-hidden="true" />
         ) : null}
       </div>
 

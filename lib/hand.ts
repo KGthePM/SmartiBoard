@@ -182,8 +182,30 @@ export function handZoomViewport(v: Viewport, at: Point, ratio: number): Viewpor
  * them and the clamp cannot ratchet.
  * ------------------------------------------------------------------------- */
 
-/** Consecutive frames with both hands pinched before zoom engages. */
+/**
+ * Consecutive frames with both hands pinched before zoom engages. Tuning
+ * round 1 kept this at 3: the live test's hard entry traced, in the code
+ * path, to a real bug (a second hand entering the frame alone indexed an
+ * empty slot and killed the tick — see `update`), not to the count, and the
+ * dropout decay below now protects the climb anyway. Lowering to 2 was
+ * considered and rejected — with a 2-frame entry the decay rule can never
+ * hold partial progress (the count never exceeds 1 while idle), and the
+ * live test showed zoom firing *occasionally* already, so a hair-trigger
+ * is not the failure mode to encourage.
+ */
 export const ZOOM_ENTER_FRAMES = 3;
+
+/**
+ * Entry-climb forgiveness, in frames of progress lost per frame a hand is
+ * MISSING (not seen at all). A detection dropout used to reset the climb to
+ * zero, so a hand that blinked for one frame near the top of the count had
+ * to start over — measured in the phase-4 live test as the entry that would
+ * not fire. Now the count decays by this much per missed frame and keeps
+ * climbing when the hand returns. A frame where both hands are SEEN and one
+ * is genuinely open still resets to zero — forgiveness is for the tracker,
+ * never for a pinch the camera watched open.
+ */
+export const ZOOM_ENTER_DECAY = 1;
 
 /**
  * After zoom ends, this long passes before a pinch may pan again — so the
@@ -204,7 +226,30 @@ export const ZOOM_LOG_STEP_MAX = 0.02;
 export type HandObservation = { mid: Point; ratio: number };
 
 /** A persistent hand slot the tracker matches observations into. */
-export type HandSlotState = { seen: boolean; mid: Point; pinching: boolean };
+export type HandSlotState = {
+  seen: boolean;
+  mid: Point;
+  pinching: boolean;
+  /** The latest raw pinch ratio the slot's detector was fed (diagnostics). */
+  ratio: number;
+};
+
+/**
+ * Which observation drives each hand's on-screen cursor, by slot.
+ *
+ * Returns `[obsForHand1, obsForHand2]` — indexes into the frame's
+ * observations. Slot 0 falls back to observation 0 when its own hand went
+ * unmatched (the primary cursor must follow whichever hand is visible, the
+ * phase-3 rule); slot 1's index is −1 when no second hand is tracked this
+ * frame. Identity rides the slot machine's `matchHands` proximity, so
+ * "hand 1" and "hand 2" stay the same physical hands even when the
+ * landmarker swaps its array order. Pure — this is the whole attribution
+ * rule the loop uses.
+ */
+export function cursorObservations(map: number[]): [number, number] {
+  const i0 = map.indexOf(0);
+  return [i0 === -1 ? 0 : i0, map.indexOf(1)];
+}
 
 /** The zoom signal for one frame, relative to the entry baseline. */
 export type ZoomFrame = {
@@ -212,6 +257,19 @@ export type ZoomFrame = {
   ratio: number;
   /** The two-hand midpoint in RAW normalized camera coords (not mapped). */
   mid: Point;
+};
+
+/**
+ * The zoom machine's per-frame readout for the ?jarvis-debug=1 chip — one
+ * frame of pure data, no React state: each visible hand's raw pinch ratio,
+ * whether both slots read pinched, the entry counter, and the mode (pan /
+ * armed = climbing toward entry / zoom / cooldown).
+ */
+export type ZoomDebugFrame = {
+  mode: 'pan' | 'armed' | 'zoom' | 'cooldown';
+  both: boolean;
+  stable: number;
+  ratios: number[];
 };
 
 /** Everything the loop needs from the two-hand tracker, per frame. */
@@ -338,7 +396,7 @@ export function twoHandZoomViewport(
   };
 }
 
-type ZoomTrack = { mid: Point; seen: boolean; pinch: PinchDetector };
+type ZoomTrack = { mid: Point; seen: boolean; pinch: PinchDetector; ratio: number };
 
 /**
  * The two-hand zoom machine: identity, mode, baseline, rate limit.
@@ -359,9 +417,16 @@ export class TwoHandZoom {
   private baseline = 0;
   private applied = 0;
   private blockedUntil = -Infinity;
+  /** What the entry climb did last frame — the diagnostics chip shows it. */
+  private lastFrame: ZoomDebugFrame = { mode: 'pan', both: false, stable: 0, ratios: [] };
 
   get isZooming(): boolean {
     return this.mode === 'zoom';
+  }
+
+  /** The machine's last frame, for the ?jarvis-debug=1 readout. Pure data. */
+  get debugFrame(): ZoomDebugFrame {
+    return this.lastFrame;
   }
 
   update(obs: HandObservation[], aspect: number, nowMs: number): TwoHandFrame {
@@ -372,12 +437,13 @@ export class TwoHandZoom {
       // re-baseline after dropout: the next entry measures the distance anew.
       this.tracks = [];
       if (this.mode === 'zoom') this.exitZoom(nowMs);
-      this.stable = 0;
+      this.stable = Math.max(0, this.stable - ZOOM_ENTER_DECAY);
     } else if (this.tracks.length === 0) {
       this.tracks = obs.slice(0, 2).map((o) => ({
         mid: o.mid,
         seen: true,
         pinch: new PinchDetector(),
+        ratio: o.ratio,
       }));
       for (let i = 0; i < this.tracks.length; i++) {
         this.tracks[i].pinch.update(obs[i].ratio);
@@ -390,25 +456,60 @@ export class TwoHandZoom {
         obs.map((o) => o.mid),
       );
       for (let i = 0; i < obs.length; i++) {
-        const tr = this.tracks[assign[i]];
+        let j = assign[i];
+        if (j === -1 && this.tracks.length < 2) {
+          // A hand the previous frame never saw — the common case is a
+          // second hand entering the frame while one is already tracked. It
+          // gets a FRESH SLOT with its own PinchDetector, or both-pinched
+          // would be literally unenterable until both hands left the frame
+          // and returned together. (This used to index tracks[-1] and throw
+          // every frame — the phase-4 live test's "zoom won't fire".)
+          this.tracks.push({
+            mid: obs[i].mid,
+            seen: true,
+            pinch: new PinchDetector(),
+            ratio: obs[i].ratio,
+          });
+          j = this.tracks.length - 1;
+        }
+        const tr = this.tracks[j];
+        if (!tr) continue; // More hands than slots: the extra is dropped.
         tr.seen = true;
         tr.mid = obs[i].mid;
         tr.pinch.update(obs[i].ratio);
-        map[i] = assign[i];
+        tr.ratio = obs[i].ratio;
+        map[i] = j;
       }
     }
 
     const state = (i: number): HandSlotState =>
       this.tracks[i]
-        ? { seen: this.tracks[i].seen, mid: this.tracks[i].mid, pinching: this.tracks[i].pinch.isOn }
-        : { seen: false, mid: { x: 0, y: 0 }, pinching: false };
+        ? {
+            seen: this.tracks[i].seen,
+            mid: this.tracks[i].mid,
+            pinching: this.tracks[i].pinch.isOn,
+            ratio: this.tracks[i].ratio,
+          }
+        : { seen: false, mid: { x: 0, y: 0 }, pinching: false, ratio: 1 };
     const s0 = state(0);
     const s1 = state(1);
     const both = s0.seen && s1.seen && s0.pinching && s1.pinching;
 
     let zoom: ZoomFrame | null = null;
     if (this.mode === 'idle') {
-      this.stable = both ? this.stable + 1 : 0;
+      if (both) {
+        this.stable += 1;
+      } else if (s0.seen && s1.seen) {
+        // Both hands visible and at least one genuinely open: a real miss,
+        // the count starts over. Forgiveness (the decay above) is only for
+        // frames the tracker dropped the hand from entirely.
+        this.stable = 0;
+      } else {
+        // A hand blinked out of detection mid-climb: lose one frame of
+        // progress, not the whole count. The ENTER condition itself stays
+        // honest — zoom engages on a both-seen, both-pinched frame only.
+        this.stable = Math.max(0, this.stable - ZOOM_ENTER_DECAY);
+      }
       if (this.stable >= ZOOM_ENTER_FRAMES) {
         this.mode = 'zoom';
         // Entry baseline: reset filter, feed the entry distance — the first
@@ -437,6 +538,23 @@ export class TwoHandZoom {
         zoom = { ratio: Math.exp(this.applied), mid: midpoint(s0.mid, s1.mid) };
       }
     }
+
+    // The readout, one object per frame — the chip reads it through
+    // Board's paint rAF; nothing here reaches React state.
+    const nowMode: ZoomDebugFrame['mode'] =
+      this.mode === 'zoom'
+        ? 'zoom'
+        : nowMs < this.blockedUntil
+          ? 'cooldown'
+          : this.stable > 0
+            ? 'armed'
+            : 'pan';
+    this.lastFrame = {
+      mode: nowMode,
+      both,
+      stable: Math.min(this.stable, ZOOM_ENTER_FRAMES),
+      ratios: [s0.ratio, s1.ratio],
+    };
 
     return {
       map,

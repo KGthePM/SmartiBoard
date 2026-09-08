@@ -258,6 +258,55 @@ arm's length is a body question no test suite answers.
   ±2% cap is doing its job); holding at the baseline until the applied
   value converges is what proves the walk comes home at all.
 
+## Phase 4, tuning round 1 (2026-09-08)
+
+Kyle's first two-hand live test: zoom triggered occasionally, but the
+gesture was **hard to do** and nobody could say why — tuning was blind.
+This round adds the eyes and fixes what they already show:
+
+- **The bug the live test was feeling: a second hand entering the frame
+  alone killed the loop.** `matchHands` answers −1 for an observation with
+  no previous hand to match, and the update loop indexed straight into the
+  slots with it — `tracks[-1]`, undefined, a throw in the rAF tick, every
+  frame after that. Raise your second hand while one was already tracked
+  (the natural way to start the gesture) and the cursor froze, pan died,
+  and zoom could only enter when both hands happened to arrive together.
+  That is "occasionally, and hard to do" exactly. Unmatched observations
+  now seed a fresh slot — with its own `PinchDetector`, which the hypothesized
+  "slot 1 has no detector" bug never actually lacked — and a third hand over
+  a full machine is dropped, not thrown on. (**Instrumentation found this
+  before the first debug chip was ever rendered — writing the readout forced
+  the second hand's data path to be traced.**)
+- **The entry climb forgives detection dropouts.** A frame where a hand
+  blinks out of the tracker used to reset the stability count to zero; it
+  now decays by `ZOOM_ENTER_DECAY` (1) per missed frame, so a hand that
+  flickers near the top of the climb loses one frame of progress, not the
+  climb. A frame where both hands are SEEN and one is genuinely open still
+  resets — the forgiveness is for the tracker, never for a pinch the camera
+  watched open. `ZOOM_ENTER_FRAMES` stays 3: with 2, decay can never hold
+  partial progress (the count never exceeds 1 while idle), and the live
+  test's failure was the crash above, not the count.
+- **A second cursor ring for hand 2.** Kyle had no way to see whether his
+  second hand was tracked or when its pinch registered, so he could never
+  tell when zoom was possible. The loop now writes BOTH hands' frames
+  through the one ref (`hands[0]` / `hands[1]`, hand 1 mapped exactly as
+  before — pan behavior is unchanged), and Board's paint rAF paints a
+  second, smaller, outlined ring that fades in with hand 2's presence and
+  fills on ITS pinch. **Two filled rings = zoom entering or active.** Each
+  ring follows the same physical hand across the landmarker's array
+  shuffling (`cursorObservations` reads the slot machine's proximity map,
+  not array order).
+- **The debug chip** — `?jarvis-debug=1` renders a small monospace readout
+  under the pill, written imperatively from the paint rAF (zero per-frame
+  React state; the param is read once in an effect, the hydrate-safety
+  rule): `0.41 0.63 | f 1/3 | pan` — each visible hand's raw pinch ratio,
+  the entry counter, and the mode (`pan` / `armed` / `zoom` / `cooldown`).
+  Absent the param, the board is pixel-identical to before. The next live
+  test is diagnostic instead of blind.
+- **The tuning constants are now named and central** in `lib/hand.ts`:
+  `ZOOM_ENTER_FRAMES`, `ZOOM_ENTER_DECAY`, `ZOOM_PAN_COOLDOWN_MS`,
+  `ZOOM_LOG_STEP_MAX` — the next tuning round is a one-line diff each.
+
 ## Verification record
 
 Per AGENTS.md (no browser/screenshot testing), phase 4 as shipped:
@@ -266,6 +315,11 @@ working tree clean — plus the live two-hand test Kyle still owes the
 feature. Earlier phases: phase 3 verified 707 tests (+9), phase 2 added 7
 presence tests, phase 1 originally 691 + dev-server 200s on vendored
 assets.
+
+Tuning round 1: **737/737 vitest** (+8 in `lib/hand.test.ts`: dropout
+decay ×2, honest-reset, second-hand slot seeding, over-slot tolerance,
+`cursorObservations` attribution ×4, and the entry-frame test re-anchored),
+`tsc --noEmit` clean.
 
 **Run it:** check out `jarvis/webcam-hand-nav`, `./start.sh` (or
 `./start.sh --lan`), open a board, click **Hand control** in the status row,

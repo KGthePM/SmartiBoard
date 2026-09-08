@@ -936,6 +936,45 @@ button.jarvis-toggle.on {
   background: transparent;
 }
 
+/* Hand 2's ring (tuning round 1): the second tracked hand, so zoom is
+   readable at a glance — two filled rings = both pinched = zoom entering or
+   active. Same language (accent token, pinch fill, zoom dash), slightly
+   smaller and outlined so the hands are tellable apart. Hidden until its
+   hand is present (JS writes opacity/attributes; a null frame just fades). */
+.hand-cursor-2 {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  /* Outlined pinch fill: the accent ring, not the solid dot. */
+  border-width: 2px;
+}
+.hand-cursor-2[data-pinch] {
+  background: color-mix(in srgb, var(--accent, var(--muted)) 35%, transparent);
+  border-color: var(--accent, var(--muted));
+}
+
+/* Project Jarvis diagnostics (?jarvis-debug=1), phase-4 tuning round 1: a
+   small monospace readout of the zoom mode machine, under the pill's corner
+   of the status row. textContent is written imperatively by Board's paint
+   rAF; this element never re-renders. Tokens only, so all three themes
+   answer it. Not rendered without the query param — absent it, the board is
+   pixel-identical to before. */
+.jarvis-debug {
+  position: fixed;
+  bottom: calc(40px + env(safe-area-inset-bottom));
+  right: calc(16px + env(safe-area-inset-right));
+  font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line, var(--muted));
+  border-radius: 6px;
+  padding: 2px 8px;
+  pointer-events: none;
+  z-index: 4;
+  white-space: pre;
+}
+
 .legend {
   position: fixed;
   bottom: calc(14px + env(safe-area-inset-bottom));

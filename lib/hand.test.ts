@@ -6,6 +6,7 @@ import {
   JARVIS_DEFAULT_GAIN,
   PINCH_OFF,
   PINCH_ON,
+  ZOOM_ENTER_DECAY,
   ZOOM_ENTER_FRAMES,
   ZOOM_LOG_STEP_MAX,
   ZOOM_PAN_COOLDOWN_MS,
@@ -14,6 +15,7 @@ import {
   PinchDetector,
   HandPresence,
   TwoHandZoom,
+  cursorObservations,
   edgeFactor,
   handPresent,
   handZoomViewport,
@@ -289,6 +291,30 @@ describe('matchHands', () => {
   });
 });
 
+describe('cursorObservations', () => {
+  it('maps slot 0 to its own observation and slot 1 to its own', () => {
+    // obs 0 → slot 1, obs 1 → slot 0 (landmarker order flipped).
+    expect(cursorObservations([1, 0])).toEqual([1, 0]);
+  });
+
+  it('keeps each ring on the same physical hand across an order swap', () => {
+    // Same two hands, order swapped between frames: the attribution flips
+    // with the map, so ring 1 keeps following the same physical hand.
+    expect(cursorObservations([0, 1])).toEqual([0, 1]);
+    expect(cursorObservations([1, 0])).toEqual([1, 0]);
+  });
+
+  it('falls back to observation 0 for an unmatched slot 0', () => {
+    // Slot 0's hand vanished; the primary cursor follows the visible one.
+    expect(cursorObservations([1])).toEqual([0, 0]);
+    expect(cursorObservations([])).toEqual([0, -1]);
+  });
+
+  it('answers -1 for hand 2 when only one hand is seen', () => {
+    expect(cursorObservations([0])).toEqual([0, -1]);
+  });
+});
+
 describe('zoomDistance', () => {
   it('is aspect-corrected: x is scaled by width/height before the hypot', () => {
     // Two hands spread horizontally on a 16:9 frame. Uncorrected, the
@@ -377,15 +403,73 @@ describe('TwoHandZoom mode machine', () => {
     expect(entry.zoom!.ratio).toBe(1);
   });
 
-  it('counts consecutive frames: one unpinched frame resets the stability count', () => {
+  it('counts frames honestly: one genuinely open pinch resets the stability count', () => {
     const t = new TwoHandZoom();
     spread(t, 0.3, 0.7, 0);
     spread(t, 0.3, 0.7, 33);
-    // A fumble — one hand opens for a frame.
+    // A fumble — one hand opens for a frame, BOTH hands still seen. That is
+    // a real miss, not a dropout: the count starts over (no decay credit).
     t.update([obs(0.3, 0.5, true), obs(0.7, 0.5, false)], 1, 66);
     expect(spread(t, 0.3, 0.7, 99).mode).toBe('idle');
     expect(spread(t, 0.3, 0.7, 132).mode).toBe('idle');
     expect(spread(t, 0.3, 0.7, 165).mode).toBe('zoom');
+  });
+
+  it('forgives a detection dropout: climb, lose a hand for a frame, climb — enters', () => {
+    const t = new TwoHandZoom();
+    // Two stability frames.
+    spread(t, 0.3, 0.7, 0);
+    spread(t, 0.3, 0.7, 33);
+    // Hand 2 blinks out of DETECTION (not open — gone). The count decays
+    // by ZOOM_ENTER_DECAY (2 → 1) instead of resetting to zero: a hand
+    // that blinks does not restart the climb.
+    t.update([obs(0.3, 0.5, true)], 1, 66);
+    // One both-pinched frame restores the count (1 → 2)…
+    expect(spread(t, 0.3, 0.7, 99).mode).toBe('idle');
+    // …and the next one enters — one frame sooner than reset-to-zero,
+    // and the ENTER condition itself stayed honest throughout.
+    expect(spread(t, 0.3, 0.7, 132).mode).toBe('zoom');
+    expect(ZOOM_ENTER_DECAY).toBe(1);
+  });
+
+  it('a dropout at the top of the climb costs one frame, not the whole count', () => {
+    const t = new TwoHandZoom();
+    // Climb to one below entry (count 2 of 3).
+    for (let i = 0; i < ZOOM_ENTER_FRAMES - 1; i++) spread(t, 0.3, 0.7, i * 33);
+    // One dropped frame decays to 1 — it does NOT annihilate the climb.
+    t.update([], 1, 99);
+    // Two both-pinched frames restore the count to 2… (reset-to-zero would
+    // still be at 1 here)
+    expect(spread(t, 0.3, 0.7, 132).mode).toBe('idle');
+    expect(spread(t, 0.3, 0.7, 165).mode).toBe('idle');
+    // …and the third enters. Net cost of the dropout: one frame, not the
+    // whole climb.
+    expect(spread(t, 0.3, 0.7, 198).mode).toBe('zoom');
+  });
+
+  it('a second hand entering while one is tracked gets its own pinch detector', () => {
+    const t = new TwoHandZoom();
+    // Only hand 1 visible and pinching (pan posture) — one slot seeded.
+    t.update([obs(0.3, 0.5, true)], 1, 0);
+    // Hand 2 enters the frame ALREADY pinched. This used to index
+    // tracks[-1] and throw every frame; now it seeds a fresh slot with its
+    // own detector, so both-pinched is reachable without both hands having
+    // entered the frame together.
+    expect(t.update([obs(0.3, 0.5, true), obs(0.7, 0.5, true)], 1, 33).mode).toBe('idle');
+    expect(t.update([obs(0.3, 0.5, true), obs(0.7, 0.5, true)], 1, 66).mode).toBe('idle');
+    const out = t.update([obs(0.3, 0.5, true), obs(0.7, 0.5, true)], 1, 99);
+    expect(out.mode).toBe('zoom');
+    expect(out.slots[0].pinching).toBe(true);
+    expect(out.slots[1].pinching).toBe(true);
+  });
+
+  it('never throws when more observations arrive than there are slots', () => {
+    const t = new TwoHandZoom();
+    t.update([obs(0.3, 0.5, true)], 1, 0);
+    // Three hands on a two-slot machine: the unmatched extra is dropped.
+    expect(() =>
+      t.update([obs(0.3, 0.5, true), obs(0.7, 0.5, true), obs(0.5, 0.2, true)], 1, 33),
+    ).not.toThrow();
   });
 
   it('matches hands across an order swap mid-zoom without a ratio spike', () => {
