@@ -876,6 +876,28 @@ html, body {
 }
 /* The only save state that gets its own color: informed, not alarmed. */
 .status .save-error { color: var(--mark-amber); }
+
+/* Project Jarvis: hand-control toggle. A quiet pill in the status row, styled
+   entirely from tokens so all three themes answer it — the camera affordance
+   must not be a hardcoded color that breaks on a dark install. The `on` state
+   is the accent (Light blue / Dark raised / Neon glow) so the running camera
+   is always visible at a glance. */
+.jarvis-toggle,
+button.jarvis-toggle {
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--line, var(--muted));
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.jarvis-toggle.on,
+button.jarvis-toggle.on {
+  color: var(--accent, var(--muted));
+  border-color: var(--accent, var(--muted));
+}
 .legend {
   position: fixed;
   bottom: calc(14px + env(safe-area-inset-bottom));

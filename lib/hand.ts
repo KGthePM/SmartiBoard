@@ -1,0 +1,164 @@
+import { distance, midpoint, zoomAround, clampScale, type Point } from './gesture';
+import type { Viewport } from './graph';
+
+/**
+ * Project Jarvis: hand gestures, as arithmetic.
+ *
+ * The webcam never reaches React state. A loop feeds filtered landmark
+ * positions in, and this module answers with the viewport/cursor changes a
+ * mouse could have made — nothing a pointer device could not already do, per
+ * the Touch doctrine. The math is pure so the rules are testable and the
+ * component stays a thin translation of landmarks into them, exactly the
+ * division `lib/gesture.ts` drew for touch.
+ */
+
+/** A press this long while pinched selects what is under the pinch. */
+export const JARVIS_DWELL_MS = 450;
+
+/**
+ * Pinch detection with hysteresis, in units of hand size (wrist to
+ * middle-MCP distance). Absolute pixel distances drift with camera distance;
+ * hand size does not, so "closed" is a fraction of your own hand.
+ */
+export const PINCH_ON = 0.35;
+export const PINCH_OFF = 0.55;
+
+/**
+ * The One Euro filter (Casiez, Roussel & Vogel, CHI 2012) — adaptive jitter
+ * killing: hard at rest, open at speed, so pans are not punished with lag.
+ * One filter per axis on the derived cursor point, not on the 21 landmarks.
+ */
+export class OneEuro {
+  private prev: Point | null = null;
+  private prevD: Point | null = null;
+  private t: number | undefined;
+
+  constructor(
+    private minCutoff = 1.0,
+    private beta = 0.02,
+    private dCutoff = 1.0,
+  ) {}
+
+  private alpha(cutoff: number, dt: number): number {
+    const tau = 1 / (2 * Math.PI * cutoff);
+    return 1 / (1 + tau / dt);
+  }
+
+  filter(p: Point, tMs: number): Point {
+    if (!this.prev || this.t === undefined || !this.prevD) {
+      this.prev = p;
+      this.prevD = { x: 0, y: 0 };
+      this.t = tMs;
+      return p;
+    }
+    const dt = Math.max((tMs - this.t) / 1000, 1e-6);
+    const d: Point = { x: (p.x - this.prev.x) / dt, y: (p.y - this.prev.y) / dt };
+    const ad = this.alpha(this.dCutoff, dt);
+    const fd: Point = {
+      x: this.prevD.x + ad * (d.x - this.prevD.x),
+      y: this.prevD.y + ad * (d.y - this.prevD.y),
+    };
+    const cutoff = this.minCutoff + this.beta * Math.hypot(fd.x, fd.y);
+    const a = this.alpha(cutoff, dt);
+    const out: Point = {
+      x: this.prev.x + a * (p.x - this.prev.x),
+      y: this.prev.y + a * (p.y - this.prev.y),
+    };
+    this.prev = out;
+    this.prevD = fd;
+    this.t = tMs;
+    return out;
+  }
+
+  reset(): void {
+    this.prev = null;
+    this.prevD = null;
+    this.t = undefined;
+  }
+}
+
+/** The two landmarks a pinch is measured between. */
+export type PinchLandmarks = { thumb: Point; index: Point; wrist: Point; middleMcp: Point };
+
+/** Raw pinch state derived from one frame's landmarks. */
+export function pinchState(l: PinchLandmarks): number {
+  const handSize = distance(l.wrist, l.middleMcp);
+  if (handSize <= 0) return 1;
+  return distance(l.thumb, l.index) / handSize;
+}
+
+/** Hysteresis machine: pinch reads on only after it has read off. */
+export class PinchDetector {
+  private on = false;
+
+  update(ratio: number): boolean {
+    if (!this.on && ratio < PINCH_ON) this.on = true;
+    else if (this.on && ratio > PINCH_OFF) this.on = false;
+    return this.on;
+  }
+
+  get isOn(): boolean {
+    return this.on;
+  }
+}
+
+/** What the cursor remembers between frames while pinching. */
+export type DragStart = {
+  /** Surface coordinates of the cursor when the pinch closed. */
+  at: Point;
+  /** The viewport as it stood. */
+  viewport: Viewport;
+};
+
+/**
+ * The viewport for a closed pinch at `cursor`, relative to where it closed.
+ *
+ * An open hand pans nothing — only a pinched hand moves the board, so a
+ * stretch or a wander never drags the canvas by accident. The math is the
+ * plain drag: translate the viewport by the cursor's travel in surface
+ * pixels.
+ */
+export function panViewport(start: DragStart, cursor: Point): Viewport {
+  return {
+    scale: start.viewport.scale,
+    x: start.viewport.x + (cursor.x - start.at.x),
+    y: start.viewport.y + (cursor.y - start.at.y),
+  };
+}
+
+/**
+ * The viewport for a pinch held while the second consideration applies:
+ * zoom. Jarvis zooms by *holding* the pinch and dwelling — but for v1 the
+ * closed pinch is one gesture only (pan), and zoom stays on the wheel and
+ * touch pinch. Kept here so the doctrine has one home when zoom-by-hand
+ * lands: always through `zoomAround`, anchored under the cursor.
+ */
+export function handZoomViewport(v: Viewport, at: Point, ratio: number): Viewport {
+  return zoomAround(v, at, clampScale(v.scale * ratio));
+}
+
+/**
+ * Cursor position in surface coordinates from a filtered landmark point.
+ *
+ * The hand's normalized camera-space x/y (0..1) maps to the surface with a
+ * margin, mirrored: moving your hand right moves the cursor right, which a
+ * camera's unmirrored feed would otherwise invert. The margin keeps the
+ * board reachable without sweeping to the frame's edge, and lets a small
+ * hand motion cover the whole surface (gain).
+ */
+export function mapToSurface(
+  p: Point,
+  surface: { w: number; h: number },
+  gain = 1.6,
+  margin = 0.15,
+): Point {
+  const span = 1 - 2 * margin;
+  const nx = Math.min(1, Math.max(0, (p.x - margin) / span));
+  const ny = Math.min(1, Math.max(0, (p.y - margin) / span));
+  // Gain > 1 deliberately overshoots the frame's reach — a small hand motion
+  // covers the whole surface — so the result is clamped to the surface.
+  return {
+    x: Math.min(surface.w, Math.max(0, (0.5 + (nx - 0.5) * gain) * surface.w)),
+    y: Math.min(surface.h, Math.max(0, (0.5 + (ny - 0.5) * gain) * surface.h)),
+  };
+}

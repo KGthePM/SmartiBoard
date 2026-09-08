@@ -42,6 +42,8 @@ import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
 import { PrintSheets } from './PrintSheets';
 import { useSync } from './useSync';
+import { useHandNav } from './useHandNav';
+import { statusLabel } from './useHandNav';
 
 const TRIGGER_TICK_MS = 1000;
 
@@ -162,6 +164,16 @@ export function Board({ boardId }: { boardId: string }) {
    */
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
+  // Project Jarvis: hand control, off until asked. The camera and the model
+  // live inside the hook; the board only sees a status word and a viewport
+  // arriving through the same setViewport the wheel uses.
+  const [jarvisOn, setJarvisOn] = useState(false);
+  const jarvisStatus = useHandNav(
+    jarvisOn,
+    surfaceRef,
+    () => useBoard.getState().viewport,
+    (v) => useBoard.getState().setViewport(v),
+  );
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
   const lastDeleteAt = useRef(0);
@@ -1015,6 +1027,14 @@ export function Board({ boardId }: { boardId: string }) {
             </span>
             {suggesting ? <span>thinking…</span> : null}
             <span>{board.nodes.length} ideas</span>
+            <button
+              type="button"
+              className={jarvisOn ? 'jarvis-toggle on' : 'jarvis-toggle'}
+              onClick={() => setJarvisOn((on) => !on)}
+              disabled={jarvisStatus === 'loading' || jarvisStatus === 'asking'}
+            >
+              {statusLabel(jarvisStatus)}
+            </button>
           </div>
         </>
       )}
