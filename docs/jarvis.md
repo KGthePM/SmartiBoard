@@ -71,22 +71,43 @@ and fixed in the same session (`36031ff`):
 hesitation/jitter at speed. Good enough to validate the concept; not yet
 something to demo without a caveat.
 
-## Phase 2 — refinement queue (unordered)
+## Phase 2 — feedback (shipped, `1cfbfa7`, 2026-09-08)
 
-1. **Tuning pass on real hands**: beta and gain feel off by default; expose
-   them (Settings? query param? dev panel) and find values that feel right.
-2. **Zoom by hand** — hold pinch with a second hand or dwell-to-zoom; must go
-   through `zoomAround` like every other zoom.
-3. **Select/drag cards** — dwell-to-click on a card; needs the same
-   click-vs-drag slop thinking as touch (see AGENTS.md "Touch").
-4. **On-screen cursor** — show the filtered cursor while the hand is up so
-   users get feedback about *why* nothing is panning yet.
-5. **Multi-hand policy** — currently `numHands: 1`; decide deliberately if
-   that ever becomes 2.
-6. **Lost-hand grace** — a 200-300ms hold on pan when detection drops a frame
-   or two, instead of immediately ending the drag.
-7. **Performance check on the worst machine** (Intel UHD 630) — GPU delegate
-   fallback ladder if WebGL misbehaves (CPU delegate, 640×480, frame skip).
+Kyle's first live test was blind: he could not tell whether his hand was
+detected, where the cursor was, or when the pinch had registered. Phase 2
+answers all three, still with zero per-frame React state:
+
+- **On-screen cursor** (queue #4) — a small ring at the filtered cursor
+  position, rendered by `Board.tsx` inside `.viewport` but **outside
+  `.world`** (surface pixels must not inherit the viewport transform). The
+  camera loop writes `{x, y, pinching, present}` frames into a ref;
+  `Board` paints them with its own rAF via imperative style writes only.
+  Fades out (150ms, the only animation) when the hand drops.
+- **Pinch state** — the ring fills solid on the same frame the pinch fires.
+  With no haptic channel (Ultraleap / Meta guidance) that visual is the only
+  confirmation the pan started.
+- **Lost-hand grace** (queue #6) — `HAND_LOST_GRACE_MS = 250` and
+  `HandPresence`/`handPresent` in `lib/hand.ts` (pure, tested): a dropped
+  frame or two no longer blinks the cursor or ends a pan; the One Euro
+  filter resets once the grace expires so a returning hand starts fresh.
+- **Pill text** — running-but-untracked says *"show your hand to the
+  camera"*; tracking flips it to the pinch hint.
+
+Squad-built (Scout research + Forge implementation), verified independently:
+698/698 tests (+7 presence tests), typecheck clean, build clean, dev server
+200 on `/board/demo`, and Kyle's live hand test — passed.
+
+## Phase 3 — queue (next session)
+
+1. **Direction inversion fix** — Kyle reports hand left → cursor right and
+   vice versa. The mirroring in `mapToSurface` is backwards in practice;
+   flip the x mapping and re-test live.
+2. **Sensitivity setting** — gain is fixed at 1.6 and feels quick. Expose it
+   (Settings? query param? dev panel — same options as the tuning pass) so
+   it can be tuned per user.
+3. **Edge fading** — fade the cursor as the hand nears the camera frame
+   edge, warning before tracking drops (Scout's research: Ultraleap ships
+   this exact affordance).
 
 ## Verification record
 
