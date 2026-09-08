@@ -441,3 +441,18 @@ hand-nav paint channel.
 `./start.sh --lan`), open a board, click **Hand control** in the status row,
 allow the camera. Camera access requires `localhost` or HTTPS — a plain LAN
 IP will not get a permission prompt.
+
+## Phase 5 lesson
+
+- **Two writers to one viewport must handshake, or the faster one erases the
+  slower one.** `panViewport` writes the viewport ABSOLUTELY from the pan's
+  entry baseline, while the edge scroll integrates through `setViewport`
+  between camera frames — left alone, the next hand movement restored the
+  stale baseline and snapped the scroll's progress back (the board jittered
+  in place instead of traveling). The fix is a one-bit handshake: the scroll
+  step records whether it moved the viewport, and the camera branch
+  re-baselines the pan from the live viewport when it did. The general
+  shape: when a per-display-frame writer and a per-camera-frame writer share
+  a store seam, the absolute writer must re-baseline from the store after
+  the incremental one acts — the phase-3 stale-snapshot lesson again, at a
+  new altitude (two live writers, not writer-vs-render).

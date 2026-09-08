@@ -230,10 +230,14 @@ export function useHandNav(
               integrateEdgeScroll(getViewRef.current(), vel, now - scrollAt),
             );
             scrollAt = now;
+            lastScrolled = true;
           } else {
             // Reset the clock while idle, so engagement never integrates the
             // whole gap since the last time the cursor happened to leave.
             scrollAt = performance.now();
+            // No step since the last camera frame: the pan's entry baseline
+            // is still true, nothing to re-baseline.
+            lastScrolled = false;
           }
           lastVel = vel;
           return vel;
@@ -241,6 +245,10 @@ export function useHandNav(
         // What the most recent scroll step applied — the cursor frame reads
         // it, so the ring reports a scroll that actually happened.
         let lastVel: Point = { x: 0, y: 0 };
+        // Whether the most recent scroll step MOVED the viewport. The camera
+        // branch reads it to re-baseline the pan (see the pan branch) — the
+        // handshake between a display-rate scroll and a camera-rate pan.
+        let lastScrolled = false;
 
         // Edge auto-scroll's per-frame gate inputs, written by the camera
         // branch below and read by the display-rate scroll rAF above (a
@@ -337,6 +345,14 @@ export function useHandNav(
               // with the pan — the gate mirrors the branch condition.
               edgeScrollState.pan = false;
             } else if (panPinch && !two.panBlocked) {
+              // A scroll step since the last camera frame moved the viewport
+              // under a hand that did not. Re-baseline: the entry viewport is
+              // stale by exactly the distance the scroll covered, and
+              // panViewport writes ABSOLUTELY from it — without this, the
+              // next hand movement snaps the board back and the scroll
+              // travels in place. From the live viewport, hand motion and
+              // scroll compose instead of fight.
+              if (lastScrolled) drag = { at: cursor, viewport: getViewRef.current() };
               if (!drag) drag = { at: cursor, viewport: getViewRef.current() };
               setViewRef.current(panViewport(drag, cursor));
               zoomDrag = null;
