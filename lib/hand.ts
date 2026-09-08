@@ -16,6 +16,40 @@ import type { Viewport } from './graph';
 export const JARVIS_DWELL_MS = 450;
 
 /**
+ * How long a missing hand is forgiven: the cursor stays up and an active pan
+ * holds through a dropped frame or two instead of blinking off or ending the
+ * drag. Chosen to cover MediaPipe's occasional single-frame detection gaps
+ * without feeling like a stuck cursor when the hand really leaves.
+ */
+export const HAND_LOST_GRACE_MS = 250;
+
+/** True while `nowMs` is within `graceMs` of the last frame a hand was seen. */
+export function handPresent(
+  lastSeenMs: number | null,
+  nowMs: number,
+  graceMs = HAND_LOST_GRACE_MS,
+): boolean {
+  return lastSeenMs !== null && nowMs - lastSeenMs <= graceMs;
+}
+
+/** Presence machine: `mark()` each frame a hand is detected, `present()` otherwise. */
+export class HandPresence {
+  private lastSeen: number | null = null;
+
+  mark(nowMs: number): void {
+    this.lastSeen = nowMs;
+  }
+
+  present(nowMs: number, graceMs = HAND_LOST_GRACE_MS): boolean {
+    return handPresent(this.lastSeen, nowMs, graceMs);
+  }
+
+  reset(): void {
+    this.lastSeen = null;
+  }
+}
+
+/**
  * Pinch detection with hysteresis, in units of hand size (wrist to
  * middle-MCP distance). Absolute pixel distances drift with camera distance;
  * hand size does not, so "closed" is a fraction of your own hand.

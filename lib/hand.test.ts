@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Viewport } from './graph';
 import { VIEW_MAX_SCALE, VIEW_MIN_SCALE } from './graph';
 import {
+  HAND_LOST_GRACE_MS,
   PINCH_OFF,
   PINCH_ON,
   OneEuro,
   PinchDetector,
+  HandPresence,
+  handPresent,
   handZoomViewport,
   mapToSurface,
   panViewport,
@@ -149,3 +152,49 @@ describe('mapToSurface', () => {
     );
   });
 });
+
+describe('handPresent', () => {
+  it('is false when no hand was ever seen', () => {
+    expect(handPresent(null, 1000)).toBe(false);
+  });
+
+  it('holds within the grace window of the last sighting', () => {
+    expect(handPresent(1000, 1000 + HAND_LOST_GRACE_MS)).toBe(true);
+  });
+
+  it('expires after the grace window', () => {
+    expect(handPresent(1000, 1000 + HAND_LOST_GRACE_MS + 1)).toBe(false);
+  });
+
+  it('honors a custom grace', () => {
+    expect(handPresent(1000, 1400, 100)).toBe(false);
+    expect(handPresent(1000, 1400, 500)).toBe(true);
+  });
+});
+
+describe('HandPresence', () => {
+  it('starts absent and marks sightings', () => {
+    const p = new HandPresence();
+    expect(p.present(0)).toBe(false);
+    p.mark(1000);
+    expect(p.present(1000)).toBe(true);
+    expect(p.present(1000 + HAND_LOST_GRACE_MS)).toBe(true);
+    expect(p.present(1000 + HAND_LOST_GRACE_MS + 1)).toBe(false);
+  });
+
+  it('stays alive across gaps shorter than the grace', () => {
+    const p = new HandPresence();
+    p.mark(0);
+    // A dropped frame or two (~50-100ms) never blinks the cursor off.
+    p.mark(90);
+    expect(p.present(140)).toBe(true);
+  });
+
+  it('reset returns to never-seen', () => {
+    const p = new HandPresence();
+    p.mark(5000);
+    p.reset();
+    expect(p.present(5100)).toBe(false);
+  });
+});
+

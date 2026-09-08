@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import {
+  HandPresence,
   OneEuro,
   PinchDetector,
   mapToSurface,
@@ -34,17 +35,34 @@ export type JarvisStatus =
   | 'denied' // permission refused or no camera
   | 'error';
 
+/** What the loop tells the cursor overlay, per frame, through a ref. */
+export type HandCursorFrame = {
+  /** Cursor position in surface pixels (already filtered and mapped). */
+  x: number;
+  y: number;
+  /** Pinch is ON — the pan gesture is armed or dragging. */
+  pinching: boolean;
+  /** A hand was seen within the lost-hand grace window. */
+  present: boolean;
+};
+
 const JARVIS_BTN = 'jarvis-toggle';
 
-export function statusLabel(s: JarvisStatus): string {
-  return {
-    off: 'Hand control',
-    loading: 'Loading Jarvis…',
-    asking: 'Allow the camera…',
-    running: 'Hand control ON — pinch & move to pan',
-    denied: 'Camera unavailable — check permissions',
-    error: 'Jarvis failed to start',
-  }[s];
+export function statusLabel(s: JarvisStatus, tracking: boolean): string {
+  if (s !== 'running') {
+    return {
+      off: 'Hand control',
+      loading: 'Loading Jarvis…',
+      asking: 'Allow the camera…',
+      denied: 'Camera unavailable — check permissions',
+      error: 'Jarvis failed to start',
+    }[s as Exclude<JarvisStatus, 'running'>];
+  }
+  // Rare React state, by design: the pill may say "show your hand" for a
+  // while, and only the flip is newsworthy — never the hand's position.
+  return tracking
+    ? 'Hand control ON — pinch & move to pan'
+    : 'Hand control ON — show your hand to the camera';
 }
 
 export function useHandNav(
@@ -52,8 +70,12 @@ export function useHandNav(
   surfaceRef: React.RefObject<HTMLElement | null>,
   getViewport: () => Viewport,
   setViewport: (v: Viewport) => void,
+  cursorRef?: React.RefObject<HandCursorFrame | null>,
 ) {
   const [status, setStatus] = useState<JarvisStatus>('off');
+  // Rare state, deliberately: the status pill reads it, and it changes only
+  // when a hand appears or stays gone past the grace window — not per frame.
+  const [tracking, setTracking] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   // Latest-callback refs: the loop reads this render's functions without the
   // effect depending on them. Inline arrows from the caller are new objects
@@ -113,9 +135,11 @@ export function useHandNav(
 
         const filter = new OneEuro(1.0, 0.05, 1.0);
         const pinch = new PinchDetector();
+        const presence = new HandPresence();
         let drag: DragStart | null = null;
         let lastVideoTime = -1;
         let raf = 0;
+        let trackingNow = false;
 
         const surfaceBox = () => surfaceRef.current?.getBoundingClientRect();
 
@@ -124,34 +148,62 @@ export function useHandNav(
           if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
           lastVideoTime = video.currentTime;
 
-          const result = landmarker.detectForVideo(video, performance.now());
+          const t = performance.now();
+          const result = landmarker.detectForVideo(video, t);
           const hand = result.landmarks?.[0];
           const box = surfaceBox();
-          if (!hand || !box) {
-            drag = null;
-            return;
+
+          if (hand && box) {
+            presence.mark(t);
+            // Index tip (8) drives the cursor; wrist (0) and middle MCP (9)
+            // size the hand for the pinch ratio.
+            const raw = { x: hand[8].x, y: hand[8].y };
+            const smoothed = filter.filter(raw, t);
+            const cursor = mapToSurface(smoothed, { w: box.width, h: box.height });
+
+            const ratio = pinchState({
+              thumb: { x: hand[4].x, y: hand[4].y },
+              index: { x: hand[8].x, y: hand[8].y },
+              wrist: { x: hand[0].x, y: hand[0].y },
+              middleMcp: { x: hand[9].x, y: hand[9].y },
+            });
+            const pinching = pinch.update(ratio);
+
+            if (pinching) {
+              if (!drag) drag = { at: cursor, viewport: getViewRef.current() };
+              setViewRef.current(panViewport(drag, cursor));
+            } else {
+              drag = null;
+            }
+
+            if (cursorRef) {
+              cursorRef.current = { x: cursor.x, y: cursor.y, pinching, present: true };
+            }
+          } else {
+            // Lost frame: the drag holds for the grace window instead of
+            // ending instantly, and the cursor overlay fades rather than
+            // blinking. Past the grace the pan really ends and the filter
+            // resets, so the returning hand starts fresh, not from a stale
+            // extrapolation.
+            if (drag && !presence.present(t)) {
+              drag = null;
+              filter.reset();
+            }
+            if (cursorRef) {
+              const prev = cursorRef.current;
+              cursorRef.current = {
+                x: prev?.x ?? 0,
+                y: prev?.y ?? 0,
+                pinching: false,
+                present: presence.present(t),
+              };
+            }
           }
 
-          // Index tip (8) drives the cursor; wrist (0) and middle MCP (9)
-          // size the hand for the pinch ratio.
-          const t = performance.now();
-          const raw = { x: hand[8].x, y: hand[8].y };
-          const smoothed = filter.filter(raw, t);
-          const cursor = mapToSurface(smoothed, { w: box.width, h: box.height });
-
-          const ratio = pinchState({
-            thumb: { x: hand[4].x, y: hand[4].y },
-            index: { x: hand[8].x, y: hand[8].y },
-            wrist: { x: hand[0].x, y: hand[0].y },
-            middleMcp: { x: hand[9].x, y: hand[9].y },
-          });
-          const pinching = pinch.update(ratio);
-
-          if (pinching) {
-            if (!drag) drag = { at: cursor, viewport: getViewRef.current() };
-            setViewRef.current(panViewport(drag, cursor));
-          } else {
-            drag = null;
+          const nowTracking = presence.present(t);
+          if (nowTracking !== trackingNow) {
+            trackingNow = nowTracking;
+            setTracking(nowTracking);
           }
         };
 
@@ -163,6 +215,7 @@ export function useHandNav(
           video.pause();
           video.srcObject = null;
           landmarker.close();
+          if (cursorRef) cursorRef.current = null;
         };
         cleanupRef.current = stop;
         setStatus('running');
@@ -178,9 +231,10 @@ export function useHandNav(
       dead = true;
       stop?.();
       cleanupRef.current = null;
+      setTracking(false);
       setStatus('off');
     };
   }, [active]);
 
-  return status;
+  return { status, tracking };
 }

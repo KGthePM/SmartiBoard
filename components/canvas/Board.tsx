@@ -42,7 +42,7 @@ import { NodeCard } from './NodeCard';
 import { PresentOverlay } from './PresentOverlay';
 import { PrintSheets } from './PrintSheets';
 import { useSync } from './useSync';
-import { useHandNav } from './useHandNav';
+import { useHandNav, type HandCursorFrame } from './useHandNav';
 import { statusLabel } from './useHandNav';
 
 const TRIGGER_TICK_MS = 1000;
@@ -168,11 +168,17 @@ export function Board({ boardId }: { boardId: string }) {
   // live inside the hook; the board only sees a status word and a viewport
   // arriving through the same setViewport the wheel uses.
   const [jarvisOn, setJarvisOn] = useState(false);
-  const jarvisStatus = useHandNav(
+  // Per-frame hand feedback rides refs, never state: the loop writes the
+  // frame here, and a rAF of our own paints it onto the cursor element's
+  // style. Board re-renders only when the pill's tracking word flips.
+  const handCursorRef = useRef<HandCursorFrame | null>(null);
+  const handCursorElRef = useRef<HTMLDivElement | null>(null);
+  const { status: jarvisStatus, tracking: jarvisTracking } = useHandNav(
     jarvisOn,
     surfaceRef,
     () => useBoard.getState().viewport,
     (v) => useBoard.getState().setViewport(v),
+    handCursorRef,
   );
   // Deleting via the × unmounts the card mid-double-click, which can land the
   // second click on the canvas; suppress node creation briefly after a delete.
@@ -285,6 +291,39 @@ export function Board({ boardId }: { boardId: string }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  /* ---------- Jarvis cursor overlay: paint the loop's frame, imperatively ---------- */
+
+  // A rAF of our own reads the frame the hand loop wrote and answers with
+  // style writes only — transform for position, one data attribute for pinch,
+  // one for presence (the fade is CSS). No React state, no re-render, per the
+  // same doctrine that keeps per-frame positions out of the store.
+  useEffect(() => {
+    if (!jarvisOn) return;
+    let raf = 0;
+    let pinching = false;
+    let present = false;
+    const paint = () => {
+      raf = requestAnimationFrame(paint);
+      const el = handCursorElRef.current;
+      if (!el) return;
+      const f = handCursorRef.current;
+      if (!f) return;
+      el.style.transform = `translate(${f.x}px, ${f.y}px)`;
+      if (f.pinching !== pinching) {
+        pinching = f.pinching;
+        if (pinching) el.setAttribute('data-pinch', '');
+        else el.removeAttribute('data-pinch');
+      }
+      if (f.present !== present) {
+        present = f.present;
+        if (present) el.setAttribute('data-present', '');
+        else el.removeAttribute('data-present');
+      }
+    };
+    raf = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(raf);
+  }, [jarvisOn]);
 
   /* ---------- the ghost's frequency: install-level, seeded once ---------- */
 
@@ -996,6 +1035,16 @@ export function Board({ boardId }: { boardId: string }) {
             />
           ) : null}
         </div>
+
+        {/* The hand cursor: a child of the surface but *outside* .world — its
+            coordinates are surface pixels, so the viewport transform must not
+            reach it. Position and state arrive imperatively (see the paint
+            effect), so this element never re-renders. pointer-events: none —
+            a hand is a view, not a pointer; it must never intercept a real
+            one's events. */}
+        {jarvisOn ? (
+          <div ref={handCursorElRef} className="hand-cursor" aria-hidden="true" />
+        ) : null}
       </div>
 
       {presenting ? (
@@ -1033,7 +1082,7 @@ export function Board({ boardId }: { boardId: string }) {
               onClick={() => setJarvisOn((on) => !on)}
               disabled={jarvisStatus === 'loading' || jarvisStatus === 'asking'}
             >
-              {statusLabel(jarvisStatus)}
+              {statusLabel(jarvisStatus, jarvisTracking)}
             </button>
           </div>
         </>
