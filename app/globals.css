@@ -1609,6 +1609,9 @@ button.jarvis-toggle.on {
 }
 .settings {
   width: min(420px, 92vw);
+  max-height: 80dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--surface-raised);
   border: 1px solid var(--user-border);
   border-radius: 7px;
@@ -1639,6 +1642,8 @@ button.jarvis-toggle.on {
   display: flex;
   flex-direction: column;
   gap: 11px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .settings-field {
   display: flex;
