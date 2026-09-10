@@ -770,6 +770,31 @@ like a collaborator or a paperclip. Both are now settled:
   **The Windows and Linux builds are unsigned, and the README says so in words rather than
   leaving the OS to.** Signing is a fact about a certificate, not about the app. Auto-update is deliberately absent: an
   unsigned self-updater is a worse story than a Releases page.
+  **Hardened Runtime needs its own entitlements file, and electron-builder does not warn when
+  one is missing.** With `hardenedRuntime: true` and no `mac.entitlements`/`entitlementsInherit`,
+  electron-builder silently signs with its own built-in template — `allow-jit`,
+  `allow-unsigned-executable-memory`, `disable-library-validation` only. That was invisible
+  until Hand Control (Project Jarvis, see below) needed `getUserMedia` camera access: under a
+  real Developer ID signature, macOS TCC requires `com.apple.security.device.camera` declared
+  on *every* signed bundle — the main app **and** the four Electron helper `.app`s under
+  `Contents/Frameworks` (GPU, Renderer, Plugin, Helper), since that's where the actual capture
+  session runs — before it will authorize or even prompt for the camera. Miss it and the
+  symptom is silent: the camera indicator can light without the permission flow ever resolving.
+  `desk.sh`/`electron .` never showed this, because dev runs unsigned, outside Hardened
+  Runtime's reach. The fix is two files at `desktop/build/entitlements.mac.plist` and
+  `entitlements.mac.inherit.plist` (electron-builder's documented auto-detected filenames),
+  carrying the same three defaults plus `com.apple.security.device.camera`, wired explicitly
+  via `mac.entitlements`/`entitlementsInherit` rather than left to the filename convention.
+  Any future feature that touches another hardware permission (microphone, screen recording)
+  needs the matching `com.apple.security.*` key added here, or it will pass in dev and silently
+  fail only in the signed build.
+  **The macOS upload step is scripted, not dragged** (`release-mac.sh`, added after v6.0): the
+  build and signing story above is unchanged — still local, still the Developer ID in the local
+  keychain, still never CI — this only replaces the manual "run `npm run dist:mac`, then drag
+  the `.dmg` into the GitHub web UI" half with `./release-mac.sh <tag>`, which builds both
+  `arm64` and `x64`, notarizes both, verifies each with `spctl` before uploading, and attaches
+  them to the draft release CI already opened for that tag via `gh release upload --clobber`.
+  It attaches to a release; like the CI workflow it joins, it never creates one.
 
 - **Import and export** (v3.3): a board leaves as a file and comes back as one. The app is
   loopback-only by design — no auth, no sync, no account — so a file is not one option among

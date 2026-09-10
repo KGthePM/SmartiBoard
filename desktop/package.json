@@ -18,7 +18,8 @@
     "dist:linux": "node stage.js --platform=linux && electron-builder --publish never --linux",
     "dist:mac": "node stage.js --platform=darwin --arch=arm64 && electron-builder --publish never --mac --arm64",
     "dist:mac:notarized": "node stage.js --platform=darwin --arch=arm64 && electron-builder --publish never --mac --arm64 --config.mac.notarize=true",
-    "dist:mac:intel": "node stage.js --platform=darwin --arch=x64 && electron-builder --publish never --mac --x64"
+    "dist:mac:intel": "node stage.js --platform=darwin --arch=x64 && electron-builder --publish never --mac --x64",
+    "dist:mac:intel:notarized": "node stage.js --platform=darwin --arch=x64 && electron-builder --publish never --mac --x64 --config.mac.notarize=true"
   },
   "devDependencies": {
     "electron": "42.11.0",
@@ -101,7 +102,12 @@
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "notarize": false
+      "notarize": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Smarti Board uses your camera to power Hand Control — pan and zoom the canvas with hand gestures."
+      }
     },
     "dmg": {
       "artifactName": "SmartiBoard-${version}-mac-${arch}.${ext}"

@@ -535,7 +535,16 @@ APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
 find the profile, logs `skipped macOS notarization`, and hands back a signed but un-notarized
 `.dmg` that looks fine. Always confirm with
 `spctl -a -vvv -t install "dist/mac-arm64/Smarti Board.app"` — it must say
-`source=Notarized Developer ID`. (The full release runbook is kept locally, outside the repo.)
+`source=Notarized Developer ID`.
+
+**`./release-mac.sh <tag>` is the one-command version of all of the above**, for cutting an
+actual release: it builds both `arm64` and `x64`, notarizes both (via the two
+`dist:mac*:notarized` scripts), verifies each `.dmg` with `spctl` before touching the network,
+and uploads them to the draft release CI already opened for that tag with
+`gh release upload --clobber`. It requires the `gh` CLI installed and authenticated
+(`gh auth login`) and the `smarti` notarization profile stored as above; it refuses to run if
+CI hasn't opened the release yet (push the tag and wait), and it never creates a release
+itself — only Windows/Linux CI does that.
 
 **`GH_TOKEN` must not be in the environment of a build, and `"publish": null` is in the config
 for the same reason.** electron-builder reads that variable as "you intend to publish": it then
@@ -569,8 +578,8 @@ trade `scripts/check-node.js` refuses for the Node floor. Check the
 Windows and Linux releases are built by CI: push a `v*` tag and
 [the workflow](.github/workflows/release.yml) builds on a Windows and a Linux runner and opens
 a **draft** release with the artifacts attached. Nothing goes public until someone presses
-publish — CI proves the installers build, not that they launch. The macOS `.dmg` is built
-locally and added to the same draft.
+publish — CI proves the installers build, not that they launch. The macOS `.dmg`s are built and
+notarized locally and attached to the same draft with `./release-mac.sh <tag>`.
 
 ## Landing page
 

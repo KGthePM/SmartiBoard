@@ -82,7 +82,9 @@ the user's to make — say what needs looking at and stop there.
   `repository` to `desktop/package.json`: that would let a build silently upload a release
   instead of erroring. There is no auto-update; the workflow uploads artifacts itself.
 - **macOS is built and signed locally, never in CI** — the runners bill at 10x and the Developer
-  ID is already in a keychain. `npm run dist:mac`; the `.dmg` joins the same draft release.
+  ID is already in a keychain. `./release-mac.sh <tag>` builds both arm64 and x64, notarizes
+  both, verifies each with `spctl` before uploading, and attaches them to the draft release CI
+  already opened for that tag via `gh release upload`.
 - **Each `dist:*` stages one platform-arch pair.** The native binary is specific to both, and
   `desktop/verify-arch.js` (an `afterPack` hook) refuses a mismatch at pack time.
 - **Windows and Linux are unsigned, and there is no auto-update anywhere.** Both are stated
