@@ -107,6 +107,13 @@ export type StoredSettings = {
    * part of model resolution.
    */
   collapseMode: CollapseMode;
+  /**
+   * Whether a done card is struck through at all (v5.5). Install-level like
+   * `collapseMode` and just as inert: a presentation knob that reaches CSS
+   * (a `data-done-strike` attribute) and nothing else — not the graph, not
+   * the fingerprint, not any prompt, and no part of model resolution.
+   */
+  doneStrike: boolean;
 };
 
 /** A resolved, ready-to-call configuration — blanks filled from the preset. */

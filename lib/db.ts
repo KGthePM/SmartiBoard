@@ -10,6 +10,7 @@ import {
   DEFAULT_COLLAPSE_MODE,
   modeFromRow,
   modeToRow,
+  normalizeDoneStrike,
   type CollapseMode,
 } from './collapse';
 import { tutorialBoard } from './tutorial';
@@ -52,7 +53,8 @@ function conn(): Database.Database {
       model    TEXT NOT NULL DEFAULT '',
       ghost_delay_ms INTEGER NOT NULL DEFAULT 4000,
       theme    TEXT NOT NULL DEFAULT 'light',
-      collapse_done INTEGER NOT NULL DEFAULT 0
+      collapse_done INTEGER NOT NULL DEFAULT 0,
+      done_strike INTEGER NOT NULL DEFAULT 1
     );
   `);
   migrate(db);
@@ -94,6 +96,11 @@ function migrate(d: Database.Database): void {
     d.exec(
       `ALTER TABLE settings ADD COLUMN collapse_done INTEGER NOT NULL DEFAULT ${modeToRow(DEFAULT_COLLAPSE_MODE)}`,
     );
+  }
+  if (!settingsCols.has('done_strike')) {
+    // An install that predates this was looking at struck-through done cards,
+    // and stays there — the strike is on by default, so the backfill is 1.
+    d.exec(`ALTER TABLE settings ADD COLUMN done_strike INTEGER NOT NULL DEFAULT 1`);
   }
 }
 
@@ -246,7 +253,7 @@ export function boardExists(id: string): boolean {
 export function loadSettings(): StoredSettings | null {
   const row = conn()
     .prepare(
-      'SELECT provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done FROM settings WHERE id = 1',
+      'SELECT provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done, done_strike FROM settings WHERE id = 1',
     )
     .get() as
     | {
@@ -257,6 +264,7 @@ export function loadSettings(): StoredSettings | null {
         ghost_delay_ms: number;
         theme: string;
         collapse_done: number;
+        done_strike: number;
       }
     | undefined;
   if (!row) return null;
@@ -275,6 +283,10 @@ export function loadSettings(): StoredSettings | null {
     // the same as the two normalizers above, and a v2.8 row reads as the fold
     // it already had.
     collapseMode: modeFromRow(row.collapse_done),
+    // Same doctrine once more: only an explicit 0 is off, so a v5.4-and-earlier
+    // row (which has no notion of this column beyond the migration's backfill)
+    // reads as struck-through, exactly as it always looked.
+    doneStrike: normalizeDoneStrike(row.done_strike),
   };
 }
 
@@ -290,11 +302,12 @@ export function saveSettings(next: {
   ghostDelayMs: number;
   theme: ThemeId;
   collapseMode: CollapseMode;
+  doneStrike: boolean;
 }): void {
   conn()
     .prepare(
-      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done)
-       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs, @theme, @collapseDone)
+      `INSERT INTO settings (id, provider, api_key, base_url, model, ghost_delay_ms, theme, collapse_done, done_strike)
+       VALUES (1, @provider, @apiKey, @baseUrl, @model, @ghostDelayMs, @theme, @collapseDone, @doneStrike)
        ON CONFLICT(id) DO UPDATE SET
          provider = @provider,
          api_key = CASE WHEN @keepKey THEN settings.api_key ELSE @apiKey END,
@@ -302,7 +315,8 @@ export function saveSettings(next: {
          model = @model,
          ghost_delay_ms = @ghostDelayMs,
          theme = @theme,
-         collapse_done = @collapseDone`,
+         collapse_done = @collapseDone,
+         done_strike = @doneStrike`,
     )
     .run({
       provider: next.provider,
@@ -314,6 +328,7 @@ export function saveSettings(next: {
       ghostDelayMs: next.ghostDelayMs,
       theme: next.theme,
       collapseDone: modeToRow(next.collapseMode),
+      doneStrike: next.doneStrike ? 1 : 0,
     });
 }
 

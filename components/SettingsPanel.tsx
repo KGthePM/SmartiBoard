@@ -10,7 +10,10 @@ import {
   COLLAPSE_LABELS,
   COLLAPSE_MODES,
   DEFAULT_COLLAPSE_MODE,
+  DEFAULT_DONE_STRIKE,
+  DONE_STRIKE_OPTIONS,
   normalizeCollapseMode,
+  normalizeDoneStrike,
   type CollapseMode,
 } from '@/lib/collapse';
 import {
@@ -48,6 +51,7 @@ type Masked = {
   ghostDelayMs: number;
   theme: ThemeId;
   collapseMode: CollapseMode;
+  doneStrike: boolean;
   hasKey: boolean;
   keyHint: string | null;
 };
@@ -97,6 +101,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [ghostDelay, setGhostDelay] = useState<number>(DEBOUNCE_MS);
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [collapseMode, setCollapseMode] = useState<CollapseMode>(DEFAULT_COLLAPSE_MODE);
+  const [doneStrike, setDoneStrike] = useState<boolean>(DEFAULT_DONE_STRIKE);
   const [jarvisGain, setJarvisGain] = useState<number>(JARVIS_DEFAULT_GAIN);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -127,6 +132,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           setGhostDelay(d.settings.ghostDelayMs);
           setTheme(d.settings.theme);
           setCollapseMode(d.settings.collapseMode);
+          setDoneStrike(d.settings.doneStrike);
         }
         // Not a server setting: sensitivity lives in localStorage (the store
         // is its live channel). Read here so the select shows what is
@@ -183,6 +189,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     ghostDelayMs: ghostDelay,
     theme,
     collapseMode,
+    doneStrike,
   });
 
   /**
@@ -278,6 +285,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       // geometry the cards and the edges between them are drawn at.
       if (typeof d.settings?.collapseMode === 'string') {
         useBoard.getState().setCollapseMode(normalizeCollapseMode(d.settings.collapseMode));
+      }
+      // Whether a done card strikes through is presentational like the theme,
+      // not read in JS like the fold — its only channel is the attribute, so
+      // writing it here is what makes the change land without a reload.
+      if (typeof d.settings?.doneStrike === 'boolean') {
+        document.documentElement.dataset.doneStrike = normalizeDoneStrike(d.settings.doneStrike)
+          ? 'on'
+          : 'off';
       }
       // The sensitivity select persists in localStorage, not the settings
       // row, so it rides the same save but never reaches the server: write
@@ -511,6 +526,25 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               a dot wearing just the ▸. Either way it is only a way of looking at the board: the card
               keeps its text, its size, and its place, and the ▸ on it opens it again. Like the theme,
               this is every board on this machine.
+            </span>
+          </label>
+
+          <label className="settings-field">
+            <span className="settings-label">Done cards</span>
+            <select
+              className="settings-select"
+              value={String(doneStrike)}
+              onChange={(e) => setDoneStrike(normalizeDoneStrike(e.target.value === 'true'))}
+            >
+              {DONE_STRIKE_OPTIONS.map((o) => (
+                <option key={String(o.value)} value={String(o.value)}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <span className="settings-hint">
+              Whether crossing an idea off with ✓ strikes it through and fades it, or leaves it readable.
+              Either way the ✓ still marks it done. Like the theme, this is every board on this machine.
             </span>
           </label>
 

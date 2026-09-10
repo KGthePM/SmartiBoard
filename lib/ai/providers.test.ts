@@ -15,6 +15,7 @@ const row = (over: Partial<StoredSettings> = {}): StoredSettings => ({
   ghostDelayMs: 4000,
   theme: 'light',
   collapseMode: 'full',
+  doneStrike: true,
   ...over,
 });
 

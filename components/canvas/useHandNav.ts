@@ -120,6 +120,14 @@ export function useHandNav(
   jarvisGain?: number,
 ) {
   const [status, setStatus] = useState<JarvisStatus>('off');
+  // Mirrors `status === 'loading' || 'asking'`, but as a ref: the camera
+  // permission prompt drops browser fullscreen as a side effect (Chrome's
+  // security behavior — the address bar must be visible for that decision),
+  // and the presentation chrome's fullscreenchange handler needs to tell
+  // that apart from a real exit *synchronously*, with no render lag, so a
+  // React state read (which could still show the previous commit at the
+  // moment the prompt fires) is not enough.
+  const busyRef = useRef(false);
   // Rare state, deliberately: the status pill reads it, and it changes only
   // when a hand appears or stays gone past the grace window — not per frame.
   const [tracking, setTracking] = useState(false);
@@ -147,6 +155,7 @@ export function useHandNav(
 
     (async () => {
       try {
+        busyRef.current = true;
         setStatus('loading');
         // Lazy-import: ~37MB unpacked stays out of the bundle until asked.
         const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
@@ -172,9 +181,11 @@ export function useHandNav(
           });
         } catch {
           landmarker.close();
+          busyRef.current = false;
           setStatus('denied');
           return;
         }
+        busyRef.current = false;
         if (dead) {
           stream.getTracks().forEach((t) => t.stop());
           landmarker.close();
@@ -488,6 +499,7 @@ export function useHandNav(
         cleanupRef.current = stop;
         setStatus('running');
       } catch (err) {
+        busyRef.current = false;
         if (!dead) {
           console.error('Jarvis init failed:', err);
           setStatus('error');
@@ -497,6 +509,7 @@ export function useHandNav(
 
     return () => {
       dead = true;
+      busyRef.current = false;
       stop?.();
       cleanupRef.current = null;
       setTracking(false);
@@ -505,5 +518,5 @@ export function useHandNav(
     };
   }, [active]);
 
-  return { status, tracking, zooming };
+  return { status, tracking, zooming, busyRef };
 }

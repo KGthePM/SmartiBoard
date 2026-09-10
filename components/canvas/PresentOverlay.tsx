@@ -1,9 +1,27 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { boardTitle } from '@/lib/boards';
 import { useBoard } from '@/lib/store';
 import { ObjectivePanel } from '../ObjectivePanel';
+import { statusLabel, type JarvisStatus } from './useHandNav';
+
+type PresentOverlayProps = {
+  jarvisOn: boolean;
+  jarvisStatus: JarvisStatus;
+  jarvisTracking: boolean;
+  jarvisZooming: boolean;
+  /**
+   * True while Hand Control is loading its model or awaiting the camera
+   * permission prompt — a ref, not state, so `onFsChange` below can read it
+   * with zero render lag. Requesting the camera makes the browser drop
+   * fullscreen on its own (the address bar must be visible for that
+   * decision); without this, that drop reads as the room leaving and ends
+   * the whole presentation.
+   */
+  jarvisBusyRef: React.RefObject<boolean>;
+  onToggleJarvis: () => void;
+};
 
 /**
  * The presentation chrome. Mounted only while presenting, so it owns
@@ -14,11 +32,38 @@ import { ObjectivePanel } from '../ObjectivePanel';
  * is board framing rather than canvas content, and a room rewriting it
  * mid-meeting is plain `setObjective` — snapshotted, bumped, and autosaved
  * exactly as it is outside the mode.
+ *
+ * Hand control rides along too: the camera, the model and the `jarvisOn` flag
+ * all live in `Board` (so a toggle mid-meeting survives leaving the mode
+ * without restarting the camera), and this panel only owns the pill that
+ * shows and flips it — the same one the non-presenting chrome shows in
+ * `.status`, since a presenter is exactly who wants to pan and zoom hands-free
+ * on a projector without walking back to a keyboard.
  */
-export function PresentOverlay() {
+export function PresentOverlay({
+  jarvisOn,
+  jarvisStatus,
+  jarvisTracking,
+  jarvisZooming,
+  jarvisBusyRef,
+  onToggleJarvis,
+}: PresentOverlayProps) {
   const board = useBoard((s) => s.board);
   const objectiveOpen = useBoard((s) => s.objectiveOpen);
   const hasObjective = useBoard((s) => s.board.objective.trim().length > 0);
+
+  // Restore fullscreen once a Hand Control permission prompt resolves. The
+  // prompt itself dropped fullscreen (see onFsChange below); a presenter who
+  // just answered "Allow" should land back on the projector, not on a
+  // windowed browser they now have to re-fullscreen by hand.
+  const jarvisWasBusy = useRef(false);
+  useEffect(() => {
+    const busy = jarvisStatus === 'loading' || jarvisStatus === 'asking';
+    if (jarvisWasBusy.current && !busy && !document.fullscreenElement) {
+      void document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+    jarvisWasBusy.current = busy;
+  }, [jarvisStatus]);
 
   useEffect(() => {
     // Browser fullscreen is the point of the mode on a projector: no tabs, no
@@ -29,11 +74,19 @@ export function PresentOverlay() {
     void document.documentElement.requestFullscreen?.().catch(() => {});
 
     const onFsChange = () => {
+      if (document.fullscreenElement) return;
+      if (jarvisBusyRef.current) {
+        // Chrome (and Firefox) drop fullscreen on their own the instant a
+        // permission prompt needs the address bar back — this is Hand
+        // Control's camera ask, not the room leaving. Stay presenting; the
+        // effect above re-enters fullscreen once the prompt resolves.
+        return;
+      }
       // The reliable Escape path: in browser fullscreen the browser owns
       // Escape (Chrome consumes the keydown exiting FS, so the page never
       // hears it), but the exit itself lands here — and a room that took the
       // browser out of fullscreen is done presenting.
-      if (!document.fullscreenElement) useBoard.getState().setPresenting(false);
+      useBoard.getState().setPresenting(false);
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -83,6 +136,14 @@ export function PresentOverlay() {
           onClick={() => useBoard.getState().setObjectiveOpen(!useBoard.getState().objectiveOpen)}
         >
           {hasObjective ? '●' : '○'} Objective
+        </button>
+        <button
+          type="button"
+          className={jarvisOn ? 'jarvis-toggle present-jarvis on' : 'jarvis-toggle present-jarvis'}
+          onClick={onToggleJarvis}
+          disabled={jarvisStatus === 'loading' || jarvisStatus === 'asking'}
+        >
+          {statusLabel(jarvisStatus, jarvisTracking, jarvisZooming)}
         </button>
         <button
           className="present-exit"

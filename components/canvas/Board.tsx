@@ -209,7 +209,12 @@ export function Board({ boardId }: { boardId: string }) {
       useBoard.getState().setJarvisGain(normalizeJarvisGain(Number(raw)));
     }
   }, []);
-  const { status: jarvisStatus, tracking: jarvisTracking, zooming: jarvisZooming } = useHandNav(
+  const {
+    status: jarvisStatus,
+    tracking: jarvisTracking,
+    zooming: jarvisZooming,
+    busyRef: jarvisBusyRef,
+  } = useHandNav(
     jarvisOn,
     surfaceRef,
     () => useBoard.getState().viewport,
@@ -1174,7 +1179,14 @@ export function Board({ boardId }: { boardId: string }) {
       </div>
 
       {presenting ? (
-        <PresentOverlay />
+        <PresentOverlay
+          jarvisOn={jarvisOn}
+          jarvisStatus={jarvisStatus}
+          jarvisTracking={jarvisTracking}
+          jarvisZooming={jarvisZooming}
+          jarvisBusyRef={jarvisBusyRef}
+          onToggleJarvis={() => setJarvisOn((on) => !on)}
+        />
       ) : (
         <>
           <BoardChrome />

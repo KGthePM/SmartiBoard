@@ -3,6 +3,8 @@ import {
   COLLAPSED_H,
   COLLAPSE_MODES,
   DEFAULT_COLLAPSE_MODE,
+  DEFAULT_DONE_STRIKE,
+  DONE_STRIKE_OPTIONS,
   DOT_SIZE,
   binnedNodes,
   cardView,
@@ -10,6 +12,7 @@ import {
   modeFromRow,
   modeToRow,
   normalizeCollapseMode,
+  normalizeDoneStrike,
   viewRect,
 } from './collapse';
 import { createNode, NODE_H, NODE_W } from './graph';
@@ -52,6 +55,27 @@ describe('the settings row codec', () => {
     for (const junk of [-1, 4, 99, 1.5, null, undefined, '1', {}]) {
       expect(modeFromRow(junk)).toBe(DEFAULT_COLLAPSE_MODE);
     }
+  });
+});
+
+describe('normalizeDoneStrike', () => {
+  it('defaults to struck-through, so an install that never asked sees no change', () => {
+    expect(DEFAULT_DONE_STRIKE).toBe(true);
+  });
+
+  it('turns off only for an explicit false (wire) or 0 (row)', () => {
+    expect(normalizeDoneStrike(false)).toBe(false);
+    expect(normalizeDoneStrike(0)).toBe(false);
+  });
+
+  it('lands junk and absence on — the strict-default reading of Privacy Mode run the other way', () => {
+    for (const junk of [null, undefined, true, 1, '', 'off', 'false', {}, [], NaN]) {
+      expect(normalizeDoneStrike(junk)).toBe(true);
+    }
+  });
+
+  it('offers exactly the two options the select shows, on first', () => {
+    expect(DONE_STRIKE_OPTIONS.map((o) => o.value)).toEqual([true, false]);
   });
 });
 

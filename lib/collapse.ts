@@ -118,6 +118,39 @@ export function modeToRow(mode: CollapseMode): number {
 }
 
 /**
+ * Whether a done card gets crossed out at all (v5.5) — a second, independent
+ * knob beside the fold above. Folding answers how much space a done card
+ * takes; this answers whether it reads as struck-through in the first place.
+ * Some people cross off to close an idea; others keep reading finished cards
+ * and find the strike-plus-fade noise. Install-level, like the fold, and for
+ * the same reason: this is a property of the room, not the content — nothing
+ * in JS reads it, so there is no store field, only a `data-done-strike`
+ * attribute on `<html>`, exactly like `data-theme`.
+ *
+ * Default **on** — an existing install's boards look exactly as they always
+ * have, the same reading as Light being the default theme and `full` being
+ * the default fold.
+ */
+export const DEFAULT_DONE_STRIKE = true;
+
+/** The Settings select's two options, in display order. */
+export const DONE_STRIKE_OPTIONS: { value: boolean; label: string }[] = [
+  { value: true, label: 'Strike through (default)' },
+  { value: false, label: 'Keep readable' },
+];
+
+/**
+ * Snap any value to on/off. Only an explicit `false` (the wire — a real PUT
+ * body) or `0` (the row — SQLite hands back the INTEGER it was stored as)
+ * turn it off; junk and absence land on, the strict-default reading of
+ * `obj.privacy === true` run the other way. Shared by the PUT route and
+ * `loadSettings` so a bad row and a stale client's PUT cannot disagree.
+ */
+export function normalizeDoneStrike(v: unknown): boolean {
+  return v !== false && v !== 0;
+}
+
+/**
  * The whole feature in one expression: how this card is drawn right now, or
  * null for an ordinary card. Note the order — the setting first, so an install
  * that never turned this on pays nothing for it and behaves exactly as it did

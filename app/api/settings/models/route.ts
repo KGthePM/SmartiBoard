@@ -7,7 +7,7 @@ import { DEBOUNCE_MS } from '@/lib/ai/trigger';
 import { classify, short, type UpstreamReason } from '@/lib/ai/upstream';
 import { loadSettings } from '@/lib/db';
 import { DEFAULT_THEME } from '@/lib/theme';
-import { DEFAULT_COLLAPSE_MODE } from '@/lib/collapse';
+import { DEFAULT_COLLAPSE_MODE, DEFAULT_DONE_STRIKE } from '@/lib/collapse';
 
 export const runtime = 'nodejs';
 
@@ -82,6 +82,7 @@ export async function POST(req: Request) {
     ghostDelayMs: DEBOUNCE_MS,
     theme: DEFAULT_THEME,
     collapseMode: DEFAULT_COLLAPSE_MODE,
+    doneStrike: DEFAULT_DONE_STRIKE,
   });
   if (!cfg) {
     return NextResponse.json<ModelsResult>({ ok: false, reason: 'no_config' });

@@ -448,6 +448,21 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
   (`binnedNodes`), never stored. The panel's only controls are `toggleExpanded` and
   `toggleNodeDone` — it adds no new way to change a board. Presentation folds; **print never
   does** (`NEVER_COLLAPSED`).
+  **Whether a done card strikes through at all is a second, independent knob** (v5.5, the
+  Settings "Done cards" select): folding answers how much space a done card takes, this
+  answers whether it reads as struck-through in the first place. Install-level like the fold
+  and delivered the theme's way rather than the fold's — a `data-done-strike` attribute on
+  `<html>`, not a store field, because nothing in JS reads it. `DEFAULT_DONE_STRIKE = true` and
+  `normalizeDoneStrike` (`lib/collapse.ts`) share `obj.privacy === true`'s strict-default
+  reading run the other way: only an explicit `false` (wire) or `0` (row) is off, junk and
+  absence land on. `settings.done_strike` is a sibling INTEGER column beside `collapse_done`,
+  not a repurposing of it — the two are independent settings. `app/globals.css` gates
+  `.card.done .rt`/`.rt-s` under `html:not([data-done-strike='off'])`; `.card.done .tick` stays
+  ungated, since the ✓ badge is the doneness signal left standing when the strike is off. Print
+  always keeps exactly one doneness signal too: `PrintSheets.tsx` renders a `.print-tick` ✓ on
+  every done card unconditionally, shown only via `html[data-done-strike='off'] .print-tick` in
+  `@media print` — with the strike on, paper looks exactly as it always did. No board-JSON
+  change, no store field, no undo/redo/`lastMutationAt`/fingerprint impact, never a token.
 
 - **Templates are a registry** (v3.0): `lib/templates.ts` — `TEMPLATE_IDS`, `TEMPLATES`,
   `buildTemplate(v, id): Board | null`. `buildTemplate` returns null instead of throwing so an

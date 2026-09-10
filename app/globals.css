@@ -544,15 +544,23 @@ html, body {
     default strike skips descenders, which reads as a broken faint line), no
     marker texture and no animation. The textarea stays plain while editing —
     a done idea is still editable. Inline-struck segments draw their own line,
-    so they need the same longhands or they'd stay thin and grey. */
-.card.done .rt {
+    so they need the same longhands or they'd stay thin and grey.
+
+    Gated on data-done-strike (v5.5, off by choice in Settings — "Keep
+    readable"): some people cross an idea off to close it, others want to
+    keep reading it. Absence of the attribute means on, the same reading as
+    every other install-level default here, so an install that never opened
+    the setting sees no change at all. The ✓ badge below is deliberately
+    ungated — it is the doneness signal left standing when the strike is
+    off. */
+html:not([data-done-strike='off']) .card.done .rt {
   text-decoration: line-through;
   text-decoration-color: var(--ink);
   text-decoration-thickness: 2px;
   text-decoration-skip-ink: none;
   color: var(--done-faded);
 }
-.card.done .rt-s {
+html:not([data-done-strike='off']) .card.done .rt-s {
   text-decoration-color: var(--ink);
   text-decoration-thickness: 2px;
   text-decoration-skip-ink: none;
@@ -897,6 +905,18 @@ button.jarvis-toggle {
 button.jarvis-toggle.on {
   color: var(--accent, var(--muted));
   border-color: var(--accent, var(--muted));
+}
+
+/* The same pill, reachable from the present bar too: a presenter is exactly
+   who wants hands-free pan/zoom, and `.present-bar` is pointer-events: none
+   by default (only its own buttons opt back in), so this one must too. Capped
+   so the longer tracking-state labels don't blow out the centered bar. */
+.present-bar .jarvis-toggle.present-jarvis {
+  pointer-events: auto;
+  max-width: 38vw;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Project Jarvis: the hand cursor. A small ring on the surface at the
@@ -2782,6 +2802,29 @@ button.jarvis-toggle.on {
 
   /* The empty-card placeholder is an invitation to type, not content. */
   .rt:empty::before { content: none; }
+
+  /* Paper always keeps exactly one doneness signal (v5.5). With the strike on
+     (the default), the strike-through above is that signal and this stays
+     hidden. With it off, the strike itself is gone from the page, so a small
+     ✓ takes its place — overhanging the card's top-left corner, mirroring
+     the on-screen tick's own corner. */
+  .print-tick { display: none; }
+  html[data-done-strike='off'] .print-tick {
+    display: flex;
+    position: absolute;
+    top: -9px;
+    left: -9px;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--on-accent);
+    font-size: 11px;
+    line-height: 1;
+  }
 }
 
 /* ---- The Done bin (v3.0) ----

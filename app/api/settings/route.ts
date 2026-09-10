@@ -4,7 +4,12 @@ import { clearSettingsApiKey, loadSettings, saveSettings } from '@/lib/db';
 import { keyHint, PRESETS, type ProviderId } from '@/lib/ai/providers';
 import { DEBOUNCE_MS, normalizeGhostDelay } from '@/lib/ai/trigger';
 import { DEFAULT_THEME, normalizeTheme } from '@/lib/theme';
-import { DEFAULT_COLLAPSE_MODE, normalizeCollapseMode } from '@/lib/collapse';
+import {
+  DEFAULT_COLLAPSE_MODE,
+  DEFAULT_DONE_STRIKE,
+  normalizeCollapseMode,
+  normalizeDoneStrike,
+} from '@/lib/collapse';
 
 export const runtime = 'nodejs';
 
@@ -27,6 +32,7 @@ function masked() {
     ghostDelayMs: s.ghostDelayMs,
     theme: s.theme,
     collapseMode: s.collapseMode,
+    doneStrike: s.doneStrike,
     hasKey: Boolean(s.apiKey.trim()),
     keyHint: keyHint(s.apiKey),
   };
@@ -54,6 +60,7 @@ export async function PUT(req: Request) {
     ghostDelayMs?: unknown;
     theme?: unknown;
     collapseMode?: unknown;
+    doneStrike?: unknown;
   };
   try {
     body = await req.json();
@@ -98,6 +105,13 @@ export async function PUT(req: Request) {
       ? (stored?.collapseMode ?? DEFAULT_COLLAPSE_MODE)
       : normalizeCollapseMode(body.collapseMode);
 
+  // And once more for whether a done card is struck through at all. Nothing
+  // about it can fail a save either: it is a presentation knob, not content.
+  const doneStrike =
+    body.doneStrike === undefined
+      ? (stored?.doneStrike ?? DEFAULT_DONE_STRIKE)
+      : normalizeDoneStrike(body.doneStrike);
+
   saveSettings({
     provider: body.provider as ProviderId,
     ...(apiKey !== undefined ? { apiKey } : {}),
@@ -106,6 +120,7 @@ export async function PUT(req: Request) {
     ghostDelayMs,
     theme,
     collapseMode,
+    doneStrike,
   });
 
   return NextResponse.json({ settings: masked() });

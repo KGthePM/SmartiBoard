@@ -122,7 +122,8 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
 - `lib/theme.ts` — the three themes and `normalizeTheme`. Pure, node-free; the layout, the
   settings UI, `lib/db.ts`, and the tests all import it.
 - `lib/collapse.ts` — how a done card is drawn: `cardView`, `viewRect`, `isBinned`,
-  `binnedNodes`, and the `collapse_done` row codec. Pure, node-free.
+  `binnedNodes`, and the `collapse_done` row codec, plus (v5.5) whether it's struck through at
+  all — `DEFAULT_DONE_STRIKE`, `DONE_STRIKE_OPTIONS`, `normalizeDoneStrike`. Pure, node-free.
 - `lib/tutorial.ts` — the tutorial board's content: `tutorialBoard(id)`, `TUTORIAL_TITLE`.
   Pure, node-free; `lib/db.ts` (the seed) and the boards route (the restore link) import it.
 - `lib/kanban.ts` — the Kanban template's content: `kanbanBoard(id)`, `KANBAN_TITLE`. Pure,
@@ -1170,6 +1171,48 @@ like a collaborator or a paperclip. Both are now settled:
   sent, so the panel can say "answered from N of M cards" without re-deriving a budget it was
   never the authority on; the route holds back a trailing partial `[[…` marker (`splitAnswer`) so
   the panel never renders half a citation, the same holdback `splitLines` gives half a JSON line.
+
+- **Crossing off** (v5.5): a second, independent knob beside "Completed cards" — that one
+  answers how much space a done card takes (full / line / dot / bin); this one answers whether
+  the cross-off styling is applied at all. Some people cross an idea off to close it; others
+  keep reading finished cards and find the strike-plus-fade noise. A two-option Settings select
+  ("Strike through (default)" / "Keep readable"), install-level like the fold and for the same
+  reason: how a done card *looks* is a property of the room, not of the content — Privacy Mode
+  went the other way, being a property of the content.
+  **Delivered the theme's way, not the fold's.** Nothing in JS reads whether the strike is on,
+  so — unlike `collapseMode`, which the canvas reads to compute geometry — there is no store
+  field, only a `data-done-strike` attribute on `<html>`, stamped server-side in `app/layout.tsx`
+  beside `data-theme` (no flash) and rewritten by `SettingsPanel` on save exactly as the theme's
+  attribute is, so the change lands without a reload.
+  `lib/collapse.ts` carries `DEFAULT_DONE_STRIKE = true`, `DONE_STRIKE_OPTIONS` (the select's two
+  rows), and `normalizeDoneStrike(v)` — the same strict-default doctrine as
+  `obj.privacy === true`, run the other way: only an explicit `false` (the wire — a real PUT
+  body) or `0` (the row — SQLite hands back the INTEGER it stored) turn it off, and junk or
+  absence land on, so an install that never opens the setting sees its boards exactly as they
+  always looked. `settings.done_strike` is its own `INTEGER NOT NULL DEFAULT 1` column, added the
+  standard idempotent-`ALTER TABLE` way beside `collapse_done` — a sibling setting, not a
+  repurposing of that one's encoding. `loadSettings`/`saveSettings`, the `StoredSettings` type,
+  and the PUT route's body/masked-GET all thread it through exactly as `collapseMode` is
+  threaded, down to the "absent keeps the stored value" rule shared with the API key and the
+  theme.
+  **`app/globals.css` gates the two done blocks** — `.card.done .rt`'s strike/fade and
+  `.card.done .rt-s`'s thickening — under `html:not([data-done-strike='off'])`; absence of the
+  attribute is on, the same reading as every other install-level default in this file.
+  **`.card.done .tick` stays deliberately ungated**: the ✓ badge is the doneness signal left
+  standing when the strike is off, reaching the canvas card, folded line-stubs, and presentation
+  mode with zero component changes — the same seam `collapseMode` proved was cut in the right
+  place.
+  **Paper always keeps exactly one doneness signal.** With the strike on, a printed board looks
+  exactly as it always has. With it off, the strike itself is gone from the page, so
+  `PrintSheets.tsx` renders a `.print-tick` ✓ on *every* done card unconditionally — shown only
+  through `html[data-done-strike='off'] .print-tick` inside `@media print`, so no JS in
+  `PrintSheets` ever reads the setting; it is invisible on screen the same way the rest of
+  `.print-root` is.
+  **Pure presentation, in full**: no undo snapshot, no redo spend, no `lastMutationAt` bump, not
+  in the fingerprint, never in a prompt. `done` itself and its own token-spending doctrine are
+  untouched — this changes only how a done card is drawn, never what it means. No board-JSON
+  change, no store field, `Board.tsx` untouched: still exactly one unsolicited AI behavior and
+  three user-invoked ones.
 
 - **The tutorial board, refreshed** (v5.6): `lib/tutorial.ts` was written at v2.3 and had gone
   stale — Search & Replace, reactions, done-card folding and the Done bin, live multi-tab sync,

@@ -23,6 +23,12 @@ const NEVER_COLLAPSED: ReadonlyMap<string, CollapseView> = new Map();
  * Reactions print, because a reaction is content the person put on the card —
  * but only the chosen ones, and as glyphs rather than buttons: paper gets
  * content, not interface. A card with none draws nothing at all.
+ *
+ * The ✓ mark (v5.5) prints on every done card regardless, but is shown only
+ * via the CSS gate on `data-done-strike` — with the strike on (the default)
+ * it stays hidden, since the strike itself is paper's doneness signal; with
+ * the strike off it is the one doneness signal paper has left. Rendered
+ * unconditionally so no JS here reads the setting.
  */
 function PrintCard({ node }: { node: IdeaNode }) {
   return (
@@ -30,6 +36,11 @@ function PrintCard({ node }: { node: IdeaNode }) {
       className={`card${node.layer === 'accepted' ? ' accepted' : ''}${node.done ? ' done' : ''}`}
       style={{ left: node.x, top: node.y, width: node.w, height: node.h, fontSize: node.fontSize }}
     >
+      {node.done ? (
+        <span className="print-tick" aria-hidden="true">
+          ✓
+        </span>
+      ) : null}
       <div className="rt">
         <RichTextView text={node.text} matches={NO_MATCHES} activeMatch={null} />
       </div>

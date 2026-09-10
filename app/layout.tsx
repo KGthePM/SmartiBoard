@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Cinzel } from 'next/font/google';
 import { loadSettings } from '@/lib/db';
+import { DEFAULT_DONE_STRIKE } from '@/lib/collapse';
 import { DEFAULT_THEME } from '@/lib/theme';
 import './globals.css';
 
@@ -40,10 +41,18 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // No row yet — a fresh install that has never opened Settings — is Light.
-  const theme = loadSettings()?.theme ?? DEFAULT_THEME;
+  // No row yet — a fresh install that has never opened Settings — is Light,
+  // struck-through done cards included.
+  const settings = loadSettings();
+  const theme = settings?.theme ?? DEFAULT_THEME;
+  const doneStrike = settings?.doneStrike ?? DEFAULT_DONE_STRIKE;
   return (
-    <html lang="en" className={cinzel.variable} data-theme={theme}>
+    <html
+      lang="en"
+      className={cinzel.variable}
+      data-theme={theme}
+      data-done-strike={doneStrike ? 'on' : 'off'}
+    >
       <body>{children}</body>
     </html>
   );
