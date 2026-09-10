@@ -1072,9 +1072,20 @@ export function Board({ boardId }: { boardId: string }) {
                   onEdit={() => store.select(n.id)}
                   onChange={(text, format) => store.setNodeText(n.id, text, format)}
                   onPortDown={(e) => {
+                    // The port has no click meaning to protect (unlike a card
+                    // body), so capture immediately rather than deferring to
+                    // movement — the same "unambiguously a gesture" call the
+                    // two-finger pinch makes above. Without it, the port's own
+                    // stopPropagation() keeps this pointer out of `pointersRef`
+                    // entirely, so the deferred-capture check in onPointerMove
+                    // never fires and pointermove/pointerup silently stop the
+                    // instant the cursor crosses the fixed chrome.
+                    surfaceRef.current?.setPointerCapture(e.pointerId);
                     setDrag({ kind: 'connect', from: n.id, to: toBoardCoords(e.clientX, e.clientY) });
                   }}
                   onResizeStart={(e) => {
+                    // Same reasoning as the port above.
+                    surfaceRef.current?.setPointerCapture(e.pointerId);
                     setDrag({
                       kind: 'resize',
                       id: n.id,
