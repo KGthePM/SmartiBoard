@@ -72,9 +72,16 @@ cpSync(standalone, join(OUT, 'standalone'), { recursive: true });
 say('copying .next/static...');
 cpSync(join(ROOT, '.next', 'static'), join(OUT, 'standalone', '.next', 'static'), { recursive: true });
 
+// Standalone omits `public/` for the same reason — and it is no longer empty. Jarvis (v6)
+// serves ~42 MB of MediaPipe wasm + the hand-landmark model from `public/mediapipe/`, and
+// without this copy the packaged app 404s them and hand control silently never loads. Same
+// destination rule as `.next/static`: next to the server, which is where it looks.
+say('copying public/...');
+cpSync(join(ROOT, 'public'), join(OUT, 'standalone', 'public'), { recursive: true });
+
 // The trace is conservative and keeps a few things the running server never opens: `typescript`
 // (present only because next.config.ts is TypeScript) and sharp/@img (Next's image optimizer —
-// the app has no `public/`, no next/image, and no images at all). Roughly 27 MB, pruned here
+// the app uses no next/image and no images at all). Roughly 27 MB, pruned here
 // rather than through electron-builder's `files` negations so that what is staged is exactly
 // what ships, decided in one place.
 for (const dead of ['typescript', 'sharp', '@img']) {
