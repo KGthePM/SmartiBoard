@@ -6,6 +6,9 @@
   "license": "AGPL-3.0-only",
   "homepage": "https://smartiboard.netlify.app/",
   "private": true,
+  "engines": {
+    "node": ">=22 <27"
+  },
   "main": "main.js",
   "scripts": {
     "stage": "node stage.js",
