@@ -23,8 +23,13 @@ function edge(from: string, to: string, i: number): Edge {
 describe('ASK_SYSTEM_PROMPT', () => {
   it('states the citation format and the read-only rule', () => {
     expect(ASK_SYSTEM_PROMPT).toContain('[[nodeId]]');
-    expect(ASK_SYSTEM_PROMPT).toContain('Never propose changes to the board');
+    expect(ASK_SYSTEM_PROMPT).toContain('way to put anything on the board yourself');
     expect(ASK_SYSTEM_PROMPT).toContain(`doesn't say`);
+  });
+
+  it('permits an opinion only when asked directly, never volunteered', () => {
+    expect(ASK_SYSTEM_PROMPT).toContain('unless they actually ask for your take');
+    expect(ASK_SYSTEM_PROMPT).toContain('never claim you added or changed something');
   });
 });
 

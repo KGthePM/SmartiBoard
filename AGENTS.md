@@ -82,9 +82,11 @@ the user's to make — say what needs looking at and stop there.
   `repository` to `desktop/package.json`: that would let a build silently upload a release
   instead of erroring. There is no auto-update; the workflow uploads artifacts itself.
 - **macOS is built and signed locally, never in CI** — the runners bill at 10x and the Developer
-  ID is already in a keychain. `./release-mac.sh <tag>` builds both arm64 and x64, notarizes
-  both, verifies each with `spctl` before uploading, and attaches them to the draft release CI
-  already opened for that tag via `gh release upload`.
+  ID is already in a keychain. `./private/release-mac.sh <tag>` builds both arm64 and x64,
+  notarizes both, verifies each with `spctl` before uploading, and attaches them to the draft
+  release CI already opened for that tag via `gh release upload`. The script is local-only and
+  untracked — `private/` is gitignored, so a fresh clone does not have it and the public README
+  documents only the manual steps.
 - **Each `dist:*` stages one platform-arch pair.** The native binary is specific to both, and
   `desktop/verify-arch.js` (an `afterPack` hook) refuses a mismatch at pack time.
 - **Windows and Linux are unsigned, and there is no auto-update anywhere.** Both are stated
@@ -575,7 +577,11 @@ migration, no new table, never a token.** Still one unsolicited behavior and thr
   answers stream in prose with `[[nodeId]]` citations rendered as chips that reveal (peeking
   first, if the card is folded or binned) the card they point at. **Read-only is the whole
   design:** no bridge onto the board, no undo snapshot, not in the fingerprint, and
-  `boards.updated_at` unchanged by a run — the model is told the same rule. The question is the
+  `boards.updated_at` unchanged by a run — the model is told the same rule. **(v5.7)** it's told
+  to reason and synthesize across cards, not just recite them, and — only when asked directly,
+  never volunteered — to give an opinion framed as its own read; it's still told explicitly it
+  has no way to act on that opinion, so it must never claim to have added or changed anything.
+  The question is the
   first untrusted free-text string to reach a model turn, so `QUESTION_MAX` is enforced on both
   sides of the wire, and the posted history and scope are re-fitted server-side. Depends on
   v5.3's serializer knobs (`edgesById`/`maxNodes`) — the 40K context budget only works because

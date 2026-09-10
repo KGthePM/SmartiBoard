@@ -520,31 +520,37 @@ npm run dist:mac       # Apple Silicon; dist:mac:intel for x64
 **macOS is built locally, not in CI, and on purpose.** GitHub's macOS runners bill at ten times
 the rate of Linux ones, and the Developer ID certificate that signs the app already lives in a
 keychain on the machine that has it — putting a `.p12` into CI secrets would buy nothing but a
-second place for it to expire. `npm run dist:mac` picks the identity up automatically. To
-notarize as well (which is what removes the first-launch warning entirely), store credentials
-once and flip the flag:
+second place for it to expire. `npm run dist:mac` picks the identity up automatically, and
+notarization is the default (`notarize: true` in the build config; the `dist:mac` scripts pass
+the keychain profile name for you). Notarization is what removes the first-launch warning
+entirely. Store the credentials once:
 
 ```bash
 xcrun notarytool store-credentials smarti \
   --apple-id <your-apple-id> --team-id <your-team-id> --password <app-specific-password>
 
-APPLE_KEYCHAIN_PROFILE=smarti npm run dist:mac:notarized
+npm run dist:mac         # arm64, signed + notarized
+npm run dist:mac:intel   # x64, signed + notarized
 ```
 
-**The env var is load-bearing and its absence is silent**: without it electron-builder cannot
-find the profile, logs `skipped macOS notarization`, and hands back a signed but un-notarized
-`.dmg` that looks fine. Always confirm with
-`spctl -a -vvv -t install "dist/mac-arm64/Smarti Board.app"` — it must say
-`source=Notarized Developer ID`.
+Then attach the two DMGs to the draft release CI opened for the tag:
 
-**`./release-mac.sh <tag>` is the one-command version of all of the above**, for cutting an
-actual release: it builds both `arm64` and `x64`, notarizes both (via the two
-`dist:mac*:notarized` scripts), verifies each `.dmg` with `spctl` before touching the network,
-and uploads them to the draft release CI already opened for that tag with
-`gh release upload --clobber`. It requires the `gh` CLI installed and authenticated
-(`gh auth login`) and the `smarti` notarization profile stored as above; it refuses to run if
-CI hasn't opened the release yet (push the tag and wait), and it never creates a release
-itself — only Windows/Linux CI does that.
+```bash
+gh release upload <tag> "dist/SmartiBoard-<version>-mac-arm64.dmg" \
+                     "dist/SmartiBoard-<version>-mac-x64.dmg" --clobber
+```
+
+**A build whose notarization was skipped looks identical to a good one.** If electron-builder
+cannot find the keychain profile it logs `skipped macOS notarization` and hands back a signed
+but un-notarized `.dmg` anyway. Always confirm against the **app bundle**, never the `.dmg`:
+
+```bash
+spctl -a -vvv -t install "dist/mac-arm64/Smarti Board.app"   # must say: source=Notarized Developer ID
+```
+
+electron-builder submits the `.app` for notarization and staples the ticket there — the disk
+image never carries one, so `spctl` on a `.dmg` reports `no usable signature` even for a fully
+notarized build.
 
 **`GH_TOKEN` must not be in the environment of a build, and `"publish": null` is in the config
 for the same reason.** electron-builder reads that variable as "you intend to publish": it then
@@ -579,7 +585,7 @@ Windows and Linux releases are built by CI: push a `v*` tag and
 [the workflow](.github/workflows/release.yml) builds on a Windows and a Linux runner and opens
 a **draft** release with the artifacts attached. Nothing goes public until someone presses
 publish — CI proves the installers build, not that they launch. The macOS `.dmg`s are built and
-notarized locally and attached to the same draft with `./release-mac.sh <tag>`.
+notarized locally and attached to the same draft.
 
 ## Landing page
 

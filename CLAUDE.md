@@ -789,13 +789,14 @@ like a collaborator or a paperclip. Both are now settled:
   Any future feature that touches another hardware permission (microphone, screen recording)
   needs the matching `com.apple.security.*` key added here, or it will pass in dev and silently
   fail only in the signed build.
-  **The macOS upload step is scripted, not dragged** (`release-mac.sh`, added after v6.0): the
-  build and signing story above is unchanged — still local, still the Developer ID in the local
-  keychain, still never CI — this only replaces the manual "run `npm run dist:mac`, then drag
-  the `.dmg` into the GitHub web UI" half with `./release-mac.sh <tag>`, which builds both
-  `arm64` and `x64`, notarizes both, verifies each with `spctl` before uploading, and attaches
-  them to the draft release CI already opened for that tag via `gh release upload --clobber`.
-  It attaches to a release; like the CI workflow it joins, it never creates one.
+  **The macOS upload step is scripted, not dragged** (`private/release-mac.sh`, added after
+  v6.0, local-only and untracked like everything in `private/`): the build and signing story
+  above is unchanged — still local, still the Developer ID in the local keychain, still never
+  CI — this only replaces the manual "run `npm run dist:mac`, then drag the `.dmg` into the
+  GitHub web UI" half with `./private/release-mac.sh <tag>`, which builds both `arm64` and
+  `x64`, notarizes both, verifies each with `spctl` before uploading, and attaches them to
+  the draft release CI already opened for that tag via `gh release upload --clobber`. It
+  attaches to a release; like the CI workflow it joins, it never creates one.
 
 - **Import and export** (v3.3): a board leaves as a file and comes back as one. The app is
   loopback-only by design — no auth, no sync, no account — so a file is not one option among
@@ -1145,12 +1146,23 @@ like a collaborator or a paperclip. Both are now settled:
   ("describing a board you had just written was the weaker half"). A folder-import board arrives
   holding 300+ cards the person has never read, and "where does auth happen?" becomes an honest
   question. ⌘/ or the Ask button opens the drawer; answers stream in prose with the cards they
-  drew on cited inline as clickable chips. **Read-only is the invariant**: nothing is proposed,
-  nothing is accepted, nothing lands on the canvas — no "add as card" bridge (Ideas owns putting
-  things on a board), no store action that writes, not in the undo stack, not in the fingerprint,
-  `boards.updated_at` untouched by a run. The model is told the same rule in its own prompt:
-  answer only from what is on the board, say so plainly when it doesn't say, cite as `[[nodeId]]`,
-  and never propose a change.
+  drew on cited inline as clickable chips. **Read-only is the invariant**: nothing lands on the
+  canvas — no "add as card" bridge (Ideas owns putting things on a board), no store action that
+  writes, not in the undo stack, not in the fingerprint, `boards.updated_at` untouched by a run.
+  The model is told the same rule in its own prompt: answer only from what is on the board, say
+  so plainly when it doesn't say, cite as `[[nodeId]]`. **(v5.7)** that rule used to also mean
+  never voicing an opinion at all — asked "what's the difference between X and Y" on a
+  folder-import board, the model would recite each side's contents rather than name the actual
+  distinction, and a direct "what would you add here?" got a flat refusal. The prompt now
+  separates "don't invent facts the board doesn't have" (still absolute) from "don't reason
+  about the facts it does have" (never actually the intent — the read-only rule was always about
+  not writing to the board, not about suppressing synthesis): it's told to compare cards and name
+  the pattern connecting them, and, only when asked directly for a suggestion or opinion (never
+  volunteered — that's the ghost's unsolicited role), to give one in prose, framed as its own
+  read rather than a board fact. **It has no way to act on that opinion and is told so
+  explicitly** — it must never claim to have added or changed anything, since the mechanical
+  invariant above (no store write, no undo entry, no `lastMutationAt`/`updated_at` bump) is
+  completely unchanged by this and there really is nothing for it to have done.
   **The question is the first untrusted free-text string to reach a model turn**, so it is capped
   (`QUESTION_MAX = 500`, `clampQuestion`) on both sides of the wire, and the posted history and
   scope are re-fitted server-side (`fitHistory`, `parseScope`) because a client is only a client.
