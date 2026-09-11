@@ -95,6 +95,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # desktop/update.js verifies a download against this when it's present (absent is a real
+      # case too — pre-this-release assets, or the mac DMGs before private/release-mac.sh appends
+      # to it below — and falls back to trusting GitHub's TLS alone). Windows/Linux only here;
+      # the mac DMGs aren't attached yet at this point in the pipeline.
+      - name: Checksum installers
+        working-directory: artifacts
+        run: sha256sum *.exe *.AppImage *.deb > SHASUMS256.txt
+
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
@@ -103,3 +111,4 @@ jobs:
             artifacts/*.exe
             artifacts/*.AppImage
             artifacts/*.deb
+            artifacts/SHASUMS256.txt

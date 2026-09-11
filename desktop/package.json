@@ -36,6 +36,7 @@
     },
     "files": [
       "main.js",
+      "update.js",
       "loading.html",
       "app/**/*"
     ],

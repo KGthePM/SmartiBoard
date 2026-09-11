@@ -754,8 +754,11 @@ like a collaborator or a paperclip. Both are now settled:
   when it cannot work out the repository. **`--publish never` does not prevent this** — the flag
   governs the upload, not the resolution — which is why the first release failed on CI while the
   identical command passed locally, where no token is set. `"publish": null` states the truth
-  instead: there is no publish target, because there is no auto-update and the workflow uploads
-  the artifacts itself. There is deliberately no `repository` field in `desktop/package.json`
+  instead: there is no publish target, because there is no `electron-updater`-style auto-update
+  and the workflow uploads the artifacts itself. (A manual, click-only "Check for Updates…" was
+  added later — see the paragraph near the end of this bullet — and changes none of this: it
+  never touches `publish`, never runs unprompted, and needs no token.) There is deliberately no
+  `repository` field in `desktop/package.json`
   either — it would satisfy the resolver and let a tagged build quietly upload a release rather
   than erroring, the worse of the two failures. The `.deb` target additionally needs `homepage`
   and a `Name <email>` `linux.maintainer`; both are packaging metadata, not app configuration.
@@ -769,8 +772,10 @@ like a collaborator or a paperclip. Both are now settled:
   pack time rather than letting it surface as a failed database call in a window that already
   opened.
   **The Windows and Linux builds are unsigned, and the README says so in words rather than
-  leaving the OS to.** Signing is a fact about a certificate, not about the app. Auto-update is deliberately absent: an
-  unsigned self-updater is a worse story than a Releases page.
+  leaving the OS to.** Signing is a fact about a certificate, not about the app. A *self*-updater
+  is deliberately absent: an unsigned one that silently phones home and replaces itself is a
+  worse story than a Releases page — that ruling is what "Check for Updates…", below, is built
+  to not be.
   **Hardened Runtime needs its own entitlements file, and electron-builder does not warn when
   one is missing.** With `hardenedRuntime: true` and no `mac.entitlements`/`entitlementsInherit`,
   electron-builder silently signs with its own built-in template — `allow-jit`,
@@ -797,6 +802,42 @@ like a collaborator or a paperclip. Both are now settled:
   `x64`, notarizes both, verifies each with `spctl` before uploading, and attaches them to
   the draft release CI already opened for that tag via `gh release upload --clobber`. It
   attaches to a release; like the CI workflow it joins, it never creates one.
+  **"Check for Updates…" is a menu item, not a self-updater** (`desktop/update.js`, added after
+  v6.0.4): the Help menu on Windows/Linux, the app menu next to "About" on macOS, and it exists
+  at all only when `app.isPackaged` — a dev shell's update is `git pull`. It runs on **exactly
+  one** trigger, the click, and never on launch, never in the background, never on a timer;
+  that is the entire line between this and the `electron-updater` machinery ruled out above.
+  A click asks `api.github.com/repos/KGthePM/SmartiBoard/releases/latest` (same endpoint
+  `landing/index.html`'s `DL_PICK` already polls for the download-picker buttons — this mirrors
+  its per-OS/arch asset-suffix table rather than a second, driftable copy of it), compares
+  `tag_name` against `app.getVersion()`, and — because CI's tag-vs-`desktop/package.json` guard
+  (`.github/workflows/release.yml`) already keeps a pushed tag and the running version directly
+  comparable — a plain dotted-triple compare is all that's needed. **A found update still asks
+  before it does anything**, and on Windows/Linux AppImage it asks again before the install step
+  actually touches a running binary — two separate yes/no confirmations between "there's an
+  update" and "files changed on disk," where the ruled-out self-updater would have had zero.
+  macOS and `.deb` stop one step short of that second question, since neither ever writes over
+  the running install itself (see below).
+  **Verification is checksum-if-present, HTTPS-always.** `release.yml`'s `release` job now
+  `sha256sum`s the Windows/Linux installers into `SHASUMS256.txt` and uploads it alongside them;
+  `private/release-mac.sh` downloads that file, appends the two DMGs' hashes, and re-uploads it
+  with `--clobber` so one file ends up covering all five installers regardless of which pipeline
+  published them. A release predating this feature simply has no such file, and `update.js`
+  proceeds on GitHub's TLS alone rather than treating absence as a failure — the checksum is
+  belt-and-braces on top of the transport guarantee, never the gate.
+  **Installing is real OS handoff, not a copy-over-self.** Windows: confirm, `spawn` the NSIS
+  installer detached, then `app.quit()` — quitting first is what unlocks the files NSIS needs to
+  replace, and the dialog reminds the user the same unsigned-publisher warning from first install
+  will reappear. Linux AppImage: `process.env.APPIMAGE` is the running file's real path (
+  `process.execPath` points inside the mounted squashfs and is useless here) — the download lands
+  as `${APPIMAGE}.new` beside it, `chmod`ed and renamed over the original, then `app.relaunch()`.
+  macOS and Linux `.deb` both stop at `shell.openPath()` — a person finishes the drag or the
+  package-manager prompt — for the same reason macOS install stops at the DMG everywhere else in
+  this doc: there's no CI-signed binary to automate around, and a `.deb`'s own installer already
+  owns that UX. **None of this reopens the auto-update question above.** No `publish` field is
+  touched, no `GH_TOKEN` is needed (the GitHub releases API this hits is unauthenticated, 60
+  req/hr/IP, irrelevant at click volume), and nothing here runs without the three confirmations
+  a person just gave it.
 
 - **Import and export** (v3.3): a board leaves as a file and comes back as one. The app is
   loopback-only by design — no auth, no sync, no account — so a file is not one option among

@@ -14,6 +14,7 @@ const { fork } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const net = require('node:net');
 const { join } = require('node:path');
+const { checkForUpdates } = require('./update');
 
 /**
  * The two halves of what used to be one HOST (v4.1).
@@ -164,8 +165,39 @@ function stopServer() {
  */
 function buildMenu() {
   const isMac = process.platform === 'darwin';
+
+  // A dev shell's "update" is `git pull` — the menu item only exists in a packaged build, and
+  // only ever fires on a click (never at launch, never in the background). See update.js.
+  const updatesItem = app.isPackaged
+    ? {
+        id: 'check-for-updates',
+        label: 'Check for Updates…',
+        click: () => checkForUpdates(win),
+      }
+    : null;
+
   const template = [
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    // macOS convention puts this under "About App Name" in the app menu, not in Help — matching
+    // where every native Mac app puts it (VS Code included) rather than where Windows/Linux do.
+    ...(isMac
+      ? [
+          {
+            role: 'appMenu',
+            submenu: [
+              { role: 'about' },
+              ...(updatesItem ? [updatesItem] : []),
+              { type: 'separator' },
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' },
+            ],
+          },
+        ]
+      : []),
     {
       label: 'File',
       submenu: [isMac ? { role: 'close' } : { role: 'quit' }],
@@ -196,6 +228,9 @@ function buildMenu() {
           label: 'Where your boards are stored',
           click: () => shell.showItemInFolder(DB_PATH),
         },
+        // Windows/Linux get it here, the conventional Help-menu spot — macOS already has it
+        // above, next to About, and doesn't need it twice.
+        ...(!isMac && updatesItem ? [{ type: 'separator' }, updatesItem] : []),
       ],
     },
   ];

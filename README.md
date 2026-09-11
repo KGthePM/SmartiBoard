@@ -563,6 +563,14 @@ release workflow uploads the artifacts itself. There is deliberately no `reposit
 `desktop/package.json` either — it would satisfy the resolver and let a tagged build quietly
 upload a release instead of erroring, the worse of the two failures.
 
+**"No auto-update" means no `electron-updater`, no background check and no silent install —
+not "no way to update at all."** The app's Help menu (About menu on macOS) has a **Check for
+Updates…** item, `desktop/update.js`, that only ever runs on a click: it asks GitHub for the
+latest release, and if there's a newer one, downloads the right installer for your platform,
+verifies it against `SHASUMS256.txt` when the release carries one, and hands off to the OS's own
+installer (or, on macOS, opens the `.dmg` for you to drag over — see the notarization note
+above for why that step isn't automated too). Nothing checks or downloads unless you click it.
+
 **Each `dist:*` stages for exactly one platform and architecture**, because the native
 better-sqlite3 binary is specific to both. Mixing them — staging arm64 and packaging x64 — is
 caught by `desktop/verify-arch.js` at pack time rather than by the user at their first database

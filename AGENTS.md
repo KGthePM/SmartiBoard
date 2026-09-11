@@ -80,7 +80,8 @@ the user's to make — say what needs looking at and stop there.
   `app-update.yml` during `afterPack`, and fails the build when it cannot. `--publish never`
   does *not* prevent this — it governs the upload, not the resolution. Do not "fix" it by adding
   `repository` to `desktop/package.json`: that would let a build silently upload a release
-  instead of erroring. There is no auto-update; the workflow uploads artifacts itself.
+  instead of erroring. There is no auto-update — no `electron-updater`, no publish target, no
+  background check — the workflow uploads artifacts itself.
 - **macOS is built and signed locally, never in CI** — the runners bill at 10x and the Developer
   ID is already in a keychain. `./private/release-mac.sh <tag>` builds both arm64 and x64,
   notarizes both, verifies each with `spctl` before uploading, and attaches them to the draft
@@ -91,6 +92,16 @@ the user's to make — say what needs looking at and stop there.
   `desktop/verify-arch.js` (an `afterPack` hook) refuses a mismatch at pack time.
 - **Windows and Linux are unsigned, and there is no auto-update anywhere.** Both are stated
   plainly in the README rather than left to the OS to explain.
+- **"Check for Updates…" (`desktop/update.js`) is a manual menu item, not a self-updater.** Help
+  menu on Windows/Linux, the app menu next to "About" on macOS — `app.isPackaged`-gated, so a dev
+  shell never shows it. It only ever runs on click: no launch-time check, no background polling,
+  no badge. It downloads the release asset matching `process.platform`/`process.arch` (the same
+  suffix table as `landing/index.html`'s `DL_PICK`), verifies it against `SHASUMS256.txt` when a
+  release carries one, then hands off to the OS's own installer — `spawn` + quit on Windows,
+  replace-the-AppImage-in-place + relaunch on Linux AppImage, `shell.openPath` (a person still
+  finishes the drag/click) for macOS DMGs and Linux `.deb`s. Nothing here reintroduces
+  `electron-updater`, `publish`, or CI egress — the check and download happen entirely from the
+  already-running app, on the same GitHub API a person would otherwise open in a browser.
 
 ## Environment
 
