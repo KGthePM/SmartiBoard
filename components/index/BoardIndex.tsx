@@ -435,6 +435,10 @@ export function BoardIndex({ boards, now }: { boards: BoardSummary[]; now: numbe
           >
             Support &amp; FAQ
           </a>
+          <span aria-hidden="true">·</span>
+          <a href="https://x.com/PineCompute" target="_blank" rel="noopener noreferrer">
+            Pine Compute on X
+          </a>
         </nav>
       </footer>
 

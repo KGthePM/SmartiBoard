@@ -227,8 +227,8 @@ function createWindow() {
     win = null;
   });
 
-  // Four links in the app carry target="_blank" (the settings panel's provider docs and the
-  // library's footer). Without this they open chromeless Electron windows with no way back.
+  // External links in the app (the settings panel's provider docs and the library's
+  // footer) carry target="_blank". Without this they open chromeless Electron windows with no way back.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
