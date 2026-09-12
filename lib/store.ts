@@ -25,6 +25,7 @@ import { DEBOUNCE_MS, fingerprint } from './ai/trigger';
 import type { IdeaDraft } from './ai/ideas';
 import { placeProposal } from './placement';
 import { toggleReaction as toggleIn, type ReactionKey } from './reactions';
+import { NOTE_MAX } from './notes';
 import { cardView, DEFAULT_COLLAPSE_MODE, viewRect, type CollapseMode } from './collapse';
 import { JARVIS_DEFAULT_GAIN } from './hand';
 import { applyOps, type Op } from './sync';
@@ -268,6 +269,10 @@ export type State = {
   adjustNodeFontSize: (id: NodeId, dir: 1 | -1) => void;
   toggleNodeDone: (id: NodeId) => void;
   toggleReaction: (id: NodeId, key: ReactionKey) => void;
+  /** A new, empty margin note (v6.5) — returns its id for focus, or null if the card is gone. */
+  addNodeNote: (id: NodeId) => string | null;
+  setNodeNote: (id: NodeId, noteId: string, text: string) => void;
+  removeNodeNote: (id: NodeId, noteId: string) => void;
   deleteNode: (id: NodeId) => void;
   /** The multi-delete: one deliberate edit, one undo step for the whole batch. */
   deleteNodes: (ids: NodeId[]) => void;
@@ -624,6 +629,84 @@ export const useBoard = create<State>((set, get) => ({
         ),
       },
     })),
+
+  /**
+   * Margin notes (v6.5) — see lib/notes.ts. The reactions tier throughout:
+   * undoable (one snapshot per deliberate action), never a lastMutationAt
+   * bump, absent from the fingerprint and every prompt. Adding is a
+   * deliberate action like a reaction toggle, so it always snapshots; a
+   * no-op guard (a card that is already gone) costs nothing.
+   */
+  addNodeNote: (id) => {
+    if (!get().board.nodes.some((n) => n.id === id)) return null;
+    const noteId = newId('note');
+    set((s) => ({
+      ...pushUndo(s),
+      board: {
+        ...s.board,
+        nodes: s.board.nodes.map((n) =>
+          n.id === id ? { ...n, notes: [...n.notes, { id: noteId, text: '' }] } : n,
+        ),
+      },
+      // lastTextEditId is deliberately left alone — addNode does the same.
+      // The first setNodeNote call into this note is a fresh burst and
+      // snapshots on its own, exactly as the first keystroke into a brand
+      // new card does.
+    }));
+    return noteId;
+  },
+
+  /**
+   * Typing into one note. Coalesces per burst exactly like setNodeText, but
+   * keyed on the note, not the card — switching from the card's body, or from
+   * a different note on the same card, ends the previous burst and starts its
+   * own undo step. A gone card or a gone note (already removed elsewhere) is
+   * a no-op: nothing to snapshot.
+   */
+  setNodeNote: (id, noteId, text) =>
+    set((s) => {
+      const node = s.board.nodes.find((n) => n.id === id);
+      if (!node || !node.notes.some((note) => note.id === noteId)) return s;
+      const key = noteEditKey(id, noteId);
+      const capped = text.slice(0, NOTE_MAX);
+      return {
+        ...(shouldSnapshotTextEdit(s, key) ? pushUndo(s) : { redoStack: [] }),
+        board: {
+          ...s.board,
+          nodes: s.board.nodes.map((n) =>
+            n.id === id
+              ? {
+                  ...n,
+                  notes: n.notes.map((note) =>
+                    note.id === noteId ? { ...note, text: capped } : note,
+                  ),
+                }
+              : n,
+          ),
+        },
+        lastTextEditId: key,
+      };
+    }),
+
+  /**
+   * Removing one note — the × or a blur with empty text. A deliberate action
+   * like adding one, so it snapshots; a no-op guard (already removed) costs
+   * nothing rather than pushing an undo step for nothing changing.
+   */
+  removeNodeNote: (id, noteId) =>
+    set((s) => {
+      const node = s.board.nodes.find((n) => n.id === id);
+      if (!node || !node.notes.some((note) => note.id === noteId)) return s;
+      return {
+        ...pushUndo(s),
+        board: {
+          ...s.board,
+          nodes: s.board.nodes.map((n) =>
+            n.id === id ? { ...n, notes: n.notes.filter((note) => note.id !== noteId) } : n,
+          ),
+        },
+      };
+    }),
 
   // The card's × is the batch of one — one implementation, one doctrine.
   deleteNode: (id) => get().deleteNodes([id]),
@@ -1293,4 +1376,15 @@ function pushUndo(s: State): { undoStack: Board[]; redoStack: Board[] } {
  */
 function shouldSnapshotTextEdit(s: State, id: NodeId): boolean {
   return s.lastTextEditId !== id;
+}
+
+/**
+ * The burst key for one note's own typing stream (v6.5), distinct from the
+ * card body's and from every other note on the same card — switching between
+ * two notes, or between a note and the card's own text, must end the
+ * previous burst and start its own undo step. NodeId is already a bare
+ * string, so this composite still satisfies lastTextEditId's type.
+ */
+function noteEditKey(nodeId: NodeId, noteId: string): string {
+  return `${nodeId}:note:${noteId}`;
 }

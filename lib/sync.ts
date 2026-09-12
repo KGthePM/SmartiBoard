@@ -8,7 +8,7 @@
  * blocker, and this is the fix: send what changed.
  *
  * **The node is the unit of merge.** One `node.put` covers text, position,
- * size, font step, `done` and reactions at once, so two people on *different*
+ * size, font step, `done`, reactions and notes at once, so two people on *different*
  * cards both win and two on the *same* card resolve last-write-wins on that
  * card alone — the rest of the board is never in the blast radius. Field-level
  * ops would cost a large op set and a large test surface to settle a collision
@@ -44,6 +44,7 @@ import {
   type NodeId,
 } from './graph';
 import { normalizeReactions } from './reactions';
+import { normalizeNotes } from './notes';
 
 export type Op =
   /** Add or full-replace. The one op behind every per-card mutation. */
@@ -189,6 +190,7 @@ function parseNode(raw: unknown): IdeaNode | null {
     layer: n.layer === 'accepted' ? 'accepted' : 'user',
     done: n.done === true,
     reactions: normalizeReactions(n.reactions),
+    notes: normalizeNotes(n.notes),
     ...(typeof n.createdAt === 'number' ? { createdAt: n.createdAt } : {}),
   });
 }
@@ -216,7 +218,9 @@ function sameNode(a: IdeaNode, b: IdeaNode): boolean {
     a.done === b.done &&
     a.createdAt === b.createdAt &&
     a.reactions.length === b.reactions.length &&
-    a.reactions.every((r, i) => r === b.reactions[i])
+    a.reactions.every((r, i) => r === b.reactions[i]) &&
+    a.notes.length === b.notes.length &&
+    a.notes.every((note, i) => note.id === b.notes[i].id && note.text === b.notes[i].text)
   );
 }
 

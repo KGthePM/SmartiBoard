@@ -818,6 +818,22 @@ export function Board({ boardId }: { boardId: string }) {
         e.preventDefault();
         useBoard.getState().toggleReaction(selectedIds[0], slot);
       }
+      // N adds a margin note, the mirror of D for done. Same guards, plus one
+      // of its own: a folded card hides its notes entirely (v6.5's "fold with
+      // the card"), so adding one there would be invisible until expanded —
+      // views.get is that same fold state, already computed above.
+      if (
+        e.key.toLowerCase() === 'n' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        selectedIds.length === 1 &&
+        !views.get(selectedIds[0])
+      ) {
+        e.preventDefault();
+        useBoard.getState().addNodeNote(selectedIds[0]);
+      }
       if (e.key === 'Escape') {
         useBoard.getState().select(null);
         useBoard.getState().selectEdge(null);
@@ -825,7 +841,7 @@ export function Board({ boardId }: { boardId: string }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [presenting, selectedIds, selectedEdgeId]);
+  }, [presenting, selectedIds, selectedEdgeId, views]);
 
   const pendingLine =
     drag?.kind === 'connect'
@@ -1103,6 +1119,9 @@ export function Board({ boardId }: { boardId: string }) {
                   onAdjustFont={(dir) => store.adjustNodeFontSize(n.id, dir)}
                   onToggleDone={() => store.toggleNodeDone(n.id)}
                   onToggleReaction={(k) => store.toggleReaction(n.id, k)}
+                  onAddNote={() => store.addNodeNote(n.id)}
+                  onChangeNote={(noteId, text) => store.setNodeNote(n.id, noteId, text)}
+                  onRemoveNote={(noteId) => store.removeNodeNote(n.id, noteId)}
                   onDelete={() => {
                     lastDeleteAt.current = Date.now();
                     store.deleteNode(n.id);

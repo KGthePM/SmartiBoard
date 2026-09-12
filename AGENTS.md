@@ -689,5 +689,69 @@ still believed correct.
 - **Deferred:** bundling `cloudflared` into the Electron installers. The `SMARTI_CLOUDFLARED`
   seam exists; until then desktop uses one on `PATH` or greys the tier out.
 
+## Margin notes (v6.5)
+
+- **What you are thinking while you work, not what the board says.** `lib/notes.ts`:
+  `CardNote = {id, text}`, `NOTE_MAX = 280`, `normalizeNotes` — the `reactions` pattern
+  (v2.7) scaled from a closed set of marks to capped prose. `IdeaNode.notes: CardNote[]`
+  (default `[]`), threaded through `createNode`/`parseBoard`/`lib/sync.ts`'s `parseNode` and
+  `sameNode` exactly as `reactions` is — **no new op type**, the whole array rides `node.put`
+  (a whole-node replace) like every other per-card field. No new table, no migration, no
+  board-JSON envelope change.
+- **Model-blind, like a reaction, but carrying prose.** Absent from `fingerprint`
+  (`lib/ai/trigger.ts`) and `serializeBoardContent` (`lib/ai/prompt.ts`) **for free** — both
+  build their strings by naming `id`/`done`/`text` explicitly rather than spreading the node,
+  so a field neither one names is excluded by construction, the same reason `reactions` needed
+  no exclusion rule either. AI-constructed nodes (`acceptProposal`, `addIdea`, both via
+  `createNode`) never carry one. No AI behavior added: still exactly one unsolicited and three
+  user-invoked.
+- **The reactions tier in the store** (`lib/store.ts`): `addNodeNote`/`setNodeNote`/
+  `removeNodeNote`. Adding and removing are deliberate actions — one `pushUndo` snapshot each,
+  no `lastMutationAt` bump — and a no-op guard (a gone card, a gone note) spends nothing.
+  Typing coalesces per burst like `setNodeText`, but keyed on the **note**, not the card:
+  `noteEditKey(nodeId, noteId)` is a composite string stored in the existing `lastTextEditId`
+  field (already typed `NodeId | null`, i.e. a bare string — no type change needed), so
+  switching between two notes on the same card, or between a note and the card's own body,
+  ends the previous burst and starts its own undo step. `addNodeNote` deliberately does **not**
+  stamp `lastTextEditId` on creation — the first `setNodeNote` call is its own fresh burst,
+  mirroring how `addNode` leaves it alone for the card body's first keystroke.
+- **Fold with the card.** A card that is folded (line/dot) or binned hides its notes entirely,
+  the same as it hides the ✎ control that adds one — `NodeCard.tsx` gates both on `collapsed`
+  (`view !== null`), not just `dot`, since a stub has no more room for prose than a dot does.
+  Peeking or unfolding the card brings them back; nothing about `viewRect`, `cardView`, or
+  `isBinned` changed, because a note is data on the node, not a second piece of state.
+  Un-collapsed, all of a card's notes always render (no hover-gated subset the way reactions
+  filter to chosen-only when collapsed) — a written note is content, not an affordance.
+- **UI**: ✎ at bottom-centre (`bottom:-9px; left:50%`, mirroring ▸ at top-centre — the last
+  corner with no affordance of its own), reveal-on-hover/selected like the other pips, gone
+  when collapsed. **`.reactions` moved above the card**, to `bottom: calc(100% + 20px); left:
+  50%` — its own fixed position, clearing the ▸ fold pip's 18px band the way the note strip
+  below clears ✎'s — so it never drifts as the note stack below the card grows or shrinks: two
+  designs sharing the below-card space were tried first (notes above reactions read as
+  reactions belonging to the latest note; reactions above notes but still below meant notes
+  waited behind a whole reactions row) and both were rejected for exactly that reason. `.notes`
+  now starts at `top: calc(100% + 20px)` directly under the card — the ✎ pip's own clearance,
+  no reactions row to wait behind — so it sits as close as that pip allows. Click a strip to edit inline,
+  per-keystroke commit, no Save button (the objective doctrine); blur with empty text
+  auto-removes; a per-row × removes explicitly. Escape in the note editor calls
+  `stopPropagation()` before blurring, so it never falls through to the board's global
+  Escape-clears-selection listener.
+- **`N` on a lone, unfolded, selected card** adds a note and focuses it — `Board.tsx`'s keydown
+  handler, the same guard tuple as `D` and the reaction keys, plus `!views.get(selectedIds[0])`
+  (a folded card hides its notes entirely, so adding one there would be invisible until
+  expanded). Focus itself is **not** threaded through the callback: `NodeCard.tsx` watches
+  `node.notes.length` grow and opens the last entry when it lands empty, whether the add came
+  from the ✎ click or the keyboard — the same pattern the brand-new-card auto-edit effect
+  already uses (`selected && sole && node.text === ''`).
+- **Not printed, not searched, not in the Done bin list** — all three are free by
+  construction: `PrintSheets.tsx` names `text`/`done`/`reactions` explicitly and never spreads
+  the node; `lib/search.ts`'s `findMatches` only reads `board.objective` and each node's
+  `text`; `DoneBinPanel.tsx` renders `text` and `reactions` by name, nothing generic. Notes
+  **do** show in presentation (they are content, like reactions) and fold away exactly as they
+  do on the canvas, since presentation respects `collapseMode` the way print never does.
+- **The tutorial board got a seventeenth card** (`lib/tutorial.ts`), following the reactions
+  precedent: a real per-card gesture (a control, an `N` shortcut, a readable strip) earns its
+  own card rather than a folded-in mention, linked into the one spanning tree off `welcome`.
+
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.

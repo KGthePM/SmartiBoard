@@ -74,6 +74,12 @@
      as part of the card, because it is. */
   --react-bg: #ffffff;
   --react-ring: #c9c9c2;
+
+  /* Margin notes (v6.5). Matte and shadowless on purpose — cards bloom, the
+     ghost is recessed, and a note is neither: it is marginalia, so it takes
+     a plain wash tint and muted ink rather than a chip of its own. */
+  --note-bg: rgba(28,28,26,0.05);
+  --note-ink: #6b6b66;
 }
 
 /* ==========================================================================
@@ -164,6 +170,12 @@
      end of the scale from the recessed ghost. */
   --react-bg: #272b32;
   --react-ring: #4a4f59;
+
+  /* Matte here too, and deliberately not the raised surface reactions get: a
+     note is the person's own margin, not content pushed up onto the card's
+     own plane. */
+  --note-bg: rgba(255,255,255,0.05);
+  --note-ink: #9a9a93;
 }
 
 /* The index keeps its own scoped palette, so it needs its own override —
@@ -255,6 +267,12 @@
      they placed. The ghost is still the only thing that does not glow. */
   --react-bg: #0e1712;
   --react-ring: #39ff88;
+
+  /* Flat here too, on purpose: a note is marginalia the person left
+     themselves, not solid content, so it does not earn the bloom reactions
+     and cards get — the same ruling the find highlight above already made. */
+  --note-bg: rgba(57,255,136,0.06);
+  --note-ink: #74a389;
 }
 
 :root[data-theme='neon'] .index {
@@ -715,11 +733,129 @@ html:not([data-done-strike='off']) .card.done .rt-s {
 .fs-down { font-size: 8px; }
 .fs-up { font-size: 11px; }
 
+/* Margin notes (v6.5): a note to yourself, model-blind like a reaction but
+   carrying prose. ✎ sits at bottom-centre, the mirror of ▸ at top-centre — the
+   one edge left with no affordance of its own (✓ top-left, × top-right, ▸
+   top-centre, port right, resize bottom-right, A± bottom-left). Hidden
+   together with the strips below whenever the card folds at all: a stub or a
+   dot has no room for either. */
+.note-add {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--user-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card:hover .note-add, .card.selected .note-add { opacity: 1; }
+
+/* ---------- below the card: margin notes ----------
+   The one card region that lives outside the card's own box, so it is the
+   one that can steal a press from a *neighbouring* card — but a written note
+   is content, not a hover affordance, so unlike .reactions this is
+   interactive unconditionally, no opt-in needed.
+
+   Reactions used to share this space and were moved above the card (see
+   .reactions below) specifically so this offset could shrink: notes now sit
+   as close to the card as the ✎ pip allows, rather than waiting behind a
+   whole reactions row first. The 20px top offset is that pip's own
+   clearance — it extends 18px below the edge and shares this block's
+   horizontal center, the same reasoning .note-add's own rule states. */
+.notes {
+  position: absolute;
+  top: calc(100% + 20px);
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.note-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--note-bg);
+  color: var(--note-ink);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+}
+.note-view, .note-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.note-view {
+  white-space: pre-wrap;
+  cursor: text;
+}
+.note-view:empty::before {
+  content: 'a note…';
+  color: var(--muted);
+}
+.note-text {
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  font-style: italic;
+  color: inherit;
+  padding: 0;
+  /* The one place inside the canvas a finger may still scroll — the surface's
+     touch-action: none reaches every descendant otherwise, the same reasoning
+     as .card.editing textarea above. */
+  touch-action: pan-y;
+}
+.note-x {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.note-row:hover .note-x, .note-row:focus-within .note-x, .card.selected .note-x { opacity: 1; }
+
 /* ---------- reactions (v2.7): the one mark on a card the model never sees ----------
-   Below the card rather than inside it: a card at the 48px height floor has no
-   room to give, and the strip clears the A± pair that straddles the bottom-left
-   corner at bottom:-9px. Five 18px chips fit under a card at the 120px width
-   floor.
+   Five 18px chips fit above a card at the 120px width floor.
+
+   Above the card (v6.5), not below: a reaction is a fixed property of the
+   card and must never drift as the notes stack below it grows or shrinks —
+   sharing that space with a variable-height list was tried and read as the
+   reactions belonging to whatever the latest note happened to be. The area
+   above is otherwise empty in ordinary read view; the one thing it competes
+   with is the formatting toolbar (`.rt-bar`), which appears only while
+   editing and — being left-aligned rather than centered — rarely overlaps in
+   practice. The 20px clearance is the ▸ fold pip's own band (it extends 18px
+   above the edge and shares this row's horizontal center), the mirror of the
+   ✎ pip's clearance below.
 
    All five slots are always in the layout and only opacity changes. That is the
    design: the glyph you are aiming at never moves between the resting card and
@@ -728,7 +864,7 @@ html:not([data-done-strike='off']) .card.done .rt-s {
    selects and nothing on a touchscreen hovers. */
 .reactions {
   position: absolute;
-  top: calc(100% + 12px);
+  bottom: calc(100% + 20px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -2589,6 +2725,7 @@ button.jarvis-toggle.on {
   .del::after,
   .tick::after,
   .fold::after,
+  .note-add::after,
   .resize::after,
   .fs button::after {
     content: "";
@@ -2599,6 +2736,19 @@ button.jarvis-toggle.on {
      halo than a pip does — and a -13px one would reach a neighbouring dot. */
   .card.dot .fold::after { inset: -8px; }
   .fs button { position: relative; }
+
+  /* The per-row × is smaller still (14px) and sits inside a row rather than on
+     the card's own edge, so a -13px halo would swallow the row above and
+     below it — a tighter one is the note-row's own version of the reactions
+     exception just below. */
+  .note-x {
+    position: relative;
+  }
+  .note-x::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
 
   /* The reactions are the one control that cannot take the -13px treatment:
      five targets in a row cannot each be 44px wide under a 120px card, and

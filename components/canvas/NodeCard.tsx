@@ -12,6 +12,7 @@ import {
   type Edit,
 } from '@/lib/richtext';
 import { REACTIONS, REACTION_GLYPH, REACTION_LABEL, type ReactionKey } from '@/lib/reactions';
+import { NOTE_MAX } from '@/lib/notes';
 import { viewRect, type CollapseView } from '@/lib/collapse';
 import { DRAG_SLOP } from '@/lib/gesture';
 import { RichTextView } from './RichTextView';
@@ -45,6 +46,10 @@ type Props = {
   onToggleDone: () => void;
   onToggleFold: () => void;
   onToggleReaction: (key: ReactionKey) => void;
+  /** A new, empty note — the effect below focuses it once it lands on `node.notes`. */
+  onAddNote: () => void;
+  onChangeNote: (noteId: string, text: string) => void;
+  onRemoveNote: (noteId: string) => void;
   onDelete: () => void;
 };
 
@@ -70,6 +75,9 @@ export function NodeCard({
   onToggleDone,
   onToggleFold,
   onToggleReaction,
+  onAddNote,
+  onChangeNote,
+  onRemoveNote,
   onDelete,
 }: Props) {
   /** Folded either way. The dot is the fold that also gives up its width. */
@@ -102,6 +110,20 @@ export function NodeCard({
    * that already tells a card drag from a click.
    */
   const dotPressAt = useRef<{ x: number; y: number } | null>(null);
+  /** Which of this card's notes is open for editing, if any — session-local. */
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const prevNoteCount = useRef(node.notes.length);
+
+  useEffect(() => {
+    // A note just landed — from the ✎ button or the N shortcut alike, both of
+    // which only ever append one empty note. Focus it the way a brand-new
+    // card focuses its own empty textarea, just below.
+    if (node.notes.length > prevNoteCount.current) {
+      const last = node.notes[node.notes.length - 1];
+      if (last && last.text === '') setEditingNoteId(last.id);
+    }
+    prevNoteCount.current = node.notes.length;
+  }, [node.notes]);
 
   useEffect(() => {
     // Newly created nodes are empty and should be ready to type into — but
@@ -325,6 +347,50 @@ export function NodeCard({
           {collapsed ? '▸' : '▾'}
         </button>
       ) : null}
+      {/* Reactions (v2.7): how you feel about the idea, said to the board and
+          not to the model. All five slots are always rendered, and the unchosen
+          ones only fade — so the glyph you want never moves between the resting
+          card and the hovered one, and the click is not a gamble. Above the
+          card, not below: it is a fixed property of the card, so its position
+          must not drift with the notes stack (v6.5), which is what happens
+          when the two share the space below. The area above is otherwise
+          empty in read view — the formatting toolbar only occupies it while
+          editing, and both hold at once without a real collision in practice. */}
+      <div
+        className="reactions"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          toolbarPressAt.current = Date.now();
+        }}
+      >
+        {/* A stub is a summary, so it shows only the marks that were placed —
+            the print sheet's rule. The "all five slots always" rule above is
+            about aiming at a hover target, which a folded card has no room
+            for anyway. */}
+        {(collapsed ? REACTIONS.filter((k) => node.reactions.includes(k)) : REACTIONS).map(
+          (key) => {
+            const on = node.reactions.includes(key);
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`react ${on ? 'on' : ''}`}
+                aria-pressed={on}
+                aria-label={REACTION_LABEL[key]}
+                title={REACTION_LABEL[key]}
+                onMouseDown={(e) => e.preventDefault()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleReaction(key);
+                }}
+              >
+                {REACTION_GLYPH[key]}
+              </button>
+            );
+          },
+        )}
+      </div>
       {dot ? null : (
         <button
           type="button"
@@ -339,6 +405,27 @@ export function NodeCard({
           onDoubleClick={(e) => e.stopPropagation()}
         >
           ×
+        </button>
+      )}
+      {/* Margin notes (v6.5): a note to yourself, model-blind like a reaction
+          but carrying prose. Bottom-centre, the mirror of ▸ at top-centre —
+          the last edge with no affordance of its own. Hidden together with
+          the strips whenever the card is folded at all: a stub or a dot has
+          no room for either, and both come back the moment it isn't. */}
+      {collapsed ? null : (
+        <button
+          type="button"
+          className="note-add"
+          aria-label="Add a note"
+          title="Add a note (N)"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddNote();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          ✎
         </button>
       )}
       {/* The text size pair, at the one free corner. Presentation, like the
@@ -384,47 +471,82 @@ export function NodeCard({
           </button>
         </div>
       )}
-      {/* Reactions (v2.7): how you feel about the idea, said to the board and
-          not to the model. All five slots are always rendered, and the unchosen
-          ones only fade — so the glyph you want never moves between the resting
-          card and the hovered one, and the click is not a gamble. Below the
-          card rather than inside it: a card at the height floor has no room to
-          give, and a mark you have to hover to see is not a mark. */}
-      <div
-        className="reactions"
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          toolbarPressAt.current = Date.now();
-        }}
-      >
-        {/* A stub is a summary, so it shows only the marks that were placed —
-            the print sheet's rule. The "all five slots always" rule above is
-            about aiming at a hover target, which a folded card has no room
-            for anyway. */}
-        {(collapsed ? REACTIONS.filter((k) => node.reactions.includes(k)) : REACTIONS).map(
-          (key) => {
-            const on = node.reactions.includes(key);
-            return (
-              <button
-                key={key}
-                type="button"
-                className={`react ${on ? 'on' : ''}`}
-                aria-pressed={on}
-                aria-label={REACTION_LABEL[key]}
-                title={REACTION_LABEL[key]}
-                onMouseDown={(e) => e.preventDefault()}
-                onDoubleClick={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleReaction(key);
-                }}
-              >
-                {REACTION_GLYPH[key]}
-              </button>
-            );
-          },
-        )}
-      </div>
+      {/* Margin notes: below the card, closer than reactions used to sit here
+          — reactions moved above (v6.5.1) because their position must not
+          drift as this stack grows or shrinks. Still clears the ✎ pip's own
+          band below the card, hidden together with it whenever the card is
+          folded — see the doctrine comment on IdeaNode.notes. */}
+      {!collapsed && node.notes.length > 0 ? (
+        <div
+          className="notes"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            toolbarPressAt.current = Date.now();
+          }}
+        >
+          {node.notes.map((note) => {
+              const isEditing = editingNoteId === note.id;
+              return (
+                <div className="note-row" key={note.id}>
+                  {isEditing ? (
+                    <textarea
+                      className="note-text"
+                      value={note.text}
+                      placeholder="a note…"
+                      autoFocus
+                      maxLength={NOTE_MAX}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onChange={(e) => onChangeNote(note.id, e.target.value)}
+                      onBlur={() => {
+                        setEditingNoteId(null);
+                        // Never typed into, or typed down to nothing: gone,
+                        // rather than left as a note that says nothing.
+                        if (note.text.trim() === '') onRemoveNote(note.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          // Closes the editor and stops there — never the
+                          // board's selection-clear, which the same key
+                          // means one level up.
+                          e.stopPropagation();
+                          (e.target as HTMLTextAreaElement).blur();
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span
+                      className="note-view"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingNoteId(note.id);
+                      }}
+                    >
+                      {note.text}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="note-x"
+                    aria-label="Remove note"
+                    title="Remove"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isEditing) setEditingNoteId(null);
+                      onRemoveNote(note.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       <div
         className="port"
         title="Drag to connect"

@@ -996,6 +996,148 @@ describe('toggleReaction', () => {
   });
 });
 
+describe('margin notes (v6.5)', () => {
+  it('addNodeNote appends an empty note and returns its id', () => {
+    open('note-a');
+    const a = s().addNode(0, 0);
+    const noteId = s().addNodeNote(a);
+    expect(noteId).not.toBeNull();
+    expect(s().board.nodes[0].notes).toEqual([{ id: noteId, text: '' }]);
+  });
+
+  it('setNodeNote edits the named note, and only that one', () => {
+    open('note-b');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    const n2 = s().addNodeNote(a)!;
+    s().setNodeNote(a, n1, 'ask Kyle first');
+    expect(s().board.nodes[0].notes).toEqual([
+      { id: n1, text: 'ask Kyle first' },
+      { id: n2, text: '' },
+    ]);
+  });
+
+  it('removeNodeNote drops just that one', () => {
+    open('note-c');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    const n2 = s().addNodeNote(a)!;
+    s().removeNodeNote(a, n1);
+    expect(s().board.nodes[0].notes).toEqual([{ id: n2, text: '' }]);
+  });
+
+  it('caps text at NOTE_MAX', () => {
+    open('note-cap');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    s().setNodeNote(a, n1, 'x'.repeat(400));
+    expect(s().board.nodes[0].notes[0].text).toHaveLength(280);
+  });
+
+  it('adding and removing are deliberate actions: one undo step each', () => {
+    open('note-d');
+    const a = s().addNode(0, 0);
+    const depth = s().undoStack.length;
+
+    const n1 = s().addNodeNote(a)!;
+    expect(s().undoStack).toHaveLength(depth + 1);
+    s().removeNodeNote(a, n1);
+    expect(s().undoStack).toHaveLength(depth + 2);
+
+    s().undo();
+    expect(s().board.nodes[0].notes).toEqual([{ id: n1, text: '' }]);
+    s().undo();
+    expect(s().board.nodes[0].notes).toEqual([]);
+  });
+
+  it('typing into one note coalesces into a single undo step per burst', () => {
+    open('note-e');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    const depth = s().undoStack.length;
+
+    s().setNodeNote(a, n1, 'a');
+    s().setNodeNote(a, n1, 'as');
+    s().setNodeNote(a, n1, 'ask');
+    // One snapshot for the whole typing burst — the add already happened above.
+    expect(s().undoStack).toHaveLength(depth + 1);
+  });
+
+  it('switching between two notes on the same card ends the burst: two undo steps, not one', () => {
+    open('note-f');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    const n2 = s().addNodeNote(a)!;
+    const depth = s().undoStack.length;
+
+    s().setNodeNote(a, n1, 'first note');
+    s().setNodeNote(a, n2, 'second note');
+    expect(s().undoStack).toHaveLength(depth + 2);
+  });
+
+  it('typing into a note ends a card-text burst, and vice versa', () => {
+    open('note-g');
+    const a = s().addNode(0, 0);
+    const depth = s().undoStack.length;
+
+    s().setNodeText(a, 'the idea itself');
+    const n1 = s().addNodeNote(a)!;
+    s().setNodeNote(a, n1, 'a private aside');
+    s().setNodeText(a, 'the idea itself, revised');
+
+    // text burst, add, note burst, a fresh text burst: four steps.
+    expect(s().undoStack).toHaveLength(depth + 4);
+  });
+
+  it('spends the redo stack, like every other board edit', () => {
+    open('note-h');
+    const a = s().addNode(0, 0);
+    s().undo();
+    expect(s().redoStack.length).toBeGreaterThan(0);
+    s().redo();
+    s().addNodeNote(a);
+    expect(s().redoStack).toHaveLength(0);
+  });
+
+  it('never arms the ghost: no lastMutationAt bump, and the fingerprint is untouched', () => {
+    open('note-i');
+    const a = s().addNode(0, 0);
+    s().setNodeText(a, 'pricing is the whole problem');
+    const before = s().lastMutationAt;
+    const beforeFp = fingerprint(s().board);
+    vi.spyOn(Date, 'now').mockReturnValue(99999);
+
+    const n1 = s().addNodeNote(a)!;
+    s().setNodeNote(a, n1, 'a note to self');
+    expect(s().lastMutationAt).toBe(before);
+    expect(fingerprint(s().board)).toBe(beforeFp);
+
+    s().removeNodeNote(a, n1);
+    expect(s().lastMutationAt).toBe(before);
+    vi.restoreAllMocks();
+  });
+
+  it('no-ops on a card that is gone, spending nothing', () => {
+    open('note-j');
+    expect(s().addNodeNote('nope')).toBeNull();
+    const depth = s().undoStack.length;
+    s().setNodeNote('nope', 'nope', 'x');
+    s().removeNodeNote('nope', 'nope');
+    expect(s().undoStack).toHaveLength(depth);
+  });
+
+  it('no-ops on a note that is already gone, spending nothing', () => {
+    open('note-k');
+    const a = s().addNode(0, 0);
+    const n1 = s().addNodeNote(a)!;
+    s().removeNodeNote(a, n1);
+    const depth = s().undoStack.length;
+    s().setNodeNote(a, n1, 'too late');
+    s().removeNodeNote(a, n1);
+    expect(s().undoStack).toHaveLength(depth);
+  });
+});
+
 describe('setPresenting', () => {
   it('saves the viewport on the way in and restores it on the way out', () => {
     open('present-a');

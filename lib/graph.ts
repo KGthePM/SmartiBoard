@@ -5,6 +5,7 @@
  */
 
 import { normalizeReactions, type ReactionKey } from './reactions';
+import { normalizeNotes, type CardNote } from './notes';
 
 export type NodeId = string;
 
@@ -37,6 +38,13 @@ export type IdeaNode = {
    * fingerprint and out of the prompt, and toggling one never spends a token.
    */
   reactions: ReactionKey[];
+  /**
+   * Margin notes (v6.5) — see ./notes. What the person is telling
+   * *themselves*, model-blind like `reactions` but carrying prose: stays out
+   * of the fingerprint and out of the prompt, so writing one never spends a
+   * token. AI-constructed nodes never carry one.
+   */
+  notes: CardNote[];
   createdAt: number;
 };
 
@@ -164,6 +172,7 @@ export function createNode(
     layer: partial.layer ?? 'user',
     done: partial.done ?? false,
     reactions: partial.reactions ?? [],
+    notes: partial.notes ?? [],
     createdAt: partial.createdAt ?? Date.now(),
   };
 }
@@ -352,6 +361,8 @@ export function parseBoard(id: string, raw: unknown): Board {
             // Boards saved before reactions existed load without any, and
             // unknown keys are dropped rather than rendered as a blank chip.
             reactions: normalizeReactions(n.reactions),
+            // Boards saved before notes existed load without any.
+            notes: normalizeNotes(n.notes),
             createdAt: typeof n.createdAt === 'number' ? n.createdAt : Date.now(),
           }),
         ];

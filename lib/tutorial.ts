@@ -25,6 +25,10 @@
  * a passing mention folded into an existing card instead of a card of their
  * own; install-level things (desktop, import/export, LAN) stay out entirely.
  *
+ * Margin notes (v6.5) joined the same way as reactions before it: a real
+ * per-card gesture — a control, an **N** shortcut, a strip you can read — not
+ * a setting, so it gets its own card rather than a folded-in mention.
+ *
  * Pure — no db, no DOM — so the seed path and the tests both import it.
  */
 
@@ -188,6 +192,14 @@ export function tutorialBoard(id: string): Board {
     text: '**⌘F** finds & replaces text · **⌘J** says what this board is for · **⌘⇧P** keeps it away from the AI entirely · **⌘Z** / **⌘⇧Z** undo and redo · **Home** starts a board of your own — or a Kanban, SWOT, or Mind map from its Template library · **⚙** Settings also holds themes and how long the ghost waits before speaking.',
   });
 
+  const notes = card({
+    x: 0,
+    y: 1080,
+    w: 280,
+    h: 140,
+    text: 'Select me alone, then press **N** for a margin note — pinned under the card, for what you\'re thinking rather than what the idea says. The AI never sees these either, and they fold away with the card.',
+  });
+
   const nodes = [
     welcome,
     edit,
@@ -205,6 +217,7 @@ export function tutorialBoard(id: string): Board {
     ask,
     share,
     chrome,
+    notes,
   ];
 
   const edges: Edge[] = [
@@ -222,6 +235,7 @@ export function tutorialBoard(id: string): Board {
     edge(search, ask),
     edge(ask, share),
     edge(share, chrome),
+    edge(chrome, notes),
   ];
 
   return {

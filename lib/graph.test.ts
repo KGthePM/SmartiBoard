@@ -109,6 +109,54 @@ describe('reactions', () => {
   });
 });
 
+describe('notes (v6.5)', () => {
+  it('starts empty on a fresh node', () => {
+    expect(createNode({ x: 0, y: 0 }).notes).toEqual([]);
+  });
+
+  it('survives a round trip through persistence', () => {
+    const board = emptyBoard('b');
+    board.nodes = [
+      createNode({
+        id: 'n0',
+        x: 0,
+        y: 0,
+        text: 'ship it',
+        notes: [{ id: 'nt0', text: 'ask Kyle first' }],
+      }),
+    ];
+    const parsed = parseBoard('b', JSON.parse(JSON.stringify(board)));
+    expect(parsed.nodes[0].notes).toEqual([{ id: 'nt0', text: 'ask Kyle first' }]);
+  });
+
+  it('loads boards saved before notes existed with none', () => {
+    const parsed = parseBoard('b', {
+      nodes: [{ id: 'n0', x: 0, y: 0, text: 'an old idea' }],
+      edges: [],
+    });
+    expect(parsed.nodes[0].notes).toEqual([]);
+  });
+
+  it('drops malformed entries rather than failing the row', () => {
+    const parsed = parseBoard('b', {
+      nodes: [
+        {
+          id: 'n0',
+          x: 0,
+          y: 0,
+          text: 'a',
+          notes: [{ id: 'nt0', text: 'fine' }, { id: 1, text: 'bad id' }, null],
+        },
+        { id: 'n1', x: 0, y: 0, text: 'b', notes: 'nope' },
+      ],
+      edges: [],
+    });
+    // The cards still load — a bad note costs the note, never the idea.
+    expect(parsed.nodes).toHaveLength(2);
+    expect(parsed.nodes.map((n) => n.notes)).toEqual([[{ id: 'nt0', text: 'fine' }], []]);
+  });
+});
+
 describe('fontSize', () => {
   it('starts at the body font on a fresh node — untouched cards render as they always did', () => {
     expect(createNode({ x: 0, y: 0 }).fontSize).toBe(NODE_FONT_DEFAULT);

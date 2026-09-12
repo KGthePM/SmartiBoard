@@ -54,6 +54,7 @@ describe('diffBoards', () => {
     expectSingleRoundTrip(before, at(0, { fontSize: stepFontSize(before.nodes[0].fontSize, 1) }), 'node.put');
     expectSingleRoundTrip(before, at(0, { done: true }), 'node.put');
     expectSingleRoundTrip(before, at(0, { reactions: ['fire'] }), 'node.put');
+    expectSingleRoundTrip(before, at(0, { notes: [{ id: 'nt0', text: 'ask Kyle' }] }), 'node.put');
     expectSingleRoundTrip(before, at(0, { layer: 'accepted' }), 'node.put');
   });
 
@@ -162,12 +163,20 @@ describe('applyOps is total and tolerant', () => {
     const landed = applyOps(base, [
       {
         t: 'node.put',
-        node: { id: 'n4', x: 0, y: 0, fontSize: 999, reactions: ['fire', 'fire', 'nope'] },
+        node: {
+          id: 'n4',
+          x: 0,
+          y: 0,
+          fontSize: 999,
+          reactions: ['fire', 'fire', 'nope'],
+          notes: [{ id: 'nt0', text: 'ok' }, { id: 1, text: 'bad' }],
+        },
       },
     ]);
     const n4 = landed.nodes.find((n) => n.id === 'n4')!;
     expect(NODE_FONT_STEPS).toContain(n4.fontSize);
     expect(n4.reactions).toEqual(['fire']);
+    expect(n4.notes).toEqual([{ id: 'nt0', text: 'ok' }]);
   });
 
   it('clamps the board fields it is given', () => {
