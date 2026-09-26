@@ -8,6 +8,12 @@ import {
   summaryFromLine,
   summaryMaxTokens,
 } from '@/lib/ai/folder-prompt';
+import {
+  HOW_SYSTEM_PROMPT,
+  cardFromLine,
+  howInstruction,
+  howMaxTokens,
+} from '@/lib/ai/how-prompt';
 import { openaiStreamDeltas } from '@/lib/ai/openai';
 import { causeChain } from '@/lib/ai/upstream';
 
@@ -17,6 +23,48 @@ export const runtime = 'nodejs';
  *  is a courtesy, the route is the boundary (same doctrine as sync's 413). */
 const MAX_BATCH_FILES = 32;
 const MAX_BATCH_CHARS = 1_000_000;
+
+/** Loose caps on the optional how-mode context — generous, only enough that
+ *  a junk payload cannot make the instruction unbounded. Malformed shapes
+ *  are dropped in silence, never an error. */
+const MAX_TREE_LINES = 3000;
+const MAX_IMPORT_PAIRS = 5000;
+const MAX_DOC_PATHS = 24;
+
+/** body.context for how mode, loosely validated: arrays of strings (tree,
+ *  docPaths) or [from, to] string pairs (imports). Anything else is dropped. */
+function howContext(raw: unknown): {
+  tree?: string[];
+  imports?: Array<[string, string]>;
+  docPaths?: ReadonlySet<string>;
+} {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const obj = raw as Record<string, unknown>;
+
+  const tree =
+    Array.isArray(obj.tree) && obj.tree.every((t) => typeof t === 'string')
+      ? obj.tree.slice(0, MAX_TREE_LINES)
+      : undefined;
+
+  const imports = Array.isArray(obj.imports)
+    ? (obj.imports
+        .filter(
+          (p): p is [string, string] =>
+            Array.isArray(p) &&
+            p.length === 2 &&
+            typeof p[0] === 'string' &&
+            typeof p[1] === 'string',
+        )
+        .slice(0, MAX_IMPORT_PAIRS) as Array<[string, string]>)
+    : undefined;
+
+  const docPaths =
+    Array.isArray(obj.docPaths) && obj.docPaths.every((d) => typeof d === 'string')
+      ? new Set(obj.docPaths.slice(0, MAX_DOC_PATHS))
+      : undefined;
+
+  return { tree, imports, docPaths };
+}
 
 /**
  * The folder import's AI pass (phase 2): a batch of file contents in, one
@@ -30,27 +78,45 @@ const MAX_BATCH_CHARS = 1_000_000;
  *   data: {"type":"summary","path":…,"summary":…}
  *   data: {"type":"done"}
  *   data: {"type":"error","reason":"…"}
- * Refusals answer plain JSON, distinguishable by content-type. There is no
- * privacy check to make: Privacy Mode is a property of a board and none
- * exists — the consent screen is the gate, which is why it shows real
- * numbers before this route is ever reached.
+ * With `mode: 'how'` the same plumbing streams conceptual explanation cards
+ * instead (Task 4, the how-it-works pass):
+ *   data: {"type":"card","title":…,"body":…,"files":[…]}
+ * and its no-key refusal is `{"cards":null,…}`. Refusals answer plain JSON,
+ * distinguishable by content-type. There is no
+ *  privacy check to make: Privacy Mode is a property of a board and none
+ *  exists — the consent screen is the gate, which is why it shows real
+ *  numbers before this route is ever reached.
  */
 export async function POST(req: Request) {
   const denied = guardManage(req);
   if (denied) return denied;
 
+  let body: { files?: unknown; mode?: unknown; context?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    // The no-key answer wins over the 400 even here: an unconfigured install
+    // never leaks anything about the payload's shape. (Summary copy, because
+    // an unparseable body cannot ask for how mode.)
+    if (!resolveConfig()) {
+      return NextResponse.json({ summaries: null, reason: 'no_api_key' });
+    }
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+  }
+
+  // The mode seam: omitted or any other value is summary mode, byte-identical
+  // to before 'how' existed.
+  const mode = body.mode === 'how' ? 'how' : 'summary';
+
   const cfg = resolveConfig();
   if (!cfg) {
     // Bring-your-own-key: no configuration is a valid configuration. The
     // modal treats this answer as "links only", which is its other half.
-    return NextResponse.json({ summaries: null, reason: 'no_api_key' });
-  }
-
-  let body: { files?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+    return NextResponse.json(
+      mode === 'how'
+        ? { cards: null, reason: 'no_api_key' }
+        : { summaries: null, reason: 'no_api_key' },
+    );
   }
 
   if (!Array.isArray(body.files) || body.files.length === 0) {
@@ -117,13 +183,24 @@ export async function POST(req: Request) {
       let sent = 0;
       const seen = new Set<string>();
 
-      const consume = (line: string) => {
-        const summary = summaryFromLine(line, validPaths);
-        if (!summary || seen.has(summary.path)) return;
-        seen.add(summary.path);
-        sent += 1;
-        send({ type: 'summary', path: summary.path, summary: summary.summary });
-      };
+      /** The mode seam inside the stream: summaries key by path, cards by
+       *  title — first wins in both, a model does not get to revise itself. */
+      const consume =
+        mode === 'how'
+          ? (line: string) => {
+              const card = cardFromLine(line, validPaths);
+              if (!card || seen.has(card.title)) return;
+              seen.add(card.title);
+              sent += 1;
+              send({ type: 'card', title: card.title, body: card.body, files: card.files });
+            }
+          : (line: string) => {
+              const summary = summaryFromLine(line, validPaths);
+              if (!summary || seen.has(summary.path)) return;
+              seen.add(summary.path);
+              sent += 1;
+              send({ type: 'summary', path: summary.path, summary: summary.summary });
+            };
 
       const feed = (delta: string) => {
         buffer += delta;
@@ -145,13 +222,23 @@ export async function POST(req: Request) {
         if (buffer.trim()) consume(buffer);
         buffer = '';
         if (sent > 0) return { type: 'done' };
-        console.error('[folder-ai] no summaries from', cfg.model, '- stop_reason:', stopReason);
+        console.error(
+          mode === 'how'
+            ? `[folder-ai] no cards from ${cfg.model} - stop_reason: ${stopReason}`
+            : `[folder-ai] no summaries from ${cfg.model} - stop_reason: ${stopReason}`,
+        );
         return { type: 'error', reason: stopReason === 'max_tokens' ? 'truncated' : 'empty' };
       };
 
       try {
-        const instruction = folderInstruction(files);
-        const maxTokens = summaryMaxTokens(files.length);
+        // The prompt seam: how mode swaps the module and takes optional
+        // context (tree / imports / docPaths); summary mode is untouched.
+        const instruction =
+          mode === 'how'
+            ? howInstruction(files, howContext(body.context))
+            : folderInstruction(files);
+        const maxTokens = mode === 'how' ? howMaxTokens(10) : summaryMaxTokens(files.length);
+        const systemPrompt = mode === 'how' ? HOW_SYSTEM_PROMPT : FOLDER_SYSTEM_PROMPT;
 
         if (cfg.flavor === 'anthropic') {
           // The timer wraps the fetch up to response headers only — it bounds
@@ -185,7 +272,7 @@ export async function POST(req: Request) {
                   system: [
                     {
                       type: 'text',
-                      text: FOLDER_SYSTEM_PROMPT,
+                      text: systemPrompt,
                       cache_control: { type: 'ephemeral' },
                     },
                   ],
@@ -197,7 +284,7 @@ export async function POST(req: Request) {
                   // Thinking off, explicitly: a compat endpoint that reasons
                   // by default spends the whole budget before the first line.
                   thinking: { type: 'disabled' },
-                  system: FOLDER_SYSTEM_PROMPT,
+                  system: systemPrompt,
                   messages: [{ role: 'user', content: instruction }],
                 };
 
@@ -221,7 +308,7 @@ export async function POST(req: Request) {
           else send(finish(stopReason));
         } else {
           for await (const delta of openaiStreamDeltas(cfg, {
-            system: FOLDER_SYSTEM_PROMPT,
+            system: systemPrompt,
             user: instruction,
             maxTokens,
             signal: upstream.signal,
