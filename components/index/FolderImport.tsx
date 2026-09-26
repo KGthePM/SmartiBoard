@@ -25,6 +25,9 @@ import {
   type SummaryPlan,
 } from '@/lib/importgraph';
 import { PRESETS, type ProviderId } from '@/lib/ai/providers';
+import type { HowCard } from '@/lib/ai/how-prompt';
+import { MAJOR_MAX, pickMajorFiles, type MajorPlan } from '@/lib/majorfiles';
+import { buildHowBoard } from '@/lib/howboard';
 import type { Board } from '@/lib/graph';
 
 /**
@@ -36,9 +39,12 @@ import type { Board } from '@/lib/graph';
  *
  * Stages: `pick` (no tree yet) → `review` (the checklist; "Build board…"
  * opens the pre-build choice) → `consent` (the egress moment, in plain
- * words, before anything is sent — both of its exits end in a board:
- * "Build with AI pass", or "Build without AI", the zero-AI, keyless path)
- * → `running` (links first, then summaries streamed into a staging list) →
+ * words, before anything is sent — every exit ends in a board: "Build with
+ * AI pass" (import links + per-file summaries), "How it works" (a conceptual
+ * explanation board built from the project's major files), or "Build without
+ * AI", the zero-AI, keyless path)
+ * → `running` (links first, then summaries — or explanation cards —
+ * streamed into a staging list) →
  * Apply (through the same `onCreate` both paths use) or Discard (back to
  * `review`).
  *
@@ -77,6 +83,18 @@ export function FolderImport({
   const [passError, setPassError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Map<string, string>>(new Map());
   const [imports, setImports] = useState<Array<[string, string]>>([]);
+
+  // The how-it-works pass — the consent screen's third choice. `passKind`
+  // remembers which start button was pressed (the running view and Retry
+  // branch on it), `howPlan` is the major-file plan computed at consent (a
+  // local, free read — real numbers before anything is sent), `cards` is the
+  // streamed staging list, and `howStatus`/`howError` mirror passStatus/
+  // passError so the two passes never share a lifecycle.
+  const [passKind, setPassKind] = useState<'summary' | 'how' | null>(null);
+  const [howPlan, setHowPlan] = useState<{ plan: MajorPlan; pkgJson: string | null; bytes: number } | null>(null);
+  const [cards, setCards] = useState<HowCard[]>([]);
+  const [howStatus, setHowStatus] = useState<'running' | 'error' | 'done'>('running');
+  const [howError, setHowError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   // What to resume from on Retry — the batch list and the index that failed.
@@ -184,7 +202,9 @@ export function FolderImport({
   const warn = !overCap && files > WARN_FILES;
 
   // Consent screen entry: the numbers come from what's already on hand (the
-  // scan and the captured File handles) — no re-read, no round trip.
+  // scan and the captured File handles) — no re-read, no round trip. The
+  // how-it-works facts cost one extra local, free read (the code files, for
+  // import edges) so they are real numbers too, not estimates.
   const openConsent = () => {
     if (!tree) return;
     const paths = includedFilePaths(tree, included);
@@ -203,6 +223,29 @@ export function FolderImport({
         setProviderInfo(data.settings),
       )
       .catch(() => setProviderInfo(null));
+
+    // The how-it-works preview plan — the same computation runHowPass runs,
+    // done here so the consent screen states what will ship. The shallowest
+    // package.json (the root one) pins the entry points. A failed read
+    // leaves the how button dark rather than guessing at numbers.
+    setHowPlan(null);
+    void (async () => {
+      try {
+        const codeFiles = await Promise.all(
+          paths
+            .filter(hasImportExt)
+            .map(async (p) => ({ path: p, content: (await filesRef.current.get(p)?.text()) ?? '' })),
+        );
+        const pkgPath = paths
+          .filter((p) => p.split('/').pop() === 'package.json')
+          .sort((a, b) => a.length - b.length)[0];
+        const pkgJson = pkgPath ? ((await filesRef.current.get(pkgPath)?.text()) ?? null) : null;
+        const majorPlan = pickMajorFiles(summaryFiles, buildImportEdges(codeFiles, new Set(paths)), pkgJson);
+        setHowPlan({ plan: majorPlan, pkgJson, bytes: majorPlan.files.reduce((n, f) => n + f.size, 0) });
+      } catch {
+        setHowPlan(null);
+      }
+    })();
   };
 
   const summariesWillRun =
@@ -337,6 +380,7 @@ export function FolderImport({
     const filesMap = filesRef.current;
 
     setEnrichStage('running');
+    setPassKind('summary');
     setPassStatus('running');
     setPassError(null);
     setSummaries(new Map());
@@ -385,6 +429,174 @@ export function FolderImport({
     void runBatches(state.batches, state.index, filesRef.current, ac);
   };
 
+  /**
+   * The how-it-works pass: one batch, ever. Reads the major files' contents
+   * (docs first — the route's instruction builder does the ordering, the
+   * payload here just carries `{path, content}`), ships the tree/import
+   * context alongside, and streams `card` frames into the staging list.
+   * Retry re-runs the whole pass — unlike summaries there is no batch list
+   * to resume mid-way, and a story half-told is not half a story. The plan
+   * is recomputed from the checklist (not howPlan) so a Retry after going
+   * back and changing the selection cannot ship a stale file set.
+   */
+  const runHowPass = async () => {
+    if (!tree || !filePlan || !howPlan) return;
+    const filesMap = filesRef.current;
+
+    setEnrichStage('running');
+    setPassKind('how');
+    setHowStatus('running');
+    setHowError(null);
+    setCards([]);
+    setImports([]);
+
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    // Import edges over the included code files — the same read runPass
+    // makes; both the shipped context and the applied board's edges come
+    // from it.
+    const codePaths = filePlan.paths.filter(hasImportExt);
+    let codeFiles: Array<{ path: string; content: string }>;
+    try {
+      codeFiles = await Promise.all(
+        codePaths.map(async (p) => ({ path: p, content: (await filesMap.get(p)?.text()) ?? '' })),
+      );
+    } catch {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError('error');
+      }
+      return;
+    }
+    if (ac.signal.aborted) return;
+    const importPairs = buildImportEdges(codeFiles, new Set(filePlan.paths));
+    setImports(importPairs);
+
+    // The major plan, recomputed on the same inputs the consent preview used.
+    const plan = pickMajorFiles(
+      filePlan.paths.map((p) => ({ path: p, size: filesMap.get(p)?.size ?? 0 })),
+      importPairs,
+      howPlan.pkgJson,
+    );
+
+    let payload: Array<{ path: string; content: string }>;
+    try {
+      payload = await Promise.all(
+        plan.files.map(async (f) => ({ path: f.path, content: (await filesMap.get(f.path)?.text()) ?? '' })),
+      );
+    } catch {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError('error');
+      }
+      return;
+    }
+    if (ac.signal.aborted) return;
+
+    let res: Response;
+    try {
+      res = await fetch('/api/folder-ai', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'how',
+          files: payload,
+          context: {
+            tree: filePlan.paths,
+            imports: importPairs,
+            docPaths: plan.docFiles,
+          },
+        }),
+        signal: ac.signal,
+      });
+    } catch {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError('error');
+      }
+      return;
+    }
+
+    // A refusal (no provider, batch too large) answers plain JSON, not SSE.
+    const ctype = res.headers.get('content-type') ?? '';
+    if (!res.ok || !ctype.includes('text/event-stream')) {
+      const data = (await res.json().catch(() => null)) as { reason?: string; error?: string } | null;
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError(data?.reason ?? 'error');
+      }
+      return;
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let gotDone = false;
+    let gotError: string | null = null;
+
+    const handleFrame = (raw: string) => {
+      const line = raw.split('\n').find((l) => l.startsWith('data: '));
+      if (!line) return;
+      let msg: { type?: string; title?: string; body?: string; files?: string[]; reason?: string };
+      try {
+        msg = JSON.parse(line.slice(6));
+      } catch {
+        return;
+      }
+      if (msg.type === 'card' && msg.title && msg.body) {
+        const card: HowCard = { title: msg.title, body: msg.body, files: Array.isArray(msg.files) ? msg.files : [] };
+        setCards((prev) => [...prev, card]);
+      } else if (msg.type === 'done') {
+        gotDone = true;
+      } else if (msg.type === 'error') {
+        gotError = msg.reason ?? 'error';
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          handleFrame(frame);
+        }
+      }
+    } catch {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError('error');
+      }
+      return;
+    }
+
+    if (gotError) {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError(gotError);
+      }
+      return;
+    }
+    if (!gotDone) {
+      if (!ac.signal.aborted) {
+        setHowStatus('error');
+        setHowError('error');
+      }
+      return;
+    }
+    if (!ac.signal.aborted) setHowStatus('done');
+  };
+
+  // Retry for the how pass — the whole pass again, from a clean card list.
+  const retryHowPass = () => {
+    void runHowPass();
+  };
+
   // Ends the pass with whatever already streamed in — honest, since the
   // staging list shows exactly that.
   const continuePass = () => {
@@ -398,12 +610,17 @@ export function FolderImport({
     abortRef.current = null;
     batchRef.current = null;
     setEnrichStage(null);
+    setPassKind(null);
     setPassStatus('running');
     setPassError(null);
     setSummaries(new Map());
     setImports([]);
     setFilePlan(null);
     setProviderInfo(undefined);
+    setHowPlan(null);
+    setCards([]);
+    setHowStatus('running');
+    setHowError(null);
   };
 
   const title = !tree
@@ -448,15 +665,28 @@ export function FolderImport({
               {providerInfo === undefined ? (
                 <p>Checking configuration…</p>
               ) : providerInfo?.hasKey ? (
-                <p>
-                  Summaries via {PRESETS[providerInfo.provider].label}: {filePlan.plan.eligible.length}{' '}
-                  {filePlan.plan.eligible.length === 1 ? 'file' : 'files'}, ~
-                  {Math.round(filePlan.bytes / 1024)} KB, ~
-                  {Math.round(estTokens(filePlan.bytes) / 1000)}K tokens, ~$
-                  {((estTokens(filePlan.bytes) / 1_000_000) * 3).toFixed(2)}.
-                </p>
+                <>
+                  <p>
+                    Summaries via {PRESETS[providerInfo.provider].label}: {filePlan.plan.eligible.length}{' '}
+                    {filePlan.plan.eligible.length === 1 ? 'file' : 'files'}, ~
+                    {Math.round(filePlan.bytes / 1024)} KB, ~
+                    {Math.round(estTokens(filePlan.bytes) / 1000)}K tokens, ~$
+                    {((estTokens(filePlan.bytes) / 1_000_000) * 3).toFixed(2)}.
+                  </p>
+                  {howPlan ? (
+                    <p>
+                      How it works via {PRESETS[providerInfo.provider].label}:{' '}
+                      {howPlan.plan.files.length} major{' '}
+                      {howPlan.plan.files.length === 1 ? 'file' : 'files'} shipping (cap {MAJOR_MAX}
+                      ), ~{Math.round(estTokens(howPlan.bytes) / 1000)}K tokens — the author's doc
+                      files lead the pass.
+                    </p>
+                  ) : (
+                    <p>How it works: still measuring the major files…</p>
+                  )}
+                </>
               ) : (
-                <p>No provider configured — summaries need one (Settings); links still work.</p>
+                <p>No provider configured — summaries and the how-it-works board need one (Settings); links still work.</p>
               )}
               {filePlan.plan.overMax ? (
                 <p className="fie-warn">
@@ -464,10 +694,24 @@ export function FolderImport({
                   links still run.
                 </p>
               ) : null}
+              {howPlan && howPlan.plan.cutByCap > 0 ? (
+                <p className="fie-warn">
+                  Major-file cap: {howPlan.plan.cutByCap} more{' '}
+                  {howPlan.plan.cutByCap === 1 ? 'file ranks' : 'files rank'} below the top{' '}
+                  {MAJOR_MAX} — the how pass ships without them.
+                </p>
+              ) : null}
               {filePlan.plan.skippedSecret || filePlan.plan.skippedBig || filePlan.plan.skippedExt ? (
                 <p className="fie-skip">
                   Never sent: {filePlan.plan.skippedSecret} secret,{' '}
                   {filePlan.plan.skippedBig} oversize, {filePlan.plan.skippedExt} binary/non-text.
+                </p>
+              ) : null}
+              {howPlan &&
+              (howPlan.plan.skippedSecret || howPlan.plan.skippedBig || howPlan.plan.skippedExt) ? (
+                <p className="fie-skip">
+                  Never sent (how pass): {howPlan.plan.skippedSecret} secret,{' '}
+                  {howPlan.plan.skippedBig} oversize, {howPlan.plan.skippedExt} binary/non-text.
                 </p>
               ) : null}
               <p className="fie-egress">
@@ -493,6 +737,63 @@ export function FolderImport({
               >
                 Build with AI pass
               </button>
+              <button
+                className="fie-start"
+                disabled={busy || !providerInfo?.hasKey || !howPlan || howPlan.plan.files.length === 0}
+                onClick={() => void runHowPass()}
+              >
+                How it works
+              </button>
+            </div>
+          </div>
+        ) : enrichStage === 'running' && passKind === 'how' ? (
+          <div className="fie-run">
+            <ul className="fie-list">
+              {cards.map((card, i) => (
+                <li className="fie-item fie-item-how" key={`${i}-${card.title}`}>
+                  <span className="fie-item-path">{card.title}</span>
+                  <span className="fie-item-summary">
+                    {card.body}
+                    {card.files.length > 0 ? <span className="fi-badge">{card.files.join(', ')}</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className={`fie-status${howStatus === 'error' ? ' bad' : ''}`}>
+              {howStatus === 'running'
+                ? `Explaining… ${cards.length} card${cards.length === 1 ? '' : 's'}, ${imports.length} link${imports.length === 1 ? '' : 's'} found.`
+                : howStatus === 'error'
+                  ? errorText(howError)
+                  : `Done — ${cards.length} card${cards.length === 1 ? '' : 's'}, ${imports.length} link${imports.length === 1 ? '' : 's'}.`}
+            </p>
+            <div className="fie-actions">
+              {howStatus === 'error' ? (
+                <>
+                  <button className="fie-back" onClick={resetEnrich}>
+                    Discard
+                  </button>
+                  <button className="fie-start" onClick={retryHowPass}>
+                    Retry
+                  </button>
+                </>
+              ) : howStatus === 'done' ? (
+                <>
+                  <button className="fie-back" onClick={resetEnrich}>
+                    Discard
+                  </button>
+                  <button
+                    className="fie-start"
+                    disabled={busy}
+                    onClick={() => tree && onCreate(buildHowBoard(cards, imports, tree.name))}
+                  >
+                    Apply
+                  </button>
+                </>
+              ) : (
+                <button className="fie-back" onClick={resetEnrich}>
+                  Cancel
+                </button>
+              )}
             </div>
           </div>
         ) : enrichStage === 'running' ? (
