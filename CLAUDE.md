@@ -152,6 +152,21 @@ proposals. Board state and settings are one SQLite file at `SMARTI_DB_PATH`.
   (`folderInstruction`, `summaryFromLine`, `summaryMaxTokens`), the idea generator's
   shape-mate: no structured output, one path-keyed line per file, everything unusable
   dropped in silence. See `app/api/folder-ai/route.ts`.
+- `lib/majorfiles.ts` — the how-it-works pass's file ranking (v6.6): `pickMajorFiles` —
+  import-graph hubs (inbound degree), `package.json` entry points pinned to the front,
+  always-major doc files (the author's own architecture docs), capped at `MAJOR_MAX = 24`,
+  with skip counts (secrets never ship, >100KB skipped) so the consent screen can state
+  them as facts. Pure, node-free; secrets ruling inherited from `lib/importgraph.ts`.
+- `lib/ai/how-prompt.ts` — the how-it-works pass's system prompt and JSONL wire contract
+  (`HOW_SYSTEM_PROMPT`, `howInstruction`, `cardFromLine`), the summary pass's shape-mate:
+  conceptual cards `{"title","body","files"}` one JSON line each, title ≤80 / body ≤600,
+  3–16 cards, per-file content head-sliced to 20k chars. Everything unusable is dropped
+  in silence.
+- `lib/howboard.ts` — the how-it-works board builder (v6.6): `buildHowBoard(cards, imports,
+  projectName)` — edges come ONLY from real client-computed import pairs (file on importer
+  card → file on imported card), first-card-wins when two cards claim one file, layered
+  layout by import direction. Pure, node-free; the board is born like a template, via the
+  index's existing `onCreate`. See `app/api/folder-ai/route.ts` (`mode: 'how'`).
 - `lib/transfer.ts` — boards as files: `fileNameFor`, `boardToFile`, `looksLikeBoard`,
   `readTransfer`, `declaredNodeCount`. Pure, node-free; the index and the tests import it.
 - `lib/download.ts` — the one DOM line (`downloadJson`), kept out of `lib/transfer.ts` so

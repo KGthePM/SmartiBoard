@@ -158,7 +158,7 @@ in. `lib/gesture.ts` holds the arithmetic (`zoomAround` serves the wheel and the
 - **Data model:** the board is a structured graph of typed nodes and edges, not a freeform pixel canvas. All features — especially AI behavior — build on the graph representation.
 - **Trust model:** AI output lives in a visually distinct "ghost" layer; every AI proposal must be previewable and reversible via a single accept/reject action. Never silently merge AI edits into user content, even in later versions. Concretely: a proposal lives in `store.proposal`, never in `board.nodes`; accepting constructs a *new* node and discards the proposal object.
 - **Latency:** local interactions (drag, type, snap) must never block on AI/LLM reasoning. LLM responses stream back asynchronously.
-- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 added the idea generator as a *user-invoked* behavior (it replaced the read-only board summary that held that slot from v1.3), the folder import's AI pass (phase 2 — import links plus per-file summaries, offered only inside the folder-import modal on its own consent screen) joined it as a second, and Ask (v5.4 — questions about a board, answered read-only; see `private/ask-plan.md`) is the third. Three user-invoked behaviors now; still exactly one unsolicited. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
+- **v1 scope is narrow by design:** draggable text nodes on an infinite canvas, one relationship type, instant autosave, and exactly one *unsolicited* AI behavior (gap-fill/connection ghost node). v2.0 added the idea generator as a *user-invoked* behavior (it replaced the read-only board summary that held that slot from v1.3), the folder import's AI pass (phase 2 — import links plus per-file summaries, offered only inside the folder-import modal on its own consent screen) joined it as a second, and Ask (v5.4 — questions about a board, answered read-only; see `private/ask-plan.md`) is the third, and the folder import's how-it-works pass (v6.6 — a conceptual explanation board built from the project's major files; see the section below) is the fourth. Four user-invoked behaviors now; still exactly one unsolicited. Explicitly out of scope for v1: real-time multiplayer, freehand drawing/images/styling, cross-session personalization or long-term memory, any further AI behaviors. (Provider
   choice is now in — see Environment. It adds no AI behavior; it only says who answers.)
 
 ## Settled decisions — do not re-litigate
@@ -752,6 +752,22 @@ still believed correct.
 - **The tutorial board got a seventeenth card** (`lib/tutorial.ts`), following the reactions
   precedent: a real per-card gesture (a control, an `N` shortcut, a readable strip) earns its
   own card rather than a folded-in mention, linked into the one spanning tree off `welcome`.
+
+- **How it works** (v6.6): the fourth user-invoked AI behavior, and the folder import's
+  second pass — a conceptual explanation board ("how does this project work?") built from
+  the project's **major files** (`lib/majorfiles.ts` — `pickMajorFiles`: import-graph hubs
+  by inbound degree, `package.json` entry points pinned to the front, the author's own
+  architecture docs always major, capped at 24, secrets never ship, >100KB skipped). The
+  model writes **cards only** (`lib/ai/how-prompt.ts`: JSONL, title ≤80 / body ≤600, 3–16
+  cards, 20k head-slice per file) — **edges are drawn locally from real imports**
+  (`lib/howboard.ts` — `buildHowBoard`), never asserted by the model; first card wins when
+  two cards claim one file. `/api/folder-ai` gained `mode:'how'` + `context:{tree,imports,
+  docPaths}`; an omitted mode is byte-identical to the summary pass. Offered only inside
+  the folder-import modal as the consent screen's third choice; streamed cards stage in the
+  modal, Apply → `onCreate` via `buildHowBoard`, Discard drops them. **The board is born
+  like a template** — no schema change, no store change, no sync/undo impact: the board is
+  constructed client-side before its first `beginLoad`, exactly like `buildTemplate`.
+  Still exactly one unsolicited AI behavior; now four user-invoked.
 
 The brief's "reorganizing ideas as you add them" is not built and should be cut from the
 pitch — moving user-placed nodes is the most trust-breaking action available.
