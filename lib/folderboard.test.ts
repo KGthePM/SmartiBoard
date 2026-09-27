@@ -8,8 +8,10 @@ import {
   findJunkDirs,
   includedFilePaths,
   isJunkDir,
+  isJunkExt,
   isJunkFile,
   JUNK_DIRS,
+  JUNK_EXTS,
   JUNK_FILES,
   MAX_FILES,
   scanPaths,
@@ -45,6 +47,24 @@ describe('scanPaths', () => {
     const { root, skippedJunkFiles } = scanPaths(['p/.DS_Store', 'p/Thumbs.db', 'p/x.ts']);
     expect(root.files).toEqual(['x.ts']);
     expect(skippedJunkFiles).toBe(2);
+  });
+
+  it('drops binary/asset clutter by extension at scan, case-insensitively, and counts it', () => {
+    const { root, skippedJunkFiles } = scanPaths([
+      'p/src/app.PYC',
+      'p/main.js.map',
+      'p/fonts/body.woff2',
+      'p/logo.PNG',
+      'p/poetry.LOCK',
+      'p/package-lock.json', // ends in .json — a text file, kept
+      'p/src/a.ts',
+      'p/Makefile', // no extension — never ext-caught
+      'p/.pyc', // dotfile whose whole name is the ext — not a .pyc file
+    ]);
+    expect(root.files).toEqual(['.pyc', 'Makefile', 'package-lock.json']);
+    // fonts/ held only a .woff2 — emptied by the drop, it never becomes a row.
+    expect(root.folders.map((f) => f.name)).toEqual(['src']);
+    expect(skippedJunkFiles).toBe(5);
   });
 
   it('tolerates junk input: empty segments and duplicate paths degrade, never throw', () => {
@@ -91,8 +111,31 @@ describe('junk defaults', () => {
   it('knows its own junk lists', () => {
     for (const n of JUNK_DIRS) expect(isJunkDir(n)).toBe(true);
     for (const n of JUNK_FILES) expect(isJunkFile(n)).toBe(true);
+    for (const n of JUNK_EXTS) {
+      expect(isJunkExt(`x${n}`)).toBe(true);
+      expect(isJunkExt(`x${n.toUpperCase()}`)).toBe(true);
+    }
     expect(isJunkDir('src')).toBe(false);
     expect(isJunkFile('main.ts')).toBe(false);
+    expect(isJunkExt('main.ts')).toBe(false);
+    expect(isJunkExt('archive.tar.gz')).toBe(false); // .gz is not on the list
+  });
+
+  it('pre-excludes the Python/venv/tool-cache dirs that dwarf node_modules on real projects', () => {
+    const { root } = scanPaths([
+      'app/__pycache__/m.cpython-311.pyc',
+      'app/__pycache__/sentinel.txt', // keeps the dir in the tree after its .pyc dropped
+      'app/.venv/lib/python3.11/site.py',
+      'app/.pytest_cache/v/cache/lastfailed',
+      'app/target/debug/x.rs',
+      'app/src/main.py',
+    ]);
+    const included = defaultIncluded(root);
+    expect(included.has('app/src')).toBe(true);
+    for (const junk of ['app/__pycache__', 'app/.venv', 'app/.pytest_cache', 'app/target'])
+      expect(included.has(junk)).toBe(false);
+    // findJunkDirs names them for the modal's note, sorted code-point-wise.
+    expect(findJunkDirs(root)).toEqual(['.pytest_cache', '.venv', '__pycache__', 'target']);
   });
 });
 

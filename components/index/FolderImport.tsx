@@ -575,9 +575,9 @@ export function FolderImport({
 
             <p className="fi-note">
               {junkNames.length > 0
-                ? `Skipped as clutter: ${junkNames.join(', ')}${skippedJunk > 0 ? ` and ${skippedJunk} ${skippedJunk === 1 ? 'OS file' : 'OS files'}` : ''}. Check anything back in if you want it.`
+                ? `Skipped as clutter: ${junkNames.join(', ')}${skippedJunk > 0 ? ` and ${skippedJunk} ${skippedJunk === 1 ? 'clutter file' : 'clutter files'}` : ''}. Check a folder back in if you want it.`
                 : skippedJunk > 0
-                  ? `Skipped ${skippedJunk} ${skippedJunk === 1 ? 'OS junk file' : 'OS junk files'}.`
+                  ? `Skipped ${skippedJunk} ${skippedJunk === 1 ? 'clutter file' : 'clutter files'} (OS metadata, binaries, fonts, lockfiles).`
                   : 'Names and structure only for now — file contents are read only if you start an AI pass.'}
             </p>
 

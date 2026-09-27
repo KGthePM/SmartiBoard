@@ -22,14 +22,59 @@
 import { createNode, edgePair, newId, OBJECTIVE_MAX, type Board, type Edge, type IdeaNode, type Rect } from './graph';
 
 /**
- * Known build and VCS clutter, pre-excluded from the checklist's defaults.
- * These are *skipped*, not hidden: a folder in this list shows up unchecked
- * and can be ticked back in (the file cap still guards the result).
+ * Known build, VCS, and tool-cache clutter, pre-excluded from the checklist's
+ * defaults. These are *skipped*, not hidden: a folder in this list shows up
+ * unchecked and can be ticked back in (the file cap still guards the result).
+ * `__pycache__`/`.venv` & co matter most: on real projects they dwarf
+ * node_modules (a PineProject-sized repo: ~5.2k of ~5.5k scanned files).
  */
-export const JUNK_DIRS = ['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage'] as const;
+export const JUNK_DIRS = [
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'out',
+  'coverage',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.tox',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.cargo',
+  'target',
+  '.idea',
+  '.vscode',
+] as const;
 
 /** OS metadata files nobody wants as cards. Dropped at scan, not re-includable. */
 export const JUNK_FILES = ['.DS_Store', 'Thumbs.db', 'desktop.ini'] as const;
+
+/**
+ * Clutter *by extension*, dropped at scan like OS junk files: binary/asset
+ * files a board card cannot usefully show — compiled bytecode, source maps,
+ * fonts, images, lockfiles. Not re-includable, same doctrine as JUNK_FILES.
+ */
+export const JUNK_EXTS = [
+  '.pyc',
+  '.pyo',
+  '.map',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.ico',
+  '.svg',
+  '.webp',
+  '.lock',
+] as const;
 
 /** Past this the modal says the board will be dense — but builds it anyway. */
 export const WARN_FILES = 300;
@@ -51,6 +96,17 @@ export function isJunkDir(name: string): boolean {
 
 export function isJunkFile(name: string): boolean {
   return (JUNK_FILES as readonly string[]).includes(name);
+}
+
+/** The file's extension, lowercased with the dot — `''` when there is none. */
+function extOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+/** A binary/asset clutter file by extension — dropped at scan, like OS junk. */
+export function isJunkExt(name: string): boolean {
+  return (JUNK_EXTS as readonly string[]).includes(extOf(name));
 }
 
 /**
@@ -77,7 +133,7 @@ export function scanPaths(paths: string[]): { root: FolderTree; skippedJunkFiles
     if (parts.length === 0) continue;
 
     const fileName = parts[parts.length - 1];
-    if (isJunkFile(fileName)) {
+    if (isJunkFile(fileName) || isJunkExt(fileName)) {
       skippedJunkFiles += 1;
       continue;
     }
